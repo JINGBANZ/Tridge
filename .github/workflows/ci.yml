@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  linux-tests:
+    name: swift test (Linux)
+    runs-on: ubuntu-latest
+    container: swift:6.1
+    steps:
+      - uses: actions/checkout@v4
+      - run: swift test
+
+  ios-build:
+    name: build + tests (macOS)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Full logic test suite
+        run: swift test
+      - name: Build for iOS Simulator
+        run: >
+          xcodebuild
+          -project WhatsInMyFridge.xcodeproj
+          -scheme WhatsInMyFridge
+          -destination 'generic/platform=iOS Simulator'
+          build
+          CODE_SIGNING_ALLOWED=NO

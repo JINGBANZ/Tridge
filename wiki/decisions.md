@@ -49,3 +49,19 @@
   metaphor. Tracking eaten vs tossed separately enables waste stats later.
 - **Rejected:** Swipe-to-consume (original idea — grid-incompatible); tap-only menus (too slow for
   the most frequent action).
+
+### 2026-07-04 — Root SwiftPM package + hand-written Xcode project
+
+- **Chose:** A root `Package.swift` exposing `FridgeCore` (sources at `WhatsInMyFridge/Core/`, tests
+  at `Tests/FridgeCoreTests/`) so the pure logic runs under `swift test` on the Linux dev box, and a
+  hand-authored `WhatsInMyFridge.xcodeproj` (objectVersion 77, one synchronized folder group over
+  `WhatsInMyFridge/`) that compiles the Core sources directly into the app target — no package
+  product link, no `import FridgeCore` in app code.
+- **Why:** Development happens on Linux with no Xcode; the project file must be writable and
+  maintainable by hand. Synchronized folder groups mean new files join the target with zero pbxproj
+  edits. Compiling Core into the app directly sidesteps Xcode's finicky handling of a local package
+  rooted in the same directory as the project.
+- **Rejected:** XcodeGen/Tuist (third-party toolchain dependency, unavailable on Linux); a classic
+  per-file pbxproj (every added file needs a hand edit); linking `FridgeCore` as a local package
+  product (self-referential package/project layout is fragile in Xcode).
+
