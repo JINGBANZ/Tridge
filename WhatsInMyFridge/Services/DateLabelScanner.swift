@@ -1,5 +1,5 @@
 import UIKit
-import Vision
+@preconcurrency import Vision
 
 /// On-device OCR for printed date labels ("BEST BY 07/12/26"); the regex/date
 /// logic lives in Core/DateLabelParser so it's testable on Linux.
