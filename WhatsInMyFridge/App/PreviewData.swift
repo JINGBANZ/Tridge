@@ -4,17 +4,19 @@ import SwiftData
 
 /// In-memory container seeded with the home-screen mock's inventory, for
 /// Xcode previews only.
-@MainActor
 enum PreviewData {
     static let container: ModelContainer = {
         let container = try! ModelContainer(
             for: FridgeItem.self,
             configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+        // A throwaway context: the static initializer is nonisolated, so the
+        // main-actor-bound mainContext is off limits here.
+        let context = ModelContext(container)
 
         func seed(_ name: String, _ emoji: String, _ category: FoodCategory,
                   daysLeft: Int, quantity: Int = 1) {
             let expiry = Calendar.current.date(byAdding: .day, value: daysLeft, to: Date())!
-            container.mainContext.insert(FridgeItem(
+            context.insert(FridgeItem(
                 name: name, artKey: emoji, category: category, quantity: quantity,
                 purchaseDate: Date(), expiryDate: expiry, store: "Trader Joe's"))
         }
@@ -32,6 +34,7 @@ enum PreviewData {
         seed("Carrots", "🥕", .produce, daysLeft: 18)
         seed("Cheddar", "🧀", .dairy, daysLeft: 24)
         seed("Butter", "🧈", .dairy, daysLeft: 30)
+        try? context.save() // hand-made contexts don't autosave
         return container
     }()
 }
