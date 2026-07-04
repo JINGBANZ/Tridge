@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>What's In My Fridge — Design & Build Spec</title>
+<style>
+  *{box-sizing:border-box; margin:0; padding:0;}
+  :root{
+    --bg:#F7F8F5; --surface:#FFFFFF; --ink:#20241F; --muted:#687164; --line:#E2E6DC;
+    --accent:#2F7D4E; --accent-soft:#E7F2EA;
+    --amber:#B4711A; --amber-soft:#F7ECDC;
+    --red:#C0433B; --red-soft:#F9E7E5;
+    --code-bg:#F0F2EC;
+    --panel:linear-gradient(160deg,#EAF2EC 0%,#E3ECF0 100%);
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#151815; --surface:#1D211C; --ink:#E9ECE6; --muted:#99A294; --line:#2C312A;
+      --accent:#5FBF8A; --accent-soft:#20362A;
+      --amber:#D99A4E; --amber-soft:#372B1A;
+      --red:#E07A72; --red-soft:#3A2321;
+      --code-bg:#22271F;
+      --panel:linear-gradient(160deg,#1C231E 0%,#1A2226 100%);
+    }
+  }
+
+  body{
+    background:var(--bg); color:var(--ink);
+    font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    line-height:1.6; font-size:16px;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1020px; margin:0 auto; padding:48px 24px 96px; display:flex; flex-direction:column; gap:72px;}
+
+  h1,h2,h3{font-family:ui-rounded,system-ui,-apple-system,sans-serif; text-wrap:balance; line-height:1.15;}
+  h1{font-size:clamp(34px,5vw,52px); font-weight:800; letter-spacing:-.02em;}
+  h2{font-size:26px; font-weight:800; letter-spacing:-.01em;}
+  h3{font-size:18px; font-weight:700;}
+  p{max-width:70ch;}
+  section{display:flex; flex-direction:column; gap:20px;}
+  .eyebrow{font-size:12px; font-weight:700; letter-spacing:.14em; text-transform:uppercase; color:var(--accent);}
+  .lede{font-size:18px; color:var(--muted); max-width:62ch;}
+  .muted{color:var(--muted);}
+  a{color:var(--accent);}
+
+  /* ---------- hero ---------- */
+  .hero{display:flex; flex-direction:column; gap:12px;}
+  .hero .app-id{display:flex; align-items:center; gap:14px;}
+  .app-icon{
+    width:56px; height:56px; border-radius:14px; flex:none;
+    background:linear-gradient(160deg,#DFF0E4,#CBE3F2);
+    display:flex; align-items:center; justify-content:center; font-size:30px;
+    box-shadow:inset 0 0 0 1px rgba(255,255,255,.6), 0 4px 14px rgba(32,60,45,.18);
+  }
+
+  /* ---------- phone mocks ---------- */
+  .stage{
+    background:var(--panel); border:1px solid var(--line); border-radius:28px;
+    padding:48px 20px; display:flex; flex-wrap:wrap; gap:36px; justify-content:center; align-items:flex-start;
+  }
+  .mocklabel{text-align:center; font-size:13px; font-weight:600; color:var(--muted); margin-top:14px; max-width:300px;}
+
+  .phone{
+    width:300px; flex:none; border-radius:42px; background:#0E0F10; padding:8px;
+    box-shadow:0 24px 60px rgba(15,25,20,.35), 0 4px 12px rgba(15,25,20,.2);
+  }
+  .screen{
+    border-radius:35px; overflow:hidden; position:relative; height:600px;
+    display:flex; flex-direction:column;
+    background:
+      radial-gradient(120% 60% at 50% -10%, rgba(255,255,255,.85) 0%, rgba(255,255,255,0) 60%),
+      linear-gradient(175deg,#EAF4EE 0%, #E2EDF3 55%, #E9EAF4 100%);
+    color:#22281F;
+    font-family:-apple-system,system-ui,sans-serif;
+  }
+  .statusbar{display:flex; justify-content:space-between; align-items:center; padding:13px 24px 2px; font-size:12.5px; font-weight:600; color:#2A2F28;}
+  .sb-right{display:flex; gap:5px; align-items:center;}
+  .sb-batt{width:21px; height:10.5px; border:1.5px solid #2A2F28; border-radius:3.5px; position:relative;}
+  .sb-batt::after{content:""; position:absolute; inset:1.5px; right:6px; background:#2A2F28; border-radius:1.5px;}
+  .sb-bars{display:flex; align-items:flex-end; gap:1.5px; height:10.5px;}
+  .sb-bars i{width:2.5px; background:#2A2F28; border-radius:1px; display:block;}
+  .sb-bars i:nth-child(1){height:4px}.sb-bars i:nth-child(2){height:5.5px}
+  .sb-bars i:nth-child(3){height:7.5px}.sb-bars i:nth-child(4){height:9.5px}
+
+  .apphead{padding:12px 20px 4px; display:flex; align-items:center; justify-content:space-between;}
+  .apphead .title{font-family:ui-rounded,system-ui,sans-serif; font-size:28px; font-weight:800; letter-spacing:-.02em;}
+  .apphead .hright{display:flex; align-items:center; gap:10px;}
+  .apphead .count{font-size:12px; font-weight:600; color:#6C766D;}
+  .apphead .gear{font-size:17px; opacity:.6;}
+
+  .grid{
+    padding:14px 14px 0; display:grid; grid-template-columns:repeat(4,1fr); gap:18px 6px;
+    overflow:hidden; flex:1; align-content:start;
+  }
+  .slot{display:flex; flex-direction:column; align-items:center; gap:3px; animation:pop .5s cubic-bezier(.2,.9,.3,1.2) both;}
+  .slot:nth-child(1){animation-delay:.03s}.slot:nth-child(2){animation-delay:.06s}
+  .slot:nth-child(3){animation-delay:.09s}.slot:nth-child(4){animation-delay:.12s}
+  .slot:nth-child(5){animation-delay:.15s}.slot:nth-child(6){animation-delay:.18s}
+  .slot:nth-child(7){animation-delay:.21s}.slot:nth-child(8){animation-delay:.24s}
+  .slot:nth-child(9){animation-delay:.27s}.slot:nth-child(10){animation-delay:.30s}
+  .slot:nth-child(11){animation-delay:.33s}.slot:nth-child(12){animation-delay:.36s}
+  .slot:nth-child(13){animation-delay:.39s}
+  @keyframes pop{from{opacity:0; transform:scale(.7) translateY(8px);} to{opacity:1; transform:none;}}
+  @media (prefers-reduced-motion:reduce){ .slot{animation:none;} }
+
+  .sprite{
+    width:60px; height:56px; position:relative;
+    display:flex; align-items:center; justify-content:center;
+    transition:transform .15s ease;
+  }
+  .slot:hover .sprite{transform:translateY(-3px) scale(1.08);}
+  .sprite .food{font-size:40px; line-height:1; filter:drop-shadow(0 5px 7px rgba(40,60,50,.28));}
+  .sprite.expired .food{filter:grayscale(.7) opacity(.8) drop-shadow(0 5px 7px rgba(40,60,50,.18));}
+  .sprite .qty{
+    position:absolute; bottom:-3px; right:-2px; font-size:9.5px; font-weight:800;
+    background:#fff; color:#4A5248; border-radius:8px; padding:1px 5px;
+    box-shadow:0 1px 3px rgba(40,60,50,.25);
+  }
+  .pill{
+    position:absolute; top:-7px; right:-8px; font-size:9px; font-weight:800; letter-spacing:.02em;
+    padding:2px 6px; border-radius:99px; color:#fff; box-shadow:0 2px 5px rgba(40,60,50,.3); z-index:1;
+  }
+  .pill.ok{background:#3E9463;} .pill.warn{background:#D98A26;} .pill.bad{background:#D9534A;}
+  .slot .name{font-size:10px; font-weight:600; color:#4C554C; max-width:70px; text-align:center; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+
+  .bottomarea{margin-top:auto; display:flex; flex-direction:column; align-items:center;}
+  .scanbtn{
+    width:58px; height:58px; border-radius:50%;
+    background:linear-gradient(160deg,#37985F,#25714A); color:#fff;
+    display:flex; align-items:center; justify-content:center; font-size:25px;
+    box-shadow:0 8px 20px rgba(38,110,72,.45), inset 0 1px 0 rgba(255,255,255,.35);
+    margin-bottom:10px;
+  }
+  .homebar{width:118px; height:5px; border-radius:3px; background:#2A2F28; opacity:.85; margin:0 auto 8px;}
+
+  /* drag-state mock */
+  .grid.dimmed .slot{opacity:.4;}
+  .dragwrap{position:absolute; inset:0; pointer-events:none; display:flex; flex-direction:column;}
+  .dragged{
+    position:absolute; left:50%; bottom:172px; transform:translateX(-50%) rotate(-4deg);
+    font-size:54px; filter:drop-shadow(0 16px 18px rgba(40,60,50,.4));
+    animation:floaty 2.2s ease-in-out infinite alternate;
+  }
+  @keyframes floaty{from{transform:translateX(-50%) rotate(-4deg) translateY(0);} to{transform:translateX(-50%) rotate(-2deg) translateY(-8px);}}
+  @media (prefers-reduced-motion:reduce){ .dragged{animation:none;} }
+  .dragged .fingertip{
+    position:absolute; right:-18px; bottom:-14px; font-size:30px; filter:none; opacity:.9;
+  }
+  .zones{
+    margin-top:auto; display:flex; gap:10px; padding:0 16px 14px;
+  }
+  .zone{
+    flex:1; height:78px; border-radius:20px;
+    background:rgba(255,255,255,.65); backdrop-filter:blur(8px);
+    border:2px dashed rgba(110,125,112,.5);
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px;
+    font-size:12px; font-weight:700; color:#5B655B;
+  }
+  .zone .zicon{font-size:24px; line-height:1;}
+  .zone.hot{
+    background:rgba(62,148,99,.18); border:2px solid #3E9463; color:#256B45;
+    transform:scale(1.04); box-shadow:0 6px 18px rgba(38,110,72,.25);
+  }
+
+  /* review sheet mock */
+  .sheet{
+    margin:48px 9px 0; flex:1; border-radius:24px 24px 0 0; background:rgba(255,255,255,.94);
+    box-shadow:0 -8px 30px rgba(30,45,38,.18); padding:12px 14px 0; display:flex; flex-direction:column;
+  }
+  .grab{width:36px; height:5px; border-radius:3px; background:#D5DAD2; margin:0 auto 10px;}
+  .sheet h4{font-family:ui-rounded,system-ui,sans-serif; font-size:18px; font-weight:800;}
+  .sheet .sub{font-size:11.5px; color:#79837A; margin-top:2px;}
+  .rows{margin-top:10px; display:flex; flex-direction:column; overflow:hidden;}
+  .row{display:flex; align-items:center; gap:9px; padding:8px 2px; border-bottom:1px solid #EEF1EA; font-size:13px;}
+  .row .remoji{font-size:24px; flex:none; filter:drop-shadow(0 2px 3px rgba(40,60,50,.2));}
+  .row .rname{font-weight:600; flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .row .rname small{display:block; font-weight:500; font-size:10px; color:#8B958B;}
+  .chip{font-size:10.5px; font-weight:700; padding:3px 8px; border-radius:99px; background:#E9F2EB; color:#2F7D4E; flex:none;}
+  .chip.edit{background:#FBEFDD; color:#B4711A;}
+  .cta{margin:12px 0 14px; background:#2F7D4E; color:#fff; text-align:center; font-weight:700; font-size:14px; padding:12px; border-radius:14px; box-shadow:0 6px 16px rgba(38,110,72,.35);}
+
+  /* ---------- doc components ---------- */
+  .cardgrid{display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:14px;}
+  .card{background:var(--surface); border:1px solid var(--line); border-radius:16px; padding:18px 18px 16px; display:flex; flex-direction:column; gap:6px;}
+  .card h3{font-size:15px;}
+  .card p{font-size:14px; color:var(--muted);}
+
+  .swatches{display:flex; flex-wrap:wrap; gap:12px;}
+  .sw{display:flex; flex-direction:column; gap:6px; font-size:12px; width:118px;}
+  .sw .chipbox{height:52px; border-radius:12px; border:1px solid var(--line);}
+  .sw code{font-size:11px; color:var(--muted);}
+  .sw b{font-size:12.5px;}
+
+  table{border-collapse:collapse; width:100%; font-size:14px;}
+  .tablewrap{overflow-x:auto; border:1px solid var(--line); border-radius:14px; background:var(--surface);}
+  th,td{text-align:left; padding:10px 14px; border-bottom:1px solid var(--line); vertical-align:top;}
+  tr:last-child td{border-bottom:none;}
+  th{font-size:12px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); font-weight:700; white-space:nowrap;}
+  td code, li code, p code{background:var(--code-bg); border-radius:6px; padding:1px 6px; font-size:13px; font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}
+  td:first-child{white-space:nowrap;}
+
+  pre{
+    background:var(--code-bg); border:1px solid var(--line); border-radius:14px;
+    padding:18px; overflow-x:auto; font-size:13px; line-height:1.55;
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+  }
+  ol,ul{padding-left:22px; display:flex; flex-direction:column; gap:8px; max-width:75ch;}
+  li::marker{color:var(--accent); font-weight:700;}
+
+  .flow{display:flex; flex-direction:column; counter-reset:step;}
+  .step{display:flex; gap:16px; padding:14px 0; border-bottom:1px dashed var(--line);}
+  .step:last-child{border-bottom:none;}
+  .step .n{
+    counter-increment:step; flex:none; width:30px; height:30px; border-radius:50%;
+    background:var(--accent-soft); color:var(--accent); font-weight:800; font-size:14px;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .step .n::before{content:counter(step);}
+  .step div p{font-size:14.5px; color:var(--muted); margin-top:2px;}
+  .step div b{font-size:15px;}
+
+  .callout{border-left:3px solid var(--accent); background:var(--accent-soft); border-radius:0 12px 12px 0; padding:14px 18px; font-size:14.5px; max-width:75ch;}
+  .callout.warn{border-left-color:var(--amber); background:var(--amber-soft);}
+
+  .checklist{list-style:none; padding:0;}
+  .checklist li{display:flex; gap:10px; font-size:15px;}
+  .checklist li::before{content:"✓"; color:var(--accent); font-weight:800; flex:none;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- ================= HERO ================= -->
+  <header class="hero">
+    <div class="app-id">
+      <div class="app-icon">🧊</div>
+      <span class="eyebrow">Design &amp; build spec · v2 · iOS</span>
+    </div>
+    <h1>What's In My Fridge</h1>
+    <p class="lede">Scan a grocery receipt, and your fridge appears on screen — every item as a prebuilt image floating on a soft background, quietly turning amber, then red, as it nears expiry. This document is the complete, one-shot build spec: design direction, every screen and interaction, data model, LLM contract, dev-environment requirements, and acceptance criteria.</p>
+  </header>
+
+  <!-- ================= MOCKS ================= -->
+  <section>
+    <span class="eyebrow">Mockups</span>
+    <h2>Main page · drag-to-consume · scan review</h2>
+    <p class="muted">Left: the home screen — nothing but the item images on a chilled-air background, one scan button. Middle: what happens while dragging an item — the two drop zones slide up from the bottom. Right: the sheet shown after a receipt scan.</p>
+
+    <div class="stage">
+      <div>
+        <div class="phone">
+          <div class="screen">
+            <div class="statusbar">
+              <span>9:41</span>
+              <span class="sb-right"><span class="sb-bars"><i></i><i></i><i></i><i></i></span><span class="sb-batt"></span></span>
+            </div>
+            <div class="apphead">
+              <span class="title">Fridge</span>
+              <span class="hright"><span class="count">13 items</span><span class="gear">⚙</span></span>
+            </div>
+            <div class="grid">
+              <div class="slot"><div class="sprite expired"><span class="food">🐟</span><span class="pill bad">✕ 1d</span></div><span class="name">Salmon</span></div>
+              <div class="slot"><div class="sprite"><span class="food">🥛</span><span class="pill bad">Today</span></div><span class="name">Whole Milk</span></div>
+              <div class="slot"><div class="sprite"><span class="food">🍓</span><span class="pill warn">1d</span></div><span class="name">Strawberries</span></div>
+              <div class="slot"><div class="sprite"><span class="food">🍗</span><span class="pill warn">2d</span></div><span class="name">Chicken</span></div>
+              <div class="slot"><div class="sprite"><span class="food">🥬</span><span class="pill warn">2d</span></div><span class="name">Spinach</span></div>
+              <div class="slot"><div class="sprite"><span class="food">🍝</span><span class="pill ok">3d</span></div><span class="name">Leftovers</span></div>
+              <div class="slot"><div class="sprite"><span class="food">🥣</span><span class="pill ok">5d</span></div><span class="name">Greek Yogurt</span></div>
+              <div class="slot"><div class="sprite"><span class="food">🧃</span><span class="pill ok">9d</span></div><span class="name">Orange Juice</span></div>
+              <div class="slot"><div class="sprite"><span class="food">🥚</span><span class="pill ok">12d</span><span class="qty">×12</span></div><span class="name">Eggs</span></div>
+              <div class="slot"><div class="sprite"><span class="food">🍎</span><span class="pill ok">14d</span><span class="qty">×6</span></div><span class="name">Apples</span></div>
+              <div class="slot"><div class="sprite"><span class="food">🥕</span><span class="pill ok">18d</span></div><span class="name">Carrots</span></div>
+              <div class="slot"><div class="sprite"><span class="food">🧀</span><span class="pill ok">24d</span></div><span class="name">Cheddar</span></div>
+              <div class="slot"><div class="sprite"><span class="food">🧈</span><span class="pill ok">30d</span></div><span class="name">Butter</span></div>
+            </div>
+            <div class="bottomarea">
+              <span class="scanbtn">🧾</span>
+              <div class="homebar"></div>
+            </div>
+          </div>
+        </div>
+        <div class="mocklabel">Home — items float directly on the background, sorted by urgency. One button.</div>
+      </div>
+
+      <div>
+        <div class="phone">
+          <div class="screen">
+            <div class="statusbar">
+              <span>9:41</span>
+              <span class="sb-right"><span class="sb-bars"><i></i><i></i><i></i><i></i></span><span class="sb-batt"></span></span>
+            </div>
+            <div class="apphead">
+              <span class="title">Fridge</span>
+              <span class="hright"><span class="count">13 items</span><span class="gear">⚙</span></span>
+            </div>
+            <div class="grid dimmed">
+              <div class="slot"><div class="sprite expired"><span class="food">🐟</span><span class="pill bad">✕ 1d</span></div><span class="name">Salmon</span></div>
+              <div class="slot"><div class="sprite" style="opacity:.25"><span class="food">🥛</span></div><span class="name" style="opacity:.5">Whole Milk</span></div>
+              <div class="slot"><div class="sprite"><span class="food">🍓</span><span class="pill warn">1d</span></div><span class="name">Strawberries</span></div>
+              <div class="slot"><div class="sprite"><span class="food">🍗</span><span class="pill warn">2d</span></div><span class="name">Chicken</span></div>
+              <div class="slot"><div class="sprite"><span class="food">🥬</span><span class="pill warn">2d</span></div><span class="name">Spinach</span></div>
+              <div class="slot"><div class="sprite"><span class="food">🍝</span><span class="pill ok">3d</span></div><span class="name">Leftovers</span></div>
+              <div class="slot"><div class="sprite"><span class="food">🥣</span><span class="pill ok">5d</span></div><span class="name">Greek Yogurt</span></div>
+              <div class="slot"><div class="sprite"><span class="food">🧃</span><span class="pill ok">9d</span></div><span class="name">Orange Juice</span></div>
+              <div class="slot"><div class="sprite"><span class="food">🥚</span><span class="pill ok">12d</span><span class="qty">×12</span></div><span class="name">Eggs</span></div>
+              <div class="slot"><div class="sprite"><span class="food">🍎</span><span class="pill ok">14d</span><span class="qty">×6</span></div><span class="name">Apples</span></div>
+              <div class="slot"><div class="sprite"><span class="food">🥕</span><span class="pill ok">18d</span></div><span class="name">Carrots</span></div>
+              <div class="slot"><div class="sprite"><span class="food">🧀</span><span class="pill ok">24d</span></div><span class="name">Cheddar</span></div>
+              <div class="slot"><div class="sprite"><span class="food">🧈</span><span class="pill ok">30d</span></div><span class="name">Butter</span></div>
+            </div>
+            <div class="dragwrap">
+              <span class="dragged">🥛<span class="fingertip">👆</span></span>
+              <div class="zones">
+                <div class="zone hot"><span class="zicon">😋</span>Ate it</div>
+                <div class="zone"><span class="zicon">🗑️</span>Tossed</div>
+              </div>
+            </div>
+            <div class="bottomarea" style="position:relative; z-index:0;">
+              <div class="homebar" style="margin-top:6px"></div>
+            </div>
+          </div>
+        </div>
+        <div class="mocklabel">Drag state — grab the milk, the grid dims, drop zones slide up over the scan button. Drop on "Ate it" to consume.</div>
+      </div>
+
+      <div>
+        <div class="phone">
+          <div class="screen">
+            <div class="statusbar">
+              <span>9:41</span>
+              <span class="sb-right"><span class="sb-bars"><i></i><i></i><i></i><i></i></span><span class="sb-batt"></span></span>
+            </div>
+            <div class="sheet">
+              <div class="grab"></div>
+              <h4>Receipt scanned 🧾</h4>
+              <div class="sub">Trader Joe's · Jul 4 · 6 items found</div>
+              <div class="rows">
+                <div class="row"><span class="remoji">🥛</span><span class="rname">Whole Milk<small>from "TJ WHL MLK 1GAL"</small></span><span class="chip">Jul 11</span></div>
+                <div class="row"><span class="remoji">🍓</span><span class="rname">Strawberries<small>from "STRWBRY 1LB"</small></span><span class="chip">Jul 8</span></div>
+                <div class="row"><span class="remoji">🍗</span><span class="rname">Chicken Breast<small>from "CHKN BRST FAM PK"</small></span><span class="chip">Jul 7</span></div>
+                <div class="row"><span class="remoji">🥚</span><span class="rname">Eggs ×12<small>from "LG EGGS DOZEN"</small></span><span class="chip">Jul 22</span></div>
+                <div class="row"><span class="remoji">🧀</span><span class="rname">Cheddar<small>from "CHDR SHRP 8OZ"</small></span><span class="chip">Aug 3</span></div>
+                <div class="row"><span class="remoji">🥫</span><span class="rname">Unknown item<small>from "TJ 94823 MISC" — tap to fix</small></span><span class="chip edit">Guess</span></div>
+              </div>
+              <div class="cta">Add 6 items to Fridge</div>
+            </div>
+            <div class="homebar"></div>
+          </div>
+        </div>
+        <div class="mocklabel">Review sheet — confirm the LLM's parse before saving.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= DIRECTION ================= -->
+  <section>
+    <span class="eyebrow">Design direction</span>
+    <h2>Minimal like a product shelf, playful like a game inventory</h2>
+    <p>The reference is <a href="https://skylrk.com/">skylrk.com</a>: a near-empty page where the product images <em>are</em> the interface — generous whitespace, no cards, no chrome, image-first. The home screen borrows that stance exactly: a soft ambient background and the item images floating directly on it. No tiles, no cards, no list chrome, no tab bar — a single scan button at the bottom.</p>
+    <p>Item art is a <strong>prebuilt image per item</strong>. For v1 the prebuilt set is the system food emoji rendered large (they are high-quality, cover ~120 foods, and cost nothing); the code treats art as a lookup — <code>artwork(for: item)</code> returns an image by name/category — so a custom illustrated sprite set can replace emoji later by dropping PNGs into the asset catalog with the same keys. The game-inventory feel comes from the layout and badges, not from slot frames: fixed grid cells, a stack-count badge ("×12"), and a status pill riding the item's shoulder.</p>
+    <div class="cardgrid">
+      <div class="card"><h3>Background, not surface</h3><p>A soft cool gradient (chilled-air feel) with a faint top glow — like light inside a fridge. Items cast a soft drop shadow so they sit "in" the space.</p></div>
+      <div class="card"><h3>Items are the UI</h3><p>Only images, names, and pills. Header is one word ("Fridge"), an item count, and a small gear for Settings. One hero action: the green scan button.</p></div>
+      <div class="card"><h3>State reads at a glance</h3><p>Freshness is encoded twice — the pill's color and its label ("12d", "Today", "✕ 1d"). Expired items desaturate.</p></div>
+      <div class="card"><h3>Native iOS feel</h3><p>SF Pro (Rounded for display), standard sheets, haptics on every consume action. No custom nav paradigms.</p></div>
+    </div>
+  </section>
+
+  <!-- ================= TOKENS ================= -->
+  <section>
+    <span class="eyebrow">Design tokens (the iOS app)</span>
+    <h2>Color, type, and the item sprite</h2>
+    <div class="swatches">
+      <div class="sw"><div class="chipbox" style="background:linear-gradient(175deg,#EAF4EE,#E2EDF3)"></div><b>bg.chill</b><code>#EAF4EE → #E2EDF3</code></div>
+      <div class="sw"><div class="chipbox" style="background:#2F7D4E"></div><b>brand.green</b><code>#2F7D4E</code></div>
+      <div class="sw"><div class="chipbox" style="background:#3E9463"></div><b>state.fresh</b><code>#3E9463</code></div>
+      <div class="sw"><div class="chipbox" style="background:#D98A26"></div><b>state.soon</b><code>#D98A26</code></div>
+      <div class="sw"><div class="chipbox" style="background:#D9534A"></div><b>state.expired</b><code>#D9534A</code></div>
+      <div class="sw"><div class="chipbox" style="background:#22281F"></div><b>ink</b><code>#22281F</code></div>
+    </div>
+    <div class="tablewrap"><table>
+      <tr><th>Token</th><th>Spec</th></tr>
+      <tr><td>Type — display</td><td>SF Pro Rounded Heavy, 28pt for the screen title; use <code>.fontDesign(.rounded)</code></td></tr>
+      <tr><td>Type — body / labels</td><td>SF Pro; item names 11pt Semibold, pills 10pt Heavy, tabular numerals for counts</td></tr>
+      <tr><td>Item sprite</td><td>No background, no frame. Art (emoji for v1) rendered at 44pt in a fixed 64×60pt cell, soft drop shadow (28% ink, y=5, blur=7). Name centered below, one line, truncated.</td></tr>
+      <tr><td>Status pill</td><td>Capsule overlapping the art's top-right shoulder. Fresh ≥3d: <code>state.fresh</code> · 1–2d: <code>state.soon</code> · today/expired: <code>state.expired</code>. Label: "Nd" / "Today" / "✕ Nd" (days since expiry).</td></tr>
+      <tr><td>Quantity badge</td><td>Bottom-right of the art, white capsule, "×N", only when N &gt; 1</td></tr>
+      <tr><td>Expired item</td><td>Art at 70% grayscale + 80% opacity; pill shows "✕ Nd"</td></tr>
+      <tr><td>Grid</td><td>4 columns, 18pt row / 6pt column gap, 14pt screen margins, sorted by <code>expiryDate</code> ascending (soonest first, expired at very top)</td></tr>
+      <tr><td>Scan button</td><td>The only chrome: 58pt circle, brand-green gradient, receipt glyph, floating bottom-center with a strong shadow. No tab bar.</td></tr>
+      <tr><td>Drop zones</td><td>Hidden until a drag starts, then slide up over the scan button: two flexible zones, 78pt tall, radius 20pt, frosted white with dashed outline; active/hovered zone turns green-tinted, solid border, scales to 1.04.</td></tr>
+      <tr><td>Dark mode (app)</td><td>bg gradient <code>#101B16 → #0F1620</code>, ink <code>#E8ECE6</code>, drop zones frosted dark; pills keep the same three state colors</td></tr>
+      <tr><td>Motion</td><td>Items pop in with a staggered spring on load (0.03s/item, scale 0.7→1). Dragged item lifts to 1.3× with a deeper shadow; drop animates it shrinking into the zone. Respect Reduce Motion.</td></tr>
+      <tr><td>Haptics</td><td><code>.success</code> on items added, <code>.impact(.medium)</code> on eat/toss, <code>.warning</code> on delete</td></tr>
+    </table></div>
+  </section>
+
+  <!-- ================= SCREENS ================= -->
+  <section>
+    <span class="eyebrow">Screens &amp; interactions</span>
+    <h2>Four screens, one flow</h2>
+    <div class="tablewrap"><table>
+      <tr><th>Screen</th><th>Contents &amp; behavior</th></tr>
+      <tr><td><b>1 · Home</b></td><td>Header ("Fridge", item count, gear icon → Settings sheet) · item grid as specced above · single floating scan button. <br><b>Tap item</b> → Item Detail sheet. <br><b>Long-press + drag item</b> → grid dims, scan button fades out, the two drop zones slide up: <code>😋 Ate it</code> (left) and <code>🗑️ Tossed</code> (right); dropping marks the item consumed/wasted with a haptic — for ×N items it decrements quantity by 1 and the item stays until 0. Releasing outside a zone cancels. <br><b>Empty state:</b> centered ghost item + "Scan your first receipt" + arrow pointing at the scan button.</td></tr>
+      <tr><td><b>2 · Scan</b></td><td>Scan button opens <code>VNDocumentCameraViewController</code> (VisionKit). On capture: full-screen progress ("Reading your receipt…", animated receipt emoji), image is downscaled to max 1568px long edge, JPEG 80%, sent to the LLM. Errors (network / key missing / unparseable) show a friendly retry alert.</td></tr>
+      <tr><td><b>3 · Review sheet</b></td><td>Presented sheet (see mock). Store name + date + count header. Each row: art, clean name, original receipt text in small gray, qty, tappable date chip (opens compact date picker). Low-confidence items flagged amber with "tap to fix". Rows can be deleted (swipe) or edited (tap name). Primary button "Add N items to Fridge" saves all, schedules notifications, pops to Home where new items animate in.</td></tr>
+      <tr><td><b>4 · Item Detail</b></td><td>Sheet with large art (tap to pick different art from the prebuilt set), name field, quantity stepper, storage picker (Fridge/Freezer/Pantry), expiry date picker with source note ("Guessed by AI — tap to correct"), and a <b>"📷 Scan date label"</b> button → camera + on-device Vision OCR (<code>VNRecognizeTextRequest</code>), regex-match date formats (<code>MM/DD/YY</code>, <code>DD MMM YYYY</code>, <code>YYYY-MM-DD</code>, "Best by …"), accept the first plausible date (today &lt; d &lt; today+5y) after user confirmation. Buttons: Ate it · Tossed it · Delete.</td></tr>
+      <tr><td><b>＋ Settings sheet</b></td><td>Opened from the gear icon (not a tab): Anthropic API key (SecureField, stored in Keychain), notification hour (default 9:00), default storage location. A small footer line shows lifetime counts: "You've eaten 34 items and tossed 6" — the only stats in v1.</td></tr>
+    </table></div>
+
+    <h3>The core loop</h3>
+    <div class="flow">
+      <div class="step"><span class="n"></span><div><b>Shop, then scan</b><p>User taps the scan button, photographs the receipt. VisionKit auto-crops and de-skews.</p></div></div>
+      <div class="step"><span class="n"></span><div><b>LLM parses everything at once</b><p>One API call returns clean names, art key, category, quantity, storage guess, and shelf-life estimate per item. No barcode DB, no OCR post-processing.</p></div></div>
+      <div class="step"><span class="n"></span><div><b>Confirm in one tap</b><p>Review sheet fixes trust: user corrects anything odd, then "Add N items". Dates the user edits are marked <code>userSet</code> and never overwritten.</p></div></div>
+      <div class="step"><span class="n"></span><div><b>Live inventory</b><p>Home grid shows everything, soonest-expiring first. Pills tick down daily; notifications fire at T−2 days and on expiry day at the configured hour.</p></div></div>
+      <div class="step"><span class="n"></span><div><b>Eat or toss</b><p>Drag an item to a drop zone (or use the detail sheet buttons). Consumed items leave the grid but persist for the lifetime counters.</p></div></div>
+    </div>
+  </section>
+
+  <!-- ================= DATA MODEL ================= -->
+  <section>
+    <span class="eyebrow">Data model</span>
+    <h2>SwiftData schema</h2>
+    <div class="tablewrap"><table>
+      <tr><th>Field</th><th>Type</th><th>Notes</th></tr>
+      <tr><td><code>id</code></td><td>UUID</td><td>primary</td></tr>
+      <tr><td><code>name</code></td><td>String</td><td>clean display name ("Whole Milk")</td></tr>
+      <tr><td><code>receiptText</code></td><td>String?</td><td>raw line from receipt ("TJ WHL MLK 1GAL")</td></tr>
+      <tr><td><code>artKey</code></td><td>String</td><td>key into the prebuilt art set; v1 stores the emoji itself. <code>artwork(for:)</code> resolves key → image, falling back to a category default.</td></tr>
+      <tr><td><code>category</code></td><td>enum</td><td><code>produce · dairy · meat · seafood · frozen · pantry · beverage · bakery · deli · leftovers · condiment · other</code></td></tr>
+      <tr><td><code>quantity</code></td><td>Int</td><td>≥1; consume decrements, removes at 0</td></tr>
+      <tr><td><code>storage</code></td><td>enum</td><td><code>fridge · freezer · pantry</code></td></tr>
+      <tr><td><code>purchaseDate</code></td><td>Date</td><td>from receipt if printed, else scan date</td></tr>
+      <tr><td><code>expiryDate</code></td><td>Date</td><td><code>purchaseDate + shelfLifeDays</code> initially</td></tr>
+      <tr><td><code>expirySource</code></td><td>enum</td><td><code>llmEstimate · userSet · scannedLabel</code> — never overwrite <code>userSet</code>/<code>scannedLabel</code></td></tr>
+      <tr><td><code>status</code></td><td>enum</td><td><code>active · eaten · tossed</code></td></tr>
+      <tr><td><code>consumedDate</code></td><td>Date?</td><td>set when status changes; drives the lifetime counters</td></tr>
+      <tr><td><code>store</code></td><td>String?</td><td>e.g. "Trader Joe's"</td></tr>
+    </table></div>
+    <p class="muted">Urgency is computed, not stored: <code>daysLeft = calendarDays(now → expiryDate)</code>. Expired means end-of-day(expiryDate) &lt; now. Persistence is local-only SwiftData for v1; the schema is CloudKit-compatible (all optionals/defaults) so sync can be enabled later without migration.</p>
+  </section>
+
+  <!-- ================= LLM ================= -->
+  <section>
+    <span class="eyebrow">LLM integration</span>
+    <h2>One vision call does receipt → inventory</h2>
+    <p>Direct call to the Anthropic Messages API with model <code>claude-haiku-4-5</code> (fast, ~$0.003 per receipt). The user's API key is entered in Settings and stored in Keychain — no backend for v1. Wrap it in an <code>LLMService</code> protocol so a proxy can replace it later.</p>
+    <pre>POST https://api.anthropic.com/v1/messages
+headers: x-api-key: &lt;key&gt; · anthropic-version: 2023-06-01 · content-type: application/json
+body: { "model": "claude-haiku-4-5", "max_tokens": 2000,
+        "messages": [{ "role": "user", "content": [
+          { "type": "image", "source": { "type": "base64", "media_type": "image/jpeg", "data": "&lt;receipt&gt;" }},
+          { "type": "text", "text": PROMPT }]}] }</pre>
+    <p><b>PROMPT</b> (verbatim):</p>
+    <pre>This is a grocery store receipt. Extract every FOOD and BEVERAGE item.
+Rules:
+- Expand abbreviations into clean, human-friendly names ("WHL MLK 1GAL" → "Whole Milk").
+- Skip non-food lines: tax, totals, coupons, bags, household goods, loyalty points.
+- If one line has a quantity multiplier, set quantity accordingly.
+- For each item, estimate typical shelf life in days for the storage you recommend,
+  counted from the purchase date, assuming it was refrigerated promptly.
+- Pick exactly one emoji that best represents each item.
+- If a line is probably food but you cannot identify it, include it with
+  name "Unknown item", confidence "low".
+Respond with ONLY this JSON, no prose:
+{ "store": string|null, "purchase_date": "YYYY-MM-DD"|null,
+  "items": [{ "name": string, "receipt_text": string, "emoji": string,
+              "category": "produce|dairy|meat|seafood|frozen|pantry|beverage|bakery|deli|leftovers|condiment|other",
+              "quantity": int, "storage": "fridge|freezer|pantry",
+              "shelf_life_days": int, "confidence": "high|low" }] }</pre>
+    <ul>
+      <li><b>Parsing:</b> strip Markdown code fences if present, then <code>JSONDecoder</code>. On decode failure, retry once with a "Return valid JSON only" reminder appended; then surface a retry alert.</li>
+      <li><b>Image prep:</b> longest edge ≤ 1568px, JPEG quality 0.8, before base64.</li>
+      <li><b>Low-confidence items</b> get the amber "tap to fix" treatment in the review sheet, never silently dropped.</li>
+      <li><b>No key set:</b> scan button opens Settings with an inline explainer instead of the camera.</li>
+    </ul>
+  </section>
+
+  <!-- ================= ARCHITECTURE ================= -->
+  <section>
+    <span class="eyebrow">Architecture</span>
+    <h2>Project layout</h2>
+    <pre>WhatsInMyFridge/                    (iOS 17+, Swift 5.10, SwiftUI, no third-party packages)
+├─ App/            WhatsInMyFridgeApp.swift · AppTheme.swift (tokens above)
+├─ Models/         FridgeItem.swift (SwiftData @Model + enums) · Artwork.swift (artKey → image lookup)
+├─ Services/
+│  ├─ LLMService.swift              protocol + AnthropicService (URLSession, async/await)
+│  ├─ ReceiptScanner.swift          VisionKit wrapper → UIImage
+│  ├─ DateLabelScanner.swift        Vision OCR + date-regex parsing
+│  ├─ NotificationService.swift     schedule/cancel per item
+│  └─ KeychainStore.swift           API key
+├─ Views/
+│  ├─ Home/        HomeView · ItemSprite · StatusPill · DropZoneBar · EmptyStateView
+│  ├─ Scan/        ScanProgressView · ReviewSheet · ReviewRow
+│  ├─ Detail/      ItemDetailSheet · ArtPicker
+│  └─ Settings/    SettingsSheet
+└─ Tests/          LLMResponseParsingTests · UrgencyLogicTests · DateRegexTests</pre>
+    <div class="tablewrap"><table>
+      <tr><th>Concern</th><th>Decision</th></tr>
+      <tr><td>Notifications</td><td><code>UNUserNotificationCenter</code>, local only. Two per item: T−2d and expiry day, at the Settings hour. Identifiers <code>"{uuid}-pre"</code> / <code>"{uuid}-day"</code>; cancel + reschedule on any date change, cancel on consume/delete. Request permission on first successful item add, not at launch.</td></tr>
+      <tr><td>Badge</td><td>App icon badge = count of expired active items; recomputed on foreground and via notification.</td></tr>
+      <tr><td>State</td><td>SwiftData <code>@Query</code> drives Home directly; a lightweight <code>ScanFlowModel</code> (@Observable) owns camera → LLM → review state.</td></tr>
+      <tr><td>Out of scope v1</td><td>Grocery list, recipes, stats screen, custom sprite artwork, CloudKit sync, household sharing, Android. The schema and LLMService are shaped so none of these require migrations.</td></tr>
+    </table></div>
+  </section>
+
+  <!-- ================= DEV ENVIRONMENT ================= -->
+  <section>
+    <span class="eyebrow">Development environment</span>
+    <h2>What you need to build and run this</h2>
+    <p><b>The short version: a native iOS app cannot be compiled on a Linux VPS.</b> Swift itself runs on Linux, but the iOS SDK, SwiftUI, the simulator, and code signing exist only inside Xcode on macOS — Apple ships them nowhere else. So the question is where the macOS machine lives:</p>
+    <div class="tablewrap"><table>
+      <tr><th>Option</th><th>What it looks like</th><th>Cost / trade-off</th></tr>
+      <tr><td><b>A · Your own Mac</b></td><td>Xcode 16+ on any Apple-silicon Mac (a base Mac mini is enough). Full simulator, instant iteration, deploy to your iPhone over cable or Wi-Fi.</td><td>Best experience. Mac mini from ~$599 if you don't own one.</td></tr>
+      <tr><td><b>B · Rented cloud Mac</b></td><td>A macOS VM you remote into: MacStadium, Scaleway Apple silicon, AWS EC2 Mac. Run Xcode over screen sharing; your Linux VPS workflow stays for everything else.</td><td>~$0.10–0.65/hr or ~$50–130/mo; AWS has a 24h minimum. Remote-desktop Xcode is usable but laggy.</td></tr>
+      <tr><td><b>C · Linux VPS + macOS CI</b></td><td>You (and Claude Code) write all the Swift on the VPS. GitHub Actions macOS runners compile, run the unit tests, and upload builds to TestFlight. You never touch a Mac directly.</td><td>Free for public repos (macOS runners bill 10× minutes on private free tier). Iteration loop is 10–20 min per build and there's no simulator screenshot loop — fine for an agent one-shot + fix cycles, painful for pixel-level UI tweaking. Requires the $99/yr Apple Developer Program for TestFlight signing.</td></tr>
+    </table></div>
+    <div class="callout">Realistic recommendation for your setup: <b>write the code on the VPS, build with option C</b>, and if the UI needs more than a couple of correction rounds, spin up a cloud Mac for a day (option B) to polish with the simulator. Swift Package structure + unit tests (parsing, urgency logic, date regex) are Linux-runnable, so most logic bugs get caught before a macOS build is ever needed.</div>
+
+    <h3>Getting it onto your iPhone</h3>
+    <div class="tablewrap"><table>
+      <tr><th>Path</th><th>How</th><th>Limits</th></tr>
+      <tr><td><b>Free Apple ID + Xcode</b> (needs a Mac, option A/B)</td><td>Plug in the iPhone (or Wi-Fi pair), enable Developer Mode on the phone (Settings → Privacy &amp; Security), press Run in Xcode.</td><td>App signature expires every <b>7 days</b> — reconnect and re-run weekly. Max 3 apps. Simulator needs no account at all.</td></tr>
+      <tr><td><b>TestFlight</b> (works with option C, no Mac in hand)</td><td>Join the Apple Developer Program ($99/yr), CI uploads the build, you install the TestFlight app on your iPhone and tap install. Updates arrive like normal app updates.</td><td>Builds valid 90 days. First build needs a one-time App Store Connect review (~1 day).</td></tr>
+      <tr><td><b>Ship to the App Store</b> (later)</td><td>Same $99/yr account; full review. Note: shipping publicly means replacing the paste-your-own-API-key model with a small proxy backend.</td><td>Not needed while it's a personal tool.</td></tr>
+    </table></div>
+  </section>
+
+  <!-- ================= ACCEPTANCE ================= -->
+  <section>
+    <span class="eyebrow">Definition of done</span>
+    <h2>Acceptance criteria for the one-shot build</h2>
+    <ul class="checklist">
+      <li>App builds clean in Xcode for iOS 17 simulator; no third-party dependencies.</li>
+      <li>Scanning a real Trader Joe's–style receipt yields a review sheet with ≥90% of food lines as clean names, each with art, quantity, and a plausible future expiry date.</li>
+      <li>Confirming the sheet adds items to Home, sorted soonest-first, with staggered pop-in animation.</li>
+      <li>Items render with no background frame — art + shadow directly on the gradient; pills green ≥3d, amber 1–2d, red today/expired; expired art desaturates; app badge equals expired count.</li>
+      <li>Home has exactly one control at the bottom: the circular scan button. No tab bar.</li>
+      <li>Long-press-dragging an item dims the grid and reveals the two drop zones; dropping on "Ate it"/"Tossed" fires a haptic and updates status; ×N quantity decrements before removal; releasing elsewhere cancels.</li>
+      <li>Editing a date in Item Detail sets <code>expirySource = userSet</code>, reschedules both notifications, and survives relaunch.</li>
+      <li>"Scan date label" reads a printed "BEST BY 07/12/26" via on-device OCR and offers it for confirmation.</li>
+      <li>Notifications fire at T−2d and expiry day at the configured hour (verifiable with a short-dated test item).</li>
+      <li>No API key → scan routes to Settings with explanation; network failure → retry alert; malformed LLM JSON → one automatic retry.</li>
+      <li>Empty fridge shows the empty state; dark mode renders per the dark tokens; Reduce Motion disables the pop-in spring and drag float.</li>
+      <li>Unit tests pass on Linux via <code>swift test</code> where possible: LLM JSON parsing (incl. fenced output), urgency thresholds, date-regex parsing.</li>
+    </ul>
+    <div class="callout" style="margin-top:8px">Build order for the agent: Models + Artwork lookup → AppTheme → Home grid with seeded sample data → drag-to-consume → LLM service + scan flow → review sheet → detail + notifications → OCR date scan → settings → tests.</div>
+  </section>
+
+</div>
+</body>
+</html>

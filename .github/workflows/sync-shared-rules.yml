@@ -1,0 +1,16 @@
+# Caller stub — copy to .github/workflows/sync-shared-rules.yml in your repo. One-time repo setting:
+# Settings → Actions → General → enable "Allow GitHub Actions to create and approve pull requests".
+name: Sync shared rules
+on:
+  schedule:
+    - cron: "0 6 * * 1" # weekly, Monday 06:00 UTC; run manually via workflow_dispatch when needed
+    # Heads-up: on public repos GitHub disables schedules after ~60 days without repo activity;
+    # re-enable in the Actions tab (or run manually) if syncs stop arriving.
+  workflow_dispatch: {}
+permissions: {}
+jobs:
+  sync:
+    uses: JINGBANZ/workflows/.github/workflows/sync-shared-rules.yml@main
+    permissions:
+      contents: write
+      pull-requests: write
