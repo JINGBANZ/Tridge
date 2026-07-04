@@ -7,7 +7,7 @@ the fridge.
 
 **Status: design phase.** The complete design & build spec (with screen mocks)
 lives at [`design/fridge-design.html`](design/fridge-design.html) — open it in a
-browser. Agents: start with [`CLAUDE.md`](CLAUDE.md).
+browser. Agents: start with [`AGENTS.md`](AGENTS.md), then [`wiki/index.md`](wiki/index.md).
 
 ## Planned v1
 
