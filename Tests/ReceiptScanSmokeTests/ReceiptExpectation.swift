@@ -8,8 +8,9 @@ struct ReceiptExpectation: Decodable {
     struct ExpectedItem: Decodable {
         /// Any of these (case-insensitive substrings) identifies the item.
         var name: [String]
-        /// Exact ItemID rawValue, e.g. "milk".
-        var id: String?
+        /// Acceptable ItemID rawValues, e.g. ["salmon", "fish"] — the LLM may
+        /// reasonably land on either for a degraded receipt line.
+        var id: [String]?
         var quantity: Int?
         var shelfLifeDays: DayRange?
 
@@ -25,13 +26,17 @@ struct ReceiptExpectation: Decodable {
 
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
-            // "name" may be a single string or a list of alternatives.
+            // "name" and "id" may be a single string or a list of alternatives.
             if let single = try? c.decode(String.self, forKey: .name) {
                 name = [single]
             } else {
                 name = try c.decode([String].self, forKey: .name)
             }
-            id = try c.decodeIfPresent(String.self, forKey: .id)
+            if let single = try? c.decode(String.self, forKey: .id) {
+                id = [single]
+            } else {
+                id = try c.decodeIfPresent([String].self, forKey: .id)
+            }
             quantity = try c.decodeIfPresent(Int.self, forKey: .quantity)
             shelfLifeDays = try c.decodeIfPresent(DayRange.self, forKey: .shelfLifeDays)
         }
@@ -44,8 +49,8 @@ struct ReceiptExpectation: Decodable {
         func fieldMismatches(in item: ParsedItem) -> [String] {
             var problems: [String] = []
             let label = "\"\(item.name)\""
-            if let id, item.id.rawValue != id {
-                problems.append("\(label): id \(item.id.rawValue), expected \(id)")
+            if let id, !id.contains(item.id.rawValue) {
+                problems.append("\(label): id \(item.id.rawValue), expected one of \(id)")
             }
             if let quantity, item.quantity != quantity {
                 problems.append("\(label): quantity \(item.quantity), expected \(quantity)")
@@ -62,6 +67,10 @@ struct ReceiptExpectation: Decodable {
         }
     }
 
+    /// Optional path to the receipt image, relative to the fixture directory —
+    /// used when the image lives elsewhere in the repo (e.g. shared with the
+    /// app bundle) instead of inside the fixture folder.
+    var image: String?
     var minItems: Int?
     var maxItems: Int?
     var items: [ExpectedItem]
@@ -69,7 +78,7 @@ struct ReceiptExpectation: Decodable {
     var absent: [String]?
 
     private enum CodingKeys: String, CodingKey {
-        case items, absent
+        case image, items, absent
         case minItems = "min_items"
         case maxItems = "max_items"
     }

@@ -125,3 +125,20 @@
   tests (flaky by construction); any CI execution, even manually triggered (an API-key secret in CI
   is disallowed outright by AGENTS.md → Setup).
 
+
+### 2026-07-05 — Photo import + in-app diagnostics make Mac-less testing viable
+
+- **Chose:** Two additions aimed at testing without local Xcode. (1) The scan button's tap falls
+  back to a photo-library picker wherever the document camera is unavailable (Simulator,
+  browser-hosted simulators), long-press offers the source menu, and debug builds bundle a
+  synthetic sample receipt — the camera is an enhancement, not a requirement. (2) `AppLog`
+  (`WhatsInMyFridge/Core/AppLog.swift`, OSLog-backed on Apple platforms, stdout on Linux) logs every
+  scan/LLM/OCR failure point, and Settings → "Copy diagnostics" puts the session's logs on the
+  clipboard for pasting into bug reports.
+- **Why:** Owner testing happens in browser/cloud simulators and via sideloading, with feedback
+  flowing back to a coding agent as text. Photo import is also a real product feature (e-receipt
+  screenshots, photos taken earlier). Clipboard export needs no backend, no third-party SDK, and
+  works identically in Appetize, the Simulator, and on-device.
+- **Rejected:** Camera-only input (untestable off-device); a crash/telemetry SDK like Sentry
+  (third-party dependency + backend, against v1 constraints); OS-level log capture as the only
+  loop (Console.app/`simctl` need a Mac; testers won't run them).

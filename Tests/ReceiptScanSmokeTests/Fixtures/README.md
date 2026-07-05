@@ -29,18 +29,27 @@ that directory is gitignored but still picked up when the tests run locally.
 
 ## expected.json format
 
-Every field except `items[].name` is optional.
+Every field except `items[].name` is optional. Fixtures are read straight from
+this directory in the source tree (no resource bundling), so an image can also
+live elsewhere in the repo and be referenced by path — the sample fixture
+reuses the app bundle's `WhatsInMyFridge/Resources/SampleReceipt.jpg` this way
+instead of committing a duplicate.
 
 ```jsonc
 {
+  "image": "../../../../WhatsInMyFridge/Resources/SampleReceipt.jpg",
+                                // optional, relative to this fixture's folder;
+                                // omit when the image sits in the folder itself
   "min_items": 6,               // bounds on the number of parsed food items
   "max_items": 6,
   "items": [                    // each entry must match a DISTINCT parsed item
     {
       "name": ["whole milk", "milk"],          // string or list; any keyword
                                                // (case-insensitive substring) matches
-      "id": "milk",                            // exact ItemID rawValue (see
-                                               // WhatsInMyFridge/Core/Types.swift)
+      "id": ["milk", "dairy"],                 // acceptable ItemID rawValues (see
+                                               // WhatsInMyFridge/Core/Types.swift);
+                                               // string or list — list the near
+                                               // misses the LLM may fairly pick
       "quantity": 1,                           // exact
       "shelf_life_days": { "min": 1 }            // inclusive bounds; keep loose —
                                                // usually just min 1 (users correct

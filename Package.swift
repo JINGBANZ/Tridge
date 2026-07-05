@@ -25,7 +25,7 @@ let package = Package(
             name: "ReceiptScanSmokeTests",
             dependencies: ["FridgeCore"],
             path: "Tests/ReceiptScanSmokeTests",
-            resources: [.copy("Fixtures")]
+            exclude: ["Fixtures"]
         ),
     ]
 )

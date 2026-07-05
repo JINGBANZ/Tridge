@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import PhotosUI
 
 /// Owns the camera → LLM → review pipeline for one receipt scan.
 @Observable @MainActor
@@ -8,9 +9,14 @@ final class ScanFlowModel {
         case idle
         case needsKey      // no API key: route to Settings with an explainer
         case camera
+        case photoPicker   // photo-library import: the camera-free scan path
         case processing
         case review
         case failed(String)
+    }
+
+    enum Source {
+        case automatic, camera, photoLibrary
     }
 
     /// One editable row in the review sheet.
@@ -39,8 +45,54 @@ final class ScanFlowModel {
     /// Kept so a failed LLM call can be retried without re-photographing.
     private var pendingImage: UIImage?
 
-    func startScan() {
-        phase = KeychainStore.apiKey == nil ? .needsKey : .camera
+    func startScan(from source: Source = .automatic) {
+        guard KeychainStore.apiKey != nil else {
+            phase = .needsKey
+            return
+        }
+        switch source {
+        case .camera:
+            phase = .camera
+        case .photoLibrary:
+            phase = .photoPicker
+        case .automatic:
+            // No document camera (Simulator, browser-hosted simulators) →
+            // fall straight through to the photo-library picker.
+            phase = DocumentCameraView.isCameraSupported ? .camera : .photoPicker
+        }
+    }
+
+    #if DEBUG
+    /// Runs the bundled synthetic receipt through the real pipeline — lets the
+    /// whole scan flow be exercised where neither camera nor photo library has
+    /// a receipt to offer (fresh simulators, browser sessions).
+    func scanSampleReceipt() {
+        guard let url = Bundle.main.url(forResource: "SampleReceipt", withExtension: "jpg"),
+              let image = UIImage(contentsOfFile: url.path) else {
+            AppLog.scan.error("SampleReceipt.jpg missing from bundle")
+            return
+        }
+        handleCapture(image)
+    }
+    #endif
+
+    /// Loads a photo-library selection. Failures are logged and surfaced —
+    /// unlike a camera cancel, the user picked something and expects a result.
+    func handlePickedPhoto(_ item: PhotosPickerItem) {
+        Task {
+            do {
+                guard let data = try await item.loadTransferable(type: Data.self),
+                      let image = UIImage(data: data) else {
+                    AppLog.scan.error("Photo import produced no usable image data")
+                    phase = .failed("That photo couldn't be loaded. Try a different one.")
+                    return
+                }
+                handleCapture(image)
+            } catch {
+                AppLog.scan.error("Photo import failed: \(error.localizedDescription)")
+                phase = .failed("That photo couldn't be loaded. Try a different one.")
+            }
+        }
     }
 
     func handleCapture(_ image: UIImage?) {
@@ -76,13 +128,16 @@ final class ScanFlowModel {
         Task {
             do {
                 guard let jpeg = image.receiptJPEGData() else { throw LLMError.unparseable }
+                AppLog.scan.info("Scanning \(Int(image.size.width))×\(Int(image.size.height)) image, \(jpeg.count / 1024) KB JPEG")
                 let receipt = try await service.parseReceipt(jpegData: jpeg)
+                AppLog.scan.info("Review ready: \(receipt.items.count) items")
                 load(receipt, capturedOn: Date())
                 phase = .review
             } catch {
                 let message = (error as? LLMError)?.errorDescription
                     ?? LLMError.network(underlying: error).errorDescription
                     ?? "Something went wrong."
+                AppLog.scan.error("Scan failed: \(message)")
                 phase = .failed(message)
             }
         }

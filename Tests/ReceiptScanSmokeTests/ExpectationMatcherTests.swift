@@ -40,7 +40,7 @@ final class ExpectationMatcherTests: XCTestCase {
         let problems = expectation.mismatches(in: makeReceipt())
         XCTAssertEqual(problems.count, 4)
         XCTAssertTrue(problems.contains { $0.contains("strawberries") })
-        XCTAssertTrue(problems.contains { $0.contains("id milk, expected cheese") })
+        XCTAssertTrue(problems.contains { $0.contains("id milk, expected one of") })
         XCTAssertTrue(problems.contains { $0.contains("quantity 1, expected 2") })
         XCTAssertTrue(problems.contains { $0.contains("expected ≤ 5d") })
     }

@@ -28,10 +28,12 @@ Requires a Mac with Xcode 16+ (the iOS SDK doesn't exist on Linux):
 
 1. Clone the repo, open `WhatsInMyFridge.xcodeproj`.
 2. **Simulator:** pick any iPhone simulator and press Run. No Apple account
-   needed. Caveat: the receipt/date-label camera (`VNDocumentCameraViewController`)
-   does not function on the simulator, so exercise the scan flow on hardware;
-   the grid, drag-to-consume, review sheet (via previews), detail and settings
-   are all testable in the simulator.
+   needed. The document camera doesn't exist on the simulator, but the scan
+   button falls back to the photo-library picker there (drag receipt images
+   into the simulator's Photos app first), and debug builds offer "Try sample
+   receipt" via long-press — so the whole scan → review → inventory flow is
+   testable without hardware. Only the real camera and date-label OCR capture
+   need a device.
 3. **Your iPhone (free Apple ID):** in the target's Signing & Capabilities set
    your personal team and a unique bundle id, enable Developer Mode on the phone
    (Settings → Privacy & Security), plug it in and press Run. Free-account
@@ -39,9 +41,24 @@ Requires a Mac with Xcode 16+ (the iOS SDK doesn't exist on Linux):
 4. **No Mac at hand:** join the Apple Developer Program ($99/yr) and distribute
    CI builds via TestFlight (see the spec's "Development environment" section).
 
+## Reporting issues from a test build
+
+The feedback loop is built in:
+
+1. Reproduce the problem in the app.
+2. Settings (gear icon) → **Copy diagnostics** — puts this session's app logs
+   (scan sizes, LLM HTTP errors, parse failures, OCR results; never your API
+   key) on the clipboard.
+3. Paste into the bug report / hand it to the coding agent.
+
+Logs cover the current launch only, so copy right after reproducing. For hard
+crashes: on-device crash logs live under iOS Settings → Privacy & Security →
+Analytics & Improvements → Analytics Data (share the newest
+`WhatsInMyFridge-…​.ips` file).
+
 ## v1
 
-- LLM receipt scanning (VisionKit capture → vision LLM call → review sheet)
+- LLM receipt scanning (VisionKit capture or photo import → vision LLM call → review sheet)
 - Expiry tracking with local notifications (T−2 days and expiry day)
 - Game-inventory-style home grid, sorted soonest-expiring first
 - Drag-to-consume, on-device OCR for printed "best by" dates
