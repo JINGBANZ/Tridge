@@ -9,3 +9,6 @@ DerivedData/
 
 # Local-only receipt fixtures (may contain personal data)
 Tests/ReceiptScanSmokeTests/Fixtures/private/
+
+# Local secrets (copy env.sample → .env)
+.env

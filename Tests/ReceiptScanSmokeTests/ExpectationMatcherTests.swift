@@ -66,4 +66,22 @@ final class ExpectationMatcherTests: XCTestCase {
         XCTAssertEqual(problems.count, 1)
         XCTAssertTrue(problems[0].contains("missing"))
     }
+
+    func testOverlappingKeywordsFindTheValidAssignment() throws {
+        // "milk" matches both parsed items, "whole" matches only "Whole Milk".
+        // Greedy first-match would let "milk" grab "Whole Milk" and then
+        // spuriously report "whole" missing; the bipartite matcher must find
+        // milk → Almond Milk, whole → Whole Milk — in either listing order.
+        let receipt = ParsedReceipt(items: [
+            ParsedItem(id: .milk, name: "Whole Milk", receiptText: nil,
+                       quantity: 1, shelfLifeDays: 7),
+            ParsedItem(id: .milk, name: "Almond Milk", receiptText: nil,
+                       quantity: 1, shelfLifeDays: 10),
+        ])
+        for items in [#"[ { "name": "milk" }, { "name": "whole" } ]"#,
+                      #"[ { "name": "whole" }, { "name": "milk" } ]"#] {
+            let expectation = try decode(#"{ "items": \#(items) }"#)
+            XCTAssertEqual(expectation.mismatches(in: receipt), [])
+        }
+    }
 }

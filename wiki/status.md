@@ -28,10 +28,10 @@ $99/yr Apple Developer account).
 - `Tests/FridgeCoreTests/` — parsing (incl. fenced/prose-wrapped output), schema-contract, urgency
   thresholds, date-regex tests; all pass via `swift test`.
 - `Tests/ReceiptScanSmokeTests/` — live LLM regression harness: fixture receipt images +
-  fuzzy `expected.json` inventories (see its `Fixtures/README.md`); runs only with
-  `OPENAI_API_KEY` set (skips otherwise), on demand in CI via
-  `.github/workflows/receipt-smoke.yml`. Ships one synthetic sample fixture; gitignored
-  `Fixtures/private/` for personal receipts.
+  fuzzy `expected.json` inventories (see its `Fixtures/README.md`); local-only — key comes
+  from the environment or a gitignored `.env` (copy `env.sample`), skips without one, and is
+  never run in CI. Ships three synthetic fixtures (clean, faded-thermal, crooked low-res
+  photo); gitignored `Fixtures/private/` for personal receipts.
 - `WhatsInMyFridge/` — the app: `App/` (entry, `AppTheme.swift` design tokens, preview seed),
   scan input via document camera or photo-library import (camera-free platforms fall back
   automatically; debug builds bundle `Resources/SampleReceipt.jpg`), `Core/AppLog.swift` +
