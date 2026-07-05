@@ -150,15 +150,16 @@
   simulator build to Appetize when the `APPETIZE_API_TOKEN` repo secret exists (a distribution
   credential the owner adds; unrelated to the OpenAI-key ban). On-device installs go through
   SideStore, which re-signs the unsigned ipa with the owner's free Apple ID and refreshes the
-  7-day signature on-device after a one-time USB pairing done from the Linux box
-  (`usbmuxd`/`idevice_pair`). Debug configuration on purpose: it keeps the bundled
-  "Try sample receipt" flow in every test build.
+  7-day signature on-device (LocalDevVPN loopback trick) after a one-time USB setup done from
+  the Linux box with SideStore's official iloader installer. Debug configuration on purpose:
+  it keeps the bundled "Try sample receipt" flow in every test build.
 - **Why:** No Mac and no $99 Apple Developer Program. Appetize needs no Apple credentials at all
   and runs in a browser (camera-free testing is already first-class in the app); SideStore is the
   free path where the real receipt camera and date-label OCR work, and it is the sideloader whose
   post-setup refresh loop needs no computer — critical when the only desktop is Linux.
 - **Rejected:** TestFlight (needs the $99/yr program; still the right answer if the app ever goes
-  beyond the owner); classic AltStore (its AltServer must run on macOS/Windows on the owner's
-  Wi-Fi for every install *and* every 7-day refresh; the community AltServer-Linux port is
-  unofficial); CI-signed ipas (signing certificates require the paid program, and secrets-in-CI
-  surface area is deliberately kept minimal).
+  beyond the owner); classic AltStore (its AltServer officially runs only on macOS/Windows and
+  must be reachable on the owner's Wi-Fi for every install *and* every 7-day refresh; the
+  community AltServer-Linux port's last release was 2022); AltStore PAL (EU/Japan/Brazil-only
+  marketplace, not a sign-your-own-ipa tool); CI-signed ipas (signing certificates require the
+  paid program, and secrets-in-CI surface area is deliberately kept minimal).

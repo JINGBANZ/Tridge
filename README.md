@@ -43,8 +43,9 @@ full scan → review → inventory flow.
    wraps artifacts in an outer zip) to get `WhatsInMyFridge-sim.zip`.
 2. Sign up free at [appetize.io](https://appetize.io), **Upload** →
    `WhatsInMyFridge-sim.zip` (the zipped `.app`, not the ipa), platform iOS.
-3. Open the generated app page and press play. Free tier: sessions are short
-   (a few minutes) with a small monthly minute pool — enough for smoke tests.
+3. Open the generated app page and press play. Free tier: 100 streaming
+   minutes/month, one session at a time, ~2-minute inactivity timeout —
+   enough for solo smoke tests.
 
 If the `APPETIZE_API_TOKEN` repo secret is configured, CI uploads each push
 to Appetize automatically — then you just reopen your existing Appetize link.
@@ -56,14 +57,17 @@ Free-Apple-ID limits apply: signatures last 7 days (refresh happens on-device
 in SideStore — no computer needed after setup) and max 3 sideloaded apps.
 
 One-time setup (see [docs.sidestore.io](https://docs.sidestore.io) for the
-authoritative steps):
+authoritative, current steps — iOS point releases occasionally break
+sideloading until SideStore ships a fix):
 
-1. On the Linux box install `usbmuxd` + `libimobiledevice` utilities, connect
-   the iPhone over USB, and follow SideStore's install guide — it generates a
-   device **pairing file** (`idevice_pair`) and installs the SideStore app,
-   signed with your free Apple ID.
-2. Install SideStore's WireGuard-based loopback VPN profile on the phone (this
-   is what lets SideStore refresh apps on-device without a computer).
+1. On the Linux box, download **iloader** ([iloader.app](https://iloader.app),
+   SideStore's official installer — Linux builds provided; needs `usbmuxd` for
+   USB connectivity), connect the iPhone over USB, sign in with your Apple ID.
+   It generates the device pairing file and installs SideStore, signed with
+   your free Apple ID.
+2. On the phone, install **LocalDevVPN** from the App Store and toggle it on
+   whenever installing/refreshing — this loopback VPN is what lets SideStore
+   re-sign apps on-device without a computer.
 
 Per build:
 
