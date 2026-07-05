@@ -13,7 +13,7 @@
 ## Core pages
 
 - [../design/fridge-design.html](../design/fridge-design.html) — **the complete design & build
-  spec**: screen mocks, design tokens, all screens/interactions, SwiftData schema, the Anthropic
+  spec**: screen mocks, design tokens, all screens/interactions, SwiftData schema, the OpenAI
   API contract with the verbatim receipt prompt, project layout, acceptance criteria, and build
   order. Open in a browser for visuals; the text and mock CSS are the normative spec.
 

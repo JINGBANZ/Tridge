@@ -29,6 +29,8 @@
 - **Rejected:** A key-holding proxy backend (Cloudflare Worker/Firebase) — right for a public App
   Store release, premature now.
 - **Revisit if:** The app is distributed beyond the owner (TestFlight external testers or App Store).
+- **Superseded by:** *2026-07-05 — OpenAI with enforced response schema* for the provider choice;
+  the no-backend / key-in-Keychain / `LLMService`-protocol parts stand.
 
 ### 2026-07-04 — Items float frameless on the background; prebuilt art only; one button
 
@@ -64,4 +66,44 @@
 - **Rejected:** XcodeGen/Tuist (third-party toolchain dependency, unavailable on Linux); a classic
   per-file pbxproj (every added file needs a hand edit); linking `FridgeCore` as a local package
   product (self-referential package/project layout is fragile in Xcode).
+
+### 2026-07-05 — OpenAI with enforced response schema
+
+- **Chose:** `OpenAIService` (Chat Completions, `gpt-5-mini`) with strict Structured Outputs: the
+  receipt reply is constrained server-side to the JSON Schema in
+  `WhatsInMyFridge/Core/ReceiptSchema.swift`, which tests cross-check against the Swift DTOs.
+  Supersedes the provider half of *2026-07-04 — No backend; user-supplied Anthropic key*.
+- **Why:** Owner's direction. The previous contract only *requested* the JSON shape in the prompt;
+  schema enforcement moves format guarantees from prompt discipline to the API, leaving client-side
+  parsing as defense-in-depth (truncation/refusal) rather than the primary contract.
+- **Rejected:** Staying on Anthropic (tool-use-based schema enforcement exists but the owner chose
+  OpenAI); prompt-only JSON with client validation (what v1 shipped — schema violations surfaced
+  only at parse time).
+
+### 2026-07-05 — No lifetime eaten/tossed counters
+
+- **Chose:** Drop the Settings-footer lifetime counters; v1 ships with no stats surface at all.
+  `status`/`consumedDate` still record consumption, so waste stats remain buildable later.
+- **Why:** Owner call — the counters were judged unnecessary.
+- **Rejected:** Keeping the footer line (was itself the cut-down remnant of a rejected stats screen,
+  see *2026-07-04 — Items float frameless…*).
+
+### 2026-07-05 — Minimal LLM contract: curated item ids, no store/date/emoji
+
+- **Chose:** The LLM returns per item only `id`, `name`, `receipt_text`, `quantity`,
+  `shelf_life_days` — where `id` comes from the curated `ItemID` vocabulary
+  (`WhatsInMyFridge/Core/Types.swift`), schema-enforced so out-of-vocabulary values are impossible.
+  Art is resolved on-device from the id. No store name; `purchaseDate` is the scan day; storage
+  comes from the Settings default. Unknown-item handling is tiered: specific id → generic bucket id
+  (`fruit`, `vegetable`, …) → `unknown`, which the review sheet flags amber; the free-text `name`
+  still describes the item either way. Ids added to the vocabulary later decode as `.unknown` on
+  older builds (forward-compatible).
+- **Why:** Owner's direction. LLM-generated emoji were uncontrollable (multi-glyph, non-food,
+  unrenderable), whereas a closed id set guarantees every item maps to art we ship and makes a
+  future custom sprite set a pure asset swap. Store/purchase-date/category/confidence carried no
+  product value in v1; the generic buckets + `unknown` answer the "customers buy things outside the
+  enum" concern without unbounded vocabulary growth.
+- **Rejected:** Free-form LLM emoji (what v1 shipped — unvalidatable art); an ever-growing exhaustive
+  food taxonomy (unmaintainable, and strict-mode enums have practical size limits); failing/dropping
+  unrecognized items (silently losing food is worse than a generic icon).
 

@@ -23,7 +23,7 @@ struct ReviewRow: View {
                     }
                 }
                 if let receiptText = item.receiptText {
-                    Text(item.lowConfidence
+                    Text(item.needsFix
                          ? "from \"\(receiptText)\" — tap to fix"
                          : "from \"\(receiptText)\"")
                         .font(.system(size: 10))
@@ -37,16 +37,16 @@ struct ReviewRow: View {
             Button {
                 showDatePicker = true
             } label: {
-                Text(item.lowConfidence && !item.userEditedDate
+                Text(item.needsFix && !item.userEditedDate
                      ? "Guess"
                      : item.expiryDate.formatted(.dateTime.month(.abbreviated).day()))
                     .font(.system(size: 10.5, weight: .bold))
-                    .foregroundStyle(item.lowConfidence && !item.userEditedDate
+                    .foregroundStyle(item.needsFix && !item.userEditedDate
                                      ? AppTheme.soon : AppTheme.brandGreen)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 3)
                     .background(
-                        (item.lowConfidence && !item.userEditedDate
+                        (item.needsFix && !item.userEditedDate
                          ? AppTheme.soon : AppTheme.brandGreen).opacity(0.12),
                         in: Capsule())
             }

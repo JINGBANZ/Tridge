@@ -1,8 +1,6 @@
 import SwiftUI
-import SwiftData
 
-/// API key (Keychain), notification hour, default storage, and the lifetime
-/// eaten/tossed counters — the only stats in v1.
+/// API key (Keychain), notification hour, and default storage.
 struct SettingsSheet: View {
     var showKeyExplainer = false
 
@@ -12,27 +10,22 @@ struct SettingsSheet: View {
 
     @State private var apiKey: String = KeychainStore.apiKey ?? ""
 
-    @Query(filter: #Predicate<FridgeItem> { $0.statusRaw == "eaten" })
-    private var eatenItems: [FridgeItem]
-    @Query(filter: #Predicate<FridgeItem> { $0.statusRaw == "tossed" })
-    private var tossedItems: [FridgeItem]
-
     var body: some View {
         NavigationStack {
             Form {
                 Section {
                     if showKeyExplainer {
-                        Label("Scanning needs an Anthropic API key. Paste yours below — it stays on this device.",
+                        Label("Scanning needs an OpenAI API key. Paste yours below — it stays on this device.",
                               systemImage: "key.fill")
                             .font(.footnote)
                             .foregroundStyle(AppTheme.soon)
                     }
-                    SecureField("sk-ant-…", text: $apiKey)
+                    SecureField("sk-…", text: $apiKey)
                         .textContentType(.password)
                         .autocorrectionDisabled()
                         .textInputAutocapitalization(.never)
                 } header: {
-                    Text("Anthropic API key")
+                    Text("OpenAI API key")
                 } footer: {
                     Text("Stored only in your device Keychain, used only to read receipts.")
                 }
@@ -51,13 +44,6 @@ struct SettingsSheet: View {
                             Text(location.label).tag(location.rawValue)
                         }
                     }
-                }
-
-                Section {
-                } footer: {
-                    Text("You've eaten \(eatenItems.count) item\(eatenItems.count == 1 ? "" : "s") and tossed \(tossedItems.count).")
-                        .frame(maxWidth: .infinity)
-                        .multilineTextAlignment(.center)
                 }
             }
             .navigationTitle("Settings")

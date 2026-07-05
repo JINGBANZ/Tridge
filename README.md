@@ -14,12 +14,29 @@ browser. Agents: start with [`AGENTS.md`](AGENTS.md), then [`wiki/index.md`](wik
 - Logic tests (any platform, incl. Linux): `swift test`
 - iOS app (macOS + Xcode 16): open `WhatsInMyFridge.xcodeproj`, or
   `xcodebuild -scheme WhatsInMyFridge -destination 'generic/platform=iOS Simulator' build`
-- Runtime setup: paste your Anthropic API key in Settings (gear icon) — it is
+- Runtime setup: paste your OpenAI API key in Settings (gear icon) — it is
   stored only in the device Keychain.
+
+## Manual testing on a simulator or device
+
+Requires a Mac with Xcode 16+ (the iOS SDK doesn't exist on Linux):
+
+1. Clone the repo, open `WhatsInMyFridge.xcodeproj`.
+2. **Simulator:** pick any iPhone simulator and press Run. No Apple account
+   needed. Caveat: the receipt/date-label camera (`VNDocumentCameraViewController`)
+   does not function on the simulator, so exercise the scan flow on hardware;
+   the grid, drag-to-consume, review sheet (via previews), detail and settings
+   are all testable in the simulator.
+3. **Your iPhone (free Apple ID):** in the target's Signing & Capabilities set
+   your personal team and a unique bundle id, enable Developer Mode on the phone
+   (Settings → Privacy & Security), plug it in and press Run. Free-account
+   signatures expire after 7 days — re-run from Xcode to refresh.
+4. **No Mac at hand:** join the Apple Developer Program ($99/yr) and distribute
+   CI builds via TestFlight (see the spec's "Development environment" section).
 
 ## v1
 
-- LLM receipt scanning (VisionKit capture → Claude vision call → review sheet)
+- LLM receipt scanning (VisionKit capture → vision LLM call → review sheet)
 - Expiry tracking with local notifications (T−2 days and expiry day)
 - Game-inventory-style home grid, sorted soonest-expiring first
 - Drag-to-consume, on-device OCR for printed "best by" dates
