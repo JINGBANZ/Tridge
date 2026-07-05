@@ -5,6 +5,12 @@ import VisionKit
 /// VisionKit document camera as a SwiftUI view; hands back the first captured
 /// page (auto-cropped and de-skewed) or nil on cancel/failure.
 struct DocumentCameraView: UIViewControllerRepresentable {
+    /// False on the Simulator (and browser-hosted simulators) — callers fall
+    /// back to the photo-library picker.
+    static var isCameraSupported: Bool {
+        VNDocumentCameraViewController.isSupported
+    }
+
     var onFinish: (UIImage?) -> Void
 
     func makeUIViewController(context: Context) -> VNDocumentCameraViewController {

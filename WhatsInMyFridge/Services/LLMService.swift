@@ -61,13 +61,19 @@ struct OpenAIService: LLMService {
 
     func parseReceipt(jpegData: Data) async throws -> ParsedReceipt {
         let text = try await requestText(jpegData: jpegData)
-        if let receipt = try? ReceiptResponseParser.parse(text) { return receipt }
+        if let receipt = try? ReceiptResponseParser.parse(text) {
+            AppLog.llm.info("Parsed \(receipt.items.count) items")
+            return receipt
+        }
         // Schema enforcement makes malformed JSON rare (truncation/refusal),
         // but the spec's one automatic retry still applies.
+        AppLog.llm.error("Reply didn't parse (\(text.count) chars: \"\(text.prefix(200))\") — retrying once")
         let retryText = try await requestText(jpegData: jpegData)
         guard let receipt = try? ReceiptResponseParser.parse(retryText) else {
+            AppLog.llm.error("Retry didn't parse either (\(retryText.count) chars) — giving up")
             throw LLMError.unparseable
         }
+        AppLog.llm.info("Retry parsed \(receipt.items.count) items")
         return receipt
     }
 
@@ -120,18 +126,31 @@ struct OpenAIService: LLMService {
         do {
             (data, response) = try await perform(request)
         } catch {
+            AppLog.llm.error("Network error: \(error.localizedDescription)")
             throw LLMError.network(underlying: error)
         }
         guard let http = response as? HTTPURLResponse else {
+            AppLog.llm.error("Non-HTTP response from OpenAI")
             throw LLMError.network(underlying: nil)
         }
         guard (200..<300).contains(http.statusCode) else {
+            // The error body names the exact cause (bad param, quota, model);
+            // never log the request (it holds the key header + image).
+            let body = String(decoding: data.prefix(400), as: UTF8.self)
+            AppLog.llm.error("OpenAI HTTP \(http.statusCode): \(body)")
             throw LLMError.apiFailure(status: http.statusCode)
         }
         guard let decoded = try? JSONDecoder().decode(ResponseBody.self, from: data),
-              let message = decoded.choices.first?.message,
-              message.refusal == nil,
-              let content = message.content else {
+              let message = decoded.choices.first?.message else {
+            AppLog.llm.error("Unrecognized response shape: \(String(decoding: data.prefix(400), as: UTF8.self))")
+            throw LLMError.unparseable
+        }
+        if let refusal = message.refusal {
+            AppLog.llm.error("Model refusal: \(refusal.prefix(200))")
+            throw LLMError.unparseable
+        }
+        guard let content = message.content else {
+            AppLog.llm.error("Response had no content (likely token-limit truncation)")
             throw LLMError.unparseable
         }
         return content

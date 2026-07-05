@@ -33,6 +33,9 @@ $99/yr Apple Developer account).
   `.github/workflows/receipt-smoke.yml`. Ships one synthetic sample fixture; gitignored
   `Fixtures/private/` for personal receipts.
 - `WhatsInMyFridge/` — the app: `App/` (entry, `AppTheme.swift` design tokens, preview seed),
+  scan input via document camera or photo-library import (camera-free platforms fall back
+  automatically; debug builds bundle `Resources/SampleReceipt.jpg`), `Core/AppLog.swift` +
+  Settings → Copy diagnostics as the tester feedback loop,
   `Models/` (`FridgeItem.swift` SwiftData model, `Artwork.swift` artKey lookup), `Services/`
   (`LLMService.swift` OpenAI structured-outputs client, `ReceiptScanner.swift` VisionKit camera, `DateLabelScanner.swift`
   Vision OCR, `NotificationService.swift`, `KeychainStore.swift`, `Haptics.swift`), `Views/`

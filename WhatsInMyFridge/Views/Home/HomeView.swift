@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import PhotosUI
 
 /// The whole app on one screen: frameless item grid on the chilled background,
 /// one scan button, drag-to-consume.
@@ -18,6 +19,7 @@ struct HomeView: View {
     @State private var selectedItem: FridgeItem?
     @State private var showSettings = false
     @State private var settingsKeyExplainer = false
+    @State private var pickedPhoto: PhotosPickerItem?
 
     // Drag-to-consume state
     @State private var draggedItem: FridgeItem?
@@ -63,11 +65,20 @@ struct HomeView: View {
             DocumentCameraView { scanFlow.handleCapture($0) }
                 .ignoresSafeArea()
         }
+        .photosPicker(isPresented: photoPickerBinding, selection: $pickedPhoto, matching: .images)
+        .onChange(of: pickedPhoto) { _, item in
+            guard let item else { return }
+            pickedPhoto = nil
+            Task {
+                let data = try? await item.loadTransferable(type: Data.self)
+                scanFlow.handleCapture(data.flatMap(UIImage.init(data:)))
+            }
+        }
         .alert("Scan failed", isPresented: failedBinding, actions: {
             Button("Try Again") { scanFlow.retry() }
             Button("Cancel", role: .cancel) { scanFlow.reset() }
         }, message: {
-            Text(failureMessage)
+            Text("\(failureMessage)\n\nDetails were logged — Settings → Copy diagnostics.")
         })
         .onChange(of: scanFlow.phase) { _, phase in
             if phase == .needsKey {
@@ -241,9 +252,29 @@ struct HomeView: View {
         }
     }
 
+    /// Tap scans (camera, or photo library where no camera exists); long-press
+    /// offers the source menu. Still the home screen's single control.
     private var scanButton: some View {
-        Button {
-            scanFlow.startScan()
+        Menu {
+            if DocumentCameraView.isCameraSupported {
+                Button {
+                    scanFlow.startScan(from: .camera)
+                } label: {
+                    Label("Scan with camera", systemImage: "doc.viewfinder")
+                }
+            }
+            Button {
+                scanFlow.startScan(from: .photoLibrary)
+            } label: {
+                Label("Choose photo", systemImage: "photo.on.rectangle")
+            }
+            #if DEBUG
+            Button {
+                scanFlow.scanSampleReceipt()
+            } label: {
+                Label("Try sample receipt", systemImage: "testtube.2")
+            }
+            #endif
         } label: {
             Text("🧾")
                 .font(.system(size: 25))
@@ -254,6 +285,8 @@ struct HomeView: View {
                     in: Circle())
                 .overlay(Circle().strokeBorder(.white.opacity(0.35), lineWidth: 1))
                 .shadow(color: AppTheme.brandGreen.opacity(0.45), radius: 10, y: 8)
+        } primaryAction: {
+            scanFlow.startScan()
         }
         .accessibilityLabel("Scan receipt")
     }
@@ -263,6 +296,13 @@ struct HomeView: View {
     private var cameraBinding: Binding<Bool> {
         Binding(get: { scanFlow.phase == .camera },
                 set: { if !$0 && scanFlow.phase == .camera { scanFlow.reset() } })
+    }
+
+    private var photoPickerBinding: Binding<Bool> {
+        // Dismissal precedes the async selection callback, so only flip the
+        // phase back — a full reset would race the incoming photo.
+        Binding(get: { scanFlow.phase == .photoPicker },
+                set: { if !$0 && scanFlow.phase == .photoPicker { scanFlow.phase = .idle } })
     }
 
     private var reviewBinding: Binding<Bool> {

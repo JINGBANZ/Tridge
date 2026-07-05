@@ -1,6 +1,8 @@
 import SwiftUI
+import UIKit
 
-/// API key (Keychain), notification hour, and default storage.
+/// API key (Keychain), notification hour, default storage, and the
+/// copy-diagnostics feedback loop.
 struct SettingsSheet: View {
     var showKeyExplainer = false
 
@@ -9,6 +11,7 @@ struct SettingsSheet: View {
     @AppStorage("defaultStorage") private var defaultStorageRaw = StorageLocation.fridge.rawValue
 
     @State private var apiKey: String = KeychainStore.apiKey ?? ""
+    @State private var copiedDiagnostics = false
 
     var body: some View {
         NavigationStack {
@@ -44,6 +47,20 @@ struct SettingsSheet: View {
                             Text(location.label).tag(location.rawValue)
                         }
                     }
+                }
+
+                Section {
+                    Button {
+                        UIPasteboard.general.string = AppLog.recentDiagnostics()
+                        copiedDiagnostics = true
+                    } label: {
+                        Label(copiedDiagnostics ? "Copied to clipboard" : "Copy diagnostics",
+                              systemImage: copiedDiagnostics ? "checkmark" : "doc.on.doc")
+                    }
+                } header: {
+                    Text("Diagnostics")
+                } footer: {
+                    Text("This session's app logs (scans, parsing, errors — never your API key). Reproduce the problem first, then copy and paste into a bug report.")
                 }
             }
             .navigationTitle("Settings")

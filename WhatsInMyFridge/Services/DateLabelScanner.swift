@@ -31,7 +31,15 @@ enum DateLabelScanner {
 
     /// Full pipeline: photo → OCR → first plausible future date.
     static func scanDate(in image: UIImage) async -> Date? {
-        guard let text = try? await recognizeText(in: image) else { return nil }
-        return DateLabelParser.firstPlausibleDate(in: text)
+        guard let text = try? await recognizeText(in: image) else {
+            AppLog.ocr.error("Text recognition failed")
+            return nil
+        }
+        guard let date = DateLabelParser.firstPlausibleDate(in: text) else {
+            AppLog.ocr.error("No plausible date in \(text.count) chars of OCR text: \"\(text.prefix(120))\"")
+            return nil
+        }
+        AppLog.ocr.info("Read date label: \(date.formatted(date: .abbreviated, time: .omitted))")
+        return date
     }
 }
