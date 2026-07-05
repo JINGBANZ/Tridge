@@ -7,15 +7,17 @@
 
 ## Current phase
 
-v1 implemented end-to-end from the spec. Logic tests pass on Linux (`swift test`); the iOS build is
-compiled only by CI's macOS job (`.github/workflows/ci.yml`), so the first CI run on the v1 PR is the
-outstanding verification.
+v1 merged and CI green (Linux `swift test` + macOS build). CI now also publishes installable test
+builds on every run: a zipped Debug simulator app (Appetize.io browser testing) and an unsigned Debug
+ipa (SideStore sideloading onto the owner's iPhone with a free Apple ID). Install instructions are in
+`README.md` → "Installing a test build".
 
 ## Next action
 
-Watch CI on the v1 PR: fix anything the macOS `xcodebuild` job surfaces, then merge. After that:
-run through the spec's acceptance checklist on a simulator/device (needs a Mac or TestFlight via the
-$99/yr Apple Developer account).
+Owner-side distribution setup: create a free Appetize.io account (optionally add the
+`APPETIZE_API_TOKEN` repo secret so CI auto-publishes each push), and do the one-time SideStore
+pairing of the iPhone from the Linux box. Then run the spec's acceptance checklist on the test
+builds — the SideStore install is the path where the real camera and date-label OCR are testable.
 
 ## Built
 
@@ -42,7 +44,10 @@ $99/yr Apple Developer account).
   (Home grid + drag-to-consume, scan flow + review sheet, item detail + art picker, settings).
 - `WhatsInMyFridge.xcodeproj` — hand-written project (synchronized folder group) + shared scheme;
   see the decision log for why it's hand-authored.
-- `.github/workflows/ci.yml` — Linux `swift test` + macOS `swift test` and simulator `xcodebuild`.
+- `.github/workflows/ci.yml` — Linux `swift test`; macOS `swift test` + Debug builds for simulator
+  and device, published as artifacts (`WhatsInMyFridge-simulator` zip for Appetize.io,
+  `WhatsInMyFridge-ipa` unsigned ipa for SideStore); optional Appetize auto-publish job that
+  no-ops until the `APPETIZE_API_TOKEN` secret exists.
 - `AGENTS.md` / `CLAUDE.md` — agent instructions; shared-rules block syncs from JINGBANZ/rules.
 - `.github/workflows/sync-shared-rules.yml` — weekly shared-rules sync (stub → JINGBANZ/workflows).
 - `.github/workflows/claude.yml`, `.github/workflows/claude-code-review.yml` — @claude mentions and
@@ -51,5 +56,7 @@ $99/yr Apple Developer account).
 
 ## Not yet built
 
-- On-device verification of the spec's acceptance checklist (no simulator on the Linux dev box).
-- TestFlight distribution — needs the $99/yr Apple Developer account; after CI builds work.
+- Verification of the spec's acceptance checklist on a test build (Appetize for the simulator-safe
+  items, SideStore install for camera/OCR items).
+- Owner-side distribution accounts/pairing (Appetize account + token secret; SideStore one-time
+  device pairing) — documented in `README.md`, cannot be done from CI.

@@ -22,24 +22,68 @@ browser. Agents: start with [`AGENTS.md`](AGENTS.md), then [`wiki/index.md`](wik
 - Runtime setup: paste your OpenAI API key in Settings (gear icon) — it is
   stored only in the device Keychain.
 
-## Manual testing on a simulator or device
+## Installing a test build (no Mac needed)
 
-Requires a Mac with Xcode 16+ (the iOS SDK doesn't exist on Linux):
+Every CI run publishes two build artifacts (GitHub → **Actions** → latest run →
+**Artifacts**). Both are Debug builds, so the long-press → "Try sample receipt"
+flow is included.
+
+- `WhatsInMyFridge-simulator` — zipped simulator app, for running in the
+  browser on [Appetize.io](https://appetize.io)
+- `WhatsInMyFridge-ipa` — **unsigned** ipa, for sideloading onto an iPhone with
+  [SideStore](https://sidestore.io) (which re-signs it with your own Apple ID)
+
+### Path 1 — browser simulator via Appetize.io
+
+No Apple account, no hardware. The camera doesn't exist here: the scan button
+falls back to the photo-library picker, and "Try sample receipt" covers the
+full scan → review → inventory flow.
+
+1. Download the `WhatsInMyFridge-simulator` artifact and unzip it once (GitHub
+   wraps artifacts in an outer zip) to get `WhatsInMyFridge-sim.zip`.
+2. Sign up free at [appetize.io](https://appetize.io), **Upload** →
+   `WhatsInMyFridge-sim.zip` (the zipped `.app`, not the ipa), platform iOS.
+3. Open the generated app page and press play. Free tier: sessions are short
+   (a few minutes) with a small monthly minute pool — enough for smoke tests.
+
+If the `APPETIZE_API_TOKEN` repo secret is configured, CI uploads each push
+to Appetize automatically — then you just reopen your existing Appetize link.
+
+### Path 2 — your iPhone via SideStore (free Apple ID, no Mac)
+
+The only path where the real receipt camera and date-label OCR work.
+Free-Apple-ID limits apply: signatures last 7 days (refresh happens on-device
+in SideStore — no computer needed after setup) and max 3 sideloaded apps.
+
+One-time setup (see [docs.sidestore.io](https://docs.sidestore.io) for the
+authoritative steps):
+
+1. On the Linux box install `usbmuxd` + `libimobiledevice` utilities, connect
+   the iPhone over USB, and follow SideStore's install guide — it generates a
+   device **pairing file** (`idevice_pair`) and installs the SideStore app,
+   signed with your free Apple ID.
+2. Install SideStore's WireGuard-based loopback VPN profile on the phone (this
+   is what lets SideStore refresh apps on-device without a computer).
+
+Per build:
+
+1. Download the `WhatsInMyFridge-ipa` artifact, unzip the outer artifact zip
+   to get `WhatsInMyFridge.ipa`, and get it onto the phone (any file transfer:
+   cloud drive, local web server, …).
+2. In SideStore: **+** → pick the ipa. SideStore signs it with your Apple ID
+   and installs it. Re-tap **Refresh** any time before the 7-day signature
+   expires.
+
+### With a Mac (Xcode 16+)
 
 1. Clone the repo, open `WhatsInMyFridge.xcodeproj`.
 2. **Simulator:** pick any iPhone simulator and press Run. No Apple account
-   needed. The document camera doesn't exist on the simulator, but the scan
-   button falls back to the photo-library picker there (drag receipt images
-   into the simulator's Photos app first), and debug builds offer "Try sample
-   receipt" via long-press — so the whole scan → review → inventory flow is
-   testable without hardware. Only the real camera and date-label OCR capture
-   need a device.
+   needed. Same camera fallbacks as Appetize (drag receipt images into the
+   simulator's Photos app to test the picker path).
 3. **Your iPhone (free Apple ID):** in the target's Signing & Capabilities set
    your personal team and a unique bundle id, enable Developer Mode on the phone
    (Settings → Privacy & Security), plug it in and press Run. Free-account
    signatures expire after 7 days — re-run from Xcode to refresh.
-4. **No Mac at hand:** join the Apple Developer Program ($99/yr) and distribute
-   CI builds via TestFlight (see the spec's "Development environment" section).
 
 ## Reporting issues from a test build
 

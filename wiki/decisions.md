@@ -142,3 +142,23 @@
 - **Rejected:** Camera-only input (untestable off-device); a crash/telemetry SDK like Sentry
   (third-party dependency + backend, against v1 constraints); OS-level log capture as the only
   loop (Console.app/`simctl` need a Mac; testers won't run them).
+
+### 2026-07-05 — Test builds via Appetize.io (browser) + SideStore (device), not TestFlight
+
+- **Chose:** CI's macOS job publishes two Debug artifacts per run — a zipped simulator `.app`
+  (Appetize.io's upload format) and an unsigned ipa — plus an auto-publish job that uploads the
+  simulator build to Appetize when the `APPETIZE_API_TOKEN` repo secret exists (a distribution
+  credential the owner adds; unrelated to the OpenAI-key ban). On-device installs go through
+  SideStore, which re-signs the unsigned ipa with the owner's free Apple ID and refreshes the
+  7-day signature on-device after a one-time USB pairing done from the Linux box
+  (`usbmuxd`/`idevice_pair`). Debug configuration on purpose: it keeps the bundled
+  "Try sample receipt" flow in every test build.
+- **Why:** No Mac and no $99 Apple Developer Program. Appetize needs no Apple credentials at all
+  and runs in a browser (camera-free testing is already first-class in the app); SideStore is the
+  free path where the real receipt camera and date-label OCR work, and it is the sideloader whose
+  post-setup refresh loop needs no computer — critical when the only desktop is Linux.
+- **Rejected:** TestFlight (needs the $99/yr program; still the right answer if the app ever goes
+  beyond the owner); classic AltStore (its AltServer must run on macOS/Windows on the owner's
+  Wi-Fi for every install *and* every 7-day refresh; the community AltServer-Linux port is
+  unofficial); CI-signed ipas (signing certificates require the paid program, and secrets-in-CI
+  surface area is deliberately kept minimal).
