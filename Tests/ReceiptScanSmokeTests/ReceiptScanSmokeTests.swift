@@ -18,7 +18,7 @@ final class ReceiptScanSmokeTests: XCTestCase {
         try XCTSkipIf(fixtures.isEmpty,
                       "No fixtures found — add <name>/{receipt.jpg, expected.json} under Tests/ReceiptScanSmokeTests/Fixtures/.")
 
-        let service = OpenAIService(apiKey: apiKey)
+        let service = OpenAIService(apiKey: apiKey, storeResponses: true)
         for fixture in fixtures {
             let receipt = try await service.parseReceipt(jpegData: fixture.imageData)
             let problems = fixture.expectation.mismatches(in: receipt)

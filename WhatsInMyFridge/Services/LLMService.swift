@@ -31,15 +31,16 @@ protocol LLMService {
     func parseReceipt(jpegData: Data) async throws -> ParsedReceipt
 }
 
-/// Direct OpenAI Chat Completions client (no backend in v1; the key comes from
+/// Direct OpenAI Responses API client (no backend in v1; the key comes from
 /// Keychain via Settings). The reply is constrained server-side to
 /// `ReceiptSchema` via strict structured outputs, so the shape is enforced —
 /// not merely requested in the prompt.
 struct OpenAIService: LLMService {
     var apiKey: String
     var session: URLSession = .shared
+    var storeResponses = false
 
-    private static let endpoint = URL(string: "https://api.openai.com/v1/chat/completions")!
+    private static let endpoint = URL(string: "https://api.openai.com/v1/responses")!
     private static let model = "gpt-5-mini"
 
     /// Content rules only — the response shape and the allowed "id" values are
@@ -80,14 +81,17 @@ struct OpenAIService: LLMService {
     // MARK: Request plumbing
 
     private struct ResponseBody: Decodable {
-        struct Choice: Decodable {
-            struct Message: Decodable {
-                var content: String?
+        struct OutputItem: Decodable {
+            struct Content: Decodable {
+                var type: String
+                var text: String?
                 var refusal: String?
             }
-            var message: Message
+            var type: String
+            var content: [Content]?
         }
-        var choices: [Choice]
+        var status: String?
+        var output: [OutputItem]
     }
 
     private func requestText(jpegData: Data) async throws -> String {
@@ -96,19 +100,22 @@ struct OpenAIService: LLMService {
         let body: [String: Any] = [
             "model": Self.model,
             // Generous cap: gpt-5 reasoning tokens count against it.
-            "max_completion_tokens": 4000,
-            "reasoning_effort": "low",
-            "messages": [[
+            "max_output_tokens": 4000,
+            "reasoning": ["effort": "low"],
+            // Production scans are personal data; smoke tests opt in so failed
+            // fixture runs can be inspected in OpenAI's dashboard.
+            "store": storeResponses,
+            "input": [[
                 "role": "user",
                 "content": [
-                    ["type": "image_url",
-                     "image_url": ["url": "data:image/jpeg;base64,\(jpegData.base64EncodedString())"]],
-                    ["type": "text", "text": Self.prompt],
+                    ["type": "input_image",
+                     "image_url": "data:image/jpeg;base64,\(jpegData.base64EncodedString())"],
+                    ["type": "input_text", "text": Self.prompt],
                 ],
             ]],
-            "response_format": [
-                "type": "json_schema",
-                "json_schema": [
+            "text": [
+                "format": [
+                    "type": "json_schema",
                     "name": ReceiptSchema.name,
                     "strict": true,
                     "schema": ReceiptSchema.object(),
@@ -140,20 +147,23 @@ struct OpenAIService: LLMService {
             AppLog.llm.error("OpenAI HTTP \(http.statusCode): \(body)")
             throw LLMError.apiFailure(status: http.statusCode)
         }
-        guard let decoded = try? JSONDecoder().decode(ResponseBody.self, from: data),
-              let message = decoded.choices.first?.message else {
+        guard let decoded = try? JSONDecoder().decode(ResponseBody.self, from: data) else {
             AppLog.llm.error("Unrecognized response shape: \(String(decoding: data.prefix(400), as: UTF8.self))")
             throw LLMError.unparseable
         }
-        if let refusal = message.refusal {
+        // The output timeline interleaves reasoning and message items; the
+        // reply text lives in message items' output_text content.
+        let contents = decoded.output.filter { $0.type == "message" }.flatMap { $0.content ?? [] }
+        if let refusal = contents.first(where: { $0.type == "refusal" })?.refusal {
             AppLog.llm.error("Model refusal: \(refusal.prefix(200))")
             throw LLMError.unparseable
         }
-        guard let content = message.content else {
-            AppLog.llm.error("Response had no content (likely token-limit truncation)")
+        let text = contents.filter { $0.type == "output_text" }.compactMap(\.text).joined()
+        guard !text.isEmpty else {
+            AppLog.llm.error("Empty output, status \(decoded.status ?? "unknown") (likely token-limit truncation)")
             throw LLMError.unparseable
         }
-        return content
+        return text
     }
 
     /// Completion-handler bridge: Linux's FoundationNetworking has no async
