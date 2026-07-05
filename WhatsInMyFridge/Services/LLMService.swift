@@ -38,6 +38,7 @@ protocol LLMService {
 struct OpenAIService: LLMService {
     var apiKey: String
     var session: URLSession = .shared
+    var storeResponses = false
 
     private static let endpoint = URL(string: "https://api.openai.com/v1/responses")!
     private static let model = "gpt-5-mini"
@@ -101,9 +102,9 @@ struct OpenAIService: LLMService {
             // Generous cap: gpt-5 reasoning tokens count against it.
             "max_output_tokens": 4000,
             "reasoning": ["effort": "low"],
-            // Receipts are personal data — never retain them server-side
-            // (Responses stores by default).
-            "store": false,
+            // Production scans are personal data; smoke tests opt in so failed
+            // fixture runs can be inspected in OpenAI's dashboard.
+            "store": storeResponses,
             "input": [[
                 "role": "user",
                 "content": [
