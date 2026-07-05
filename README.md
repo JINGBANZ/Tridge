@@ -5,11 +5,19 @@ expiration dates → items float on a minimal home screen, turning amber, then r
 as they near expiry. Drag an item to "😋 Ate it" or "🗑️ Tossed" when it leaves
 the fridge.
 
-**Status: design phase.** The complete design & build spec (with screen mocks)
+**Status: v1 implemented.** The complete design & build spec (with screen mocks)
 lives at [`design/fridge-design.html`](design/fridge-design.html) — open it in a
 browser. Agents: start with [`AGENTS.md`](AGENTS.md), then [`wiki/index.md`](wiki/index.md).
 
-## Planned v1
+## Building & testing
+
+- Logic tests (any platform, incl. Linux): `swift test`
+- iOS app (macOS + Xcode 16): open `WhatsInMyFridge.xcodeproj`, or
+  `xcodebuild -scheme WhatsInMyFridge -destination 'generic/platform=iOS Simulator' build`
+- Runtime setup: paste your Anthropic API key in Settings (gear icon) — it is
+  stored only in the device Keychain.
+
+## v1
 
 - LLM receipt scanning (VisionKit capture → Claude vision call → review sheet)
 - Expiry tracking with local notifications (T−2 days and expiry day)
