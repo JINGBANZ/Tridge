@@ -107,3 +107,21 @@
   food taxonomy (unmaintainable, and strict-mode enums have practical size limits); failing/dropping
   unrecognized items (silently losing food is worse than a generic icon).
 
+### 2026-07-05 — Live receipt smoke tests with fuzzy fixture expectations
+
+- **Chose:** A Linux-runnable integration test target (`Tests/ReceiptScanSmokeTests`): fixture
+  receipt images + `expected.json` per fixture, sent through the real `OpenAIService` and matched
+  with deliberately fuzzy assertions (name keywords, curated ids, count bounds, loose shelf-life
+  bounds, forbidden keywords — never verbatim strings or absolute dates; expected↔parsed assignment
+  is a maximum bipartite matching so overlapping keywords can't cause order-dependent false
+  failures). Local-only: the key comes from the environment or a gitignored `.env` (`env.sample`
+  template) and never enters the repo or CI, per the AGENTS.md security rule. The OpenAI client
+  moved into the FridgeCore package target (with a completion-handler URLSession bridge) to make
+  this possible without a Mac.
+- **Why:** Validates the product's core differentiator — receipt → inventory quality — and catches
+  model/prompt/schema regressions before any deploy, from a Linux box. Fuzzy matching because LLM
+  wording is not run-to-run stable; exact-output snapshots would flake.
+- **Rejected:** Mock-based tests only (can't catch model/prompt regressions); exact-output snapshot
+  tests (flaky by construction); any CI execution, even manually triggered (an API-key secret in CI
+  is disallowed outright by AGENTS.md → Setup).
+

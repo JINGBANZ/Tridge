@@ -1,0 +1,14 @@
+{
+  "min_items": 6,
+  "max_items": 6,
+  "items": [
+    { "name": ["whole milk", "milk"], "id": "milk", "quantity": 1,
+      "shelf_life_days": { "min": 1 } },
+    { "name": ["strawberr"], "id": "strawberry", "shelf_life_days": { "min": 1 } },
+    { "name": ["chicken"], "id": "chicken", "shelf_life_days": { "min": 1 } },
+    { "name": ["egg"], "id": "eggs", "shelf_life_days": { "min": 1 } },
+    { "name": ["cheddar", "cheese"], "id": "cheese", "shelf_life_days": { "min": 1 } },
+    { "name": ["spinach"], "id": "spinach", "shelf_life_days": { "min": 1 } }
+  ],
+  "absent": ["bag fee", "paper bag", "tax", "subtotal"]
+}

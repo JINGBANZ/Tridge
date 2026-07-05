@@ -12,6 +12,11 @@ browser. Agents: start with [`AGENTS.md`](AGENTS.md), then [`wiki/index.md`](wik
 ## Building & testing
 
 - Logic tests (any platform, incl. Linux): `swift test`
+- Live receipt-scan smoke tests (real OpenAI call against fixture receipts,
+  local-only — the key is never in the repo or CI): copy `env.sample` to `.env`,
+  fill in your key, then `swift test --filter ReceiptScanSmokeTests`. See
+  [`Tests/ReceiptScanSmokeTests/Fixtures/README.md`](Tests/ReceiptScanSmokeTests/Fixtures/README.md)
+  for how to add your own receipt images + expected inventory.
 - iOS app (macOS + Xcode 16): open `WhatsInMyFridge.xcodeproj`, or
   `xcodebuild -scheme WhatsInMyFridge -destination 'generic/platform=iOS Simulator' build`
 - Runtime setup: paste your OpenAI API key in Settings (gear icon) — it is

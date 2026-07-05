@@ -73,6 +73,7 @@ spec is `design/fridge-design.html`; start there (via @wiki/index.md).
 | Task     | Command                                                                  |
 | -------- | ------------------------------------------------------------------------ |
 | Test     | `swift test` (Linux-runnable logic targets)                              |
+| LLM smoke test | `swift test --filter ReceiptScanSmokeTests` (live API, local-only; key from env or `.env` — copy `env.sample`; skips without key) |
 | Build    | `xcodebuild -scheme WhatsInMyFridge -destination 'generic/platform=iOS Simulator' build` (CI/macOS only) |
 | **Gate** | `swift test` on Linux; on macOS/CI, build + full test suite              |
 

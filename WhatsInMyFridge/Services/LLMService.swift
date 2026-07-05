@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking // URLSession on Linux, for the smoke-test target
+#endif
 
 enum LLMError: LocalizedError {
     case missingKey
@@ -115,7 +118,7 @@ struct OpenAIService: LLMService {
 
         let (data, response): (Data, URLResponse)
         do {
-            (data, response) = try await session.data(for: request)
+            (data, response) = try await perform(request)
         } catch {
             throw LLMError.network(underlying: error)
         }
@@ -132,5 +135,19 @@ struct OpenAIService: LLMService {
             throw LLMError.unparseable
         }
         return content
+    }
+
+    /// Completion-handler bridge: Linux's FoundationNetworking has no async
+    /// `data(for:)`, and this file must run there for the smoke tests.
+    private func perform(_ request: URLRequest) async throws -> (Data, URLResponse) {
+        try await withCheckedThrowingContinuation { continuation in
+            session.dataTask(with: request) { data, response, error in
+                if let data, let response {
+                    continuation.resume(returning: (data, response))
+                } else {
+                    continuation.resume(throwing: error ?? URLError(.unknown))
+                }
+            }.resume()
+        }
     }
 }
