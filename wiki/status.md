@@ -22,8 +22,9 @@ $99/yr Apple Developer account).
 - `design/fridge-design.html` — the complete v2 design & build spec (mocks, tokens, screens,
   schema, LLM contract, acceptance criteria).
 - `Package.swift` + `WhatsInMyFridge/Core/` — Linux-testable FridgeCore: LLM receipt-JSON parsing
-  (`ReceiptParsing.swift`), the enforced response schema (`ReceiptSchema.swift`), urgency rules
-  (`Urgency.swift`), date-label regex (`DateLabelParser.swift`), shared enums (`Types.swift`).
+  (`ReceiptParsing.swift`), the enforced response schema (`ReceiptSchema.swift`), the curated
+  `ItemID` vocabulary + shared enums (`Types.swift`), urgency rules (`Urgency.swift`), date-label
+  regex (`DateLabelParser.swift`).
 - `Tests/FridgeCoreTests/` — parsing (incl. fenced/prose-wrapped output), urgency thresholds,
   date-regex tests; all pass via `swift test`.
 - `WhatsInMyFridge/` — the app: `App/` (entry, `AppTheme.swift` design tokens, preview seed),

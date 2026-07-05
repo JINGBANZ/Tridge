@@ -1,25 +1,147 @@
 import Foundation
 
-/// Item category, mirroring the LLM contract's category vocabulary.
-public enum FoodCategory: String, Codable, CaseIterable, Sendable {
-    case produce, dairy, meat, seafood, frozen, pantry, beverage, bakery, deli,
-         leftovers, condiment, other
+/// The curated item vocabulary. The LLM must return one of these ids (enforced
+/// by ReceiptSchema), and each id maps to prebuilt art — emoji in v1, swappable
+/// for custom images under the same keys.
+///
+/// Scalability is handled in tiers: specific ids first, then the generic
+/// buckets at the end (`fruit`, `vegetable`, …) for anything the list doesn't
+/// name, and `unknown` as the last resort. New ids can be appended any time;
+/// older app builds decode unrecognized ids as `.unknown`.
+public enum ItemID: String, Codable, CaseIterable, Sendable {
+    // Fruit
+    case apple, banana, orange, grapes, strawberry, blueberry, lemon, peach,
+         pear, watermelon, melon, pineapple, kiwi, cherry, mango, avocado, coconut
+    // Vegetables
+    case lettuce, spinach, broccoli, carrot, corn, cucumber, tomato, potato,
+         sweetPotato = "sweet_potato", onion, garlic, pepper, mushroom, eggplant,
+         peas, beans
+    // Dairy & eggs
+    case milk, cheese, butter, yogurt, eggs, iceCream = "ice_cream"
+    // Meat
+    case chicken, beef, pork, bacon, sausage, turkey, groundMeat = "ground_meat"
+    // Seafood
+    case fish, salmon, tuna, shrimp, crab
+    // Bakery
+    case bread, bagel, croissant, tortilla, cake, cookie, muffin
+    // Beverages
+    case juice, soda, coffee, tea, beer, wine, water
+    // Pantry & snacks
+    case rice, pasta, noodles, cereal, soup, cannedGoods = "canned_goods",
+         sauce, oil, honey, jam, peanutButter = "peanut_butter", nuts, chips,
+         crackers, chocolate, candy, popcorn
+    // Prepared
+    case pizza, sandwich, sushi, salad, leftovers, frozenMeal = "frozen_meal"
+    // Generic buckets — used when nothing specific fits
+    case fruit, vegetable, dairy, meat, seafood, bakery, beverage, grain,
+         snack, condiment, frozen
+    // Last resort
+    case unknown
 
-    /// Fallback emoji when an item has no usable artKey of its own.
-    public var defaultEmoji: String {
+    /// v1 art: one emoji per id (duplicates are fine — custom sprites can
+    /// differentiate later without touching the vocabulary).
+    public var emoji: String {
         switch self {
-        case .produce: "🥬"
+        case .apple: "🍎"
+        case .banana: "🍌"
+        case .orange: "🍊"
+        case .grapes: "🍇"
+        case .strawberry: "🍓"
+        case .blueberry: "🫐"
+        case .lemon: "🍋"
+        case .peach: "🍑"
+        case .pear: "🍐"
+        case .watermelon: "🍉"
+        case .melon: "🍈"
+        case .pineapple: "🍍"
+        case .kiwi: "🥝"
+        case .cherry: "🍒"
+        case .mango: "🥭"
+        case .avocado: "🥑"
+        case .coconut: "🥥"
+        case .lettuce: "🥬"
+        case .spinach: "🥬"
+        case .broccoli: "🥦"
+        case .carrot: "🥕"
+        case .corn: "🌽"
+        case .cucumber: "🥒"
+        case .tomato: "🍅"
+        case .potato: "🥔"
+        case .sweetPotato: "🍠"
+        case .onion: "🧅"
+        case .garlic: "🧄"
+        case .pepper: "🫑"
+        case .mushroom: "🍄"
+        case .eggplant: "🍆"
+        case .peas: "🫛"
+        case .beans: "🫘"
+        case .milk: "🥛"
+        case .cheese: "🧀"
+        case .butter: "🧈"
+        case .yogurt: "🥣"
+        case .eggs: "🥚"
+        case .iceCream: "🍦"
+        case .chicken: "🍗"
+        case .beef: "🥩"
+        case .pork: "🍖"
+        case .bacon: "🥓"
+        case .sausage: "🌭"
+        case .turkey: "🦃"
+        case .groundMeat: "🥩"
+        case .fish: "🐟"
+        case .salmon: "🐟"
+        case .tuna: "🐟"
+        case .shrimp: "🦐"
+        case .crab: "🦀"
+        case .bread: "🍞"
+        case .bagel: "🥯"
+        case .croissant: "🥐"
+        case .tortilla: "🫓"
+        case .cake: "🍰"
+        case .cookie: "🍪"
+        case .muffin: "🧁"
+        case .juice: "🧃"
+        case .soda: "🥤"
+        case .coffee: "☕️"
+        case .tea: "🍵"
+        case .beer: "🍺"
+        case .wine: "🍷"
+        case .water: "💧"
+        case .rice: "🍚"
+        case .pasta: "🍝"
+        case .noodles: "🍜"
+        case .cereal: "🥣"
+        case .soup: "🍲"
+        case .cannedGoods: "🥫"
+        case .sauce: "🫙"
+        case .oil: "🫒"
+        case .honey: "🍯"
+        case .jam: "🫙"
+        case .peanutButter: "🥜"
+        case .nuts: "🥜"
+        case .chips: "🍟"
+        case .crackers: "🍘"
+        case .chocolate: "🍫"
+        case .candy: "🍬"
+        case .popcorn: "🍿"
+        case .pizza: "🍕"
+        case .sandwich: "🥪"
+        case .sushi: "🍱"
+        case .salad: "🥗"
+        case .leftovers: "🥡"
+        case .frozenMeal: "🧊"
+        case .fruit: "🍏"
+        case .vegetable: "🥬"
         case .dairy: "🥛"
-        case .meat: "🍗"
-        case .seafood: "🐟"
-        case .frozen: "🧊"
-        case .pantry: "🥫"
-        case .beverage: "🧃"
-        case .bakery: "🍞"
-        case .deli: "🥪"
-        case .leftovers: "🍝"
+        case .meat: "🍖"
+        case .seafood: "🦞"
+        case .bakery: "🥖"
+        case .beverage: "🥤"
+        case .grain: "🌾"
+        case .snack: "🍿"
         case .condiment: "🧂"
-        case .other: "🛒"
+        case .frozen: "❄️"
+        case .unknown: "🛒"
         }
     }
 }
@@ -42,8 +164,4 @@ public enum ExpirySource: String, Codable, Sendable {
 
 public enum ItemStatus: String, Codable, Sendable {
     case active, eaten, tossed
-}
-
-public enum Confidence: String, Codable, Sendable {
-    case high, low
 }

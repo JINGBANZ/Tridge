@@ -39,18 +39,21 @@ struct OpenAIService: LLMService {
     private static let endpoint = URL(string: "https://api.openai.com/v1/chat/completions")!
     private static let model = "gpt-5-mini"
 
-    /// Content rules only — the response shape is enforced by ReceiptSchema.
+    /// Content rules only — the response shape and the allowed "id" values are
+    /// enforced by ReceiptSchema.
     static let prompt = """
     This is a grocery store receipt. Extract every FOOD and BEVERAGE item.
     Rules:
     - Expand abbreviations into clean, human-friendly names ("WHL MLK 1GAL" → "Whole Milk").
     - Skip non-food lines: tax, totals, coupons, bags, household goods, loyalty points.
     - If one line has a quantity multiplier, set quantity accordingly.
-    - For each item, estimate typical shelf life in days for the storage you recommend,
-      counted from the purchase date, assuming it was refrigerated promptly.
-    - Pick exactly one emoji that best represents each item.
-    - If a line is probably food but you cannot identify it, include it with
-      name "Unknown item", confidence "low".
+    - Estimate each item's typical shelf life in days from purchase, assuming it
+      is stored appropriately at home (refrigerated promptly where applicable).
+    - For "id", pick the closest match from the allowed values. Prefer a specific
+      id; if nothing specific fits, pick a generic one (fruit, vegetable, dairy,
+      meat, seafood, bakery, beverage, grain, snack, condiment, frozen).
+    - If a line is probably food but you cannot tell what it is, use id "unknown"
+      and name "Unknown item".
     """
 
     func parseReceipt(jpegData: Data) async throws -> ParsedReceipt {
@@ -99,7 +102,7 @@ struct OpenAIService: LLMService {
                 "json_schema": [
                     "name": ReceiptSchema.name,
                     "strict": true,
-                    "schema": try ReceiptSchema.object(),
+                    "schema": ReceiptSchema.object(),
                 ],
             ],
         ]

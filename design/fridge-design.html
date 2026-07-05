@@ -334,7 +334,7 @@
             <div class="sheet">
               <div class="grab"></div>
               <h4>Receipt scanned 🧾</h4>
-              <div class="sub">Trader Joe's · Jul 4 · 6 items found</div>
+              <div class="sub">Jul 4 · 6 items found</div>
               <div class="rows">
                 <div class="row"><span class="remoji">🥛</span><span class="rname">Whole Milk<small>from "TJ WHL MLK 1GAL"</small></span><span class="chip">Jul 11</span></div>
                 <div class="row"><span class="remoji">🍓</span><span class="rname">Strawberries<small>from "STRWBRY 1LB"</small></span><span class="chip">Jul 8</span></div>
@@ -358,7 +358,7 @@
     <span class="eyebrow">Design direction</span>
     <h2>Minimal like a product shelf, playful like a game inventory</h2>
     <p>The reference is <a href="https://skylrk.com/">skylrk.com</a>: a near-empty page where the product images <em>are</em> the interface — generous whitespace, no cards, no chrome, image-first. The home screen borrows that stance exactly: a soft ambient background and the item images floating directly on it. No tiles, no cards, no list chrome, no tab bar — a single scan button at the bottom.</p>
-    <p>Item art is a <strong>prebuilt image per item</strong>. For v1 the prebuilt set is the system food emoji rendered large (they are high-quality, cover ~120 foods, and cost nothing); the code treats art as a lookup — <code>artwork(for: item)</code> returns an image by name/category — so a custom illustrated sprite set can replace emoji later by dropping PNGs into the asset catalog with the same keys. The game-inventory feel comes from the layout and badges, not from slot frames: fixed grid cells, a stack-count badge ("×12"), and a status pill riding the item's shoulder.</p>
+    <p>Item art is a <strong>prebuilt image per item</strong>. For v1 the prebuilt set is the system food emoji rendered large (they are high-quality, cover ~120 foods, and cost nothing); the code treats art as a lookup — every item carries an <code>id</code> from the curated <code>ItemID</code> vocabulary (specific foods plus generic buckets and <code>unknown</code>), and <code>Artwork</code> maps id → emoji — so a custom illustrated sprite set can replace emoji later by dropping PNGs into the asset catalog keyed by the same ids. The game-inventory feel comes from the layout and badges, not from slot frames: fixed grid cells, a stack-count badge ("×12"), and a status pill riding the item's shoulder.</p>
     <div class="cardgrid">
       <div class="card"><h3>Background, not surface</h3><p>A soft cool gradient (chilled-air feel) with a faint top glow — like light inside a fridge. Items cast a soft drop shadow so they sit "in" the space.</p></div>
       <div class="card"><h3>Items are the UI</h3><p>Only images, names, and pills. Header is one word ("Fridge"), an item count, and a small gear for Settings. One hero action: the green scan button.</p></div>
@@ -404,7 +404,7 @@
       <tr><th>Screen</th><th>Contents &amp; behavior</th></tr>
       <tr><td><b>1 · Home</b></td><td>Header ("Fridge", item count, gear icon → Settings sheet) · item grid as specced above · single floating scan button. <br><b>Tap item</b> → Item Detail sheet. <br><b>Long-press + drag item</b> → grid dims, scan button fades out, the two drop zones slide up: <code>😋 Ate it</code> (left) and <code>🗑️ Tossed</code> (right); dropping marks the item consumed/wasted with a haptic — for ×N items it decrements quantity by 1 and the item stays until 0. Releasing outside a zone cancels. <br><b>Empty state:</b> centered ghost item + "Scan your first receipt" + arrow pointing at the scan button.</td></tr>
       <tr><td><b>2 · Scan</b></td><td>Scan button opens <code>VNDocumentCameraViewController</code> (VisionKit). On capture: full-screen progress ("Reading your receipt…", animated receipt emoji), image is downscaled to max 1568px long edge, JPEG 80%, sent to the LLM. Errors (network / key missing / unparseable) show a friendly retry alert.</td></tr>
-      <tr><td><b>3 · Review sheet</b></td><td>Presented sheet (see mock). Store name + date + count header. Each row: art, clean name, original receipt text in small gray, qty, tappable date chip (opens compact date picker). Low-confidence items flagged amber with "tap to fix". Rows can be deleted (swipe) or edited (tap name). Primary button "Add N items to Fridge" saves all, schedules notifications, pops to Home where new items animate in.</td></tr>
+      <tr><td><b>3 · Review sheet</b></td><td>Presented sheet (see mock). Scan date + count header. Each row: art, clean name, original receipt text in small gray, qty, tappable date chip (opens compact date picker). Unrecognized items (id <code>unknown</code>) flagged amber with "tap to fix". Rows can be deleted (swipe) or edited (tap name). Primary button "Add N items to Fridge" saves all, schedules notifications, pops to Home where new items animate in.</td></tr>
       <tr><td><b>4 · Item Detail</b></td><td>Sheet with large art (tap to pick different art from the prebuilt set), name field, quantity stepper, storage picker (Fridge/Freezer/Pantry), expiry date picker with source note ("Guessed by AI — tap to correct"), and a <b>"📷 Scan date label"</b> button → camera + on-device Vision OCR (<code>VNRecognizeTextRequest</code>), regex-match date formats (<code>MM/DD/YY</code>, <code>DD MMM YYYY</code>, <code>YYYY-MM-DD</code>, "Best by …"), accept the first plausible date (today &lt; d &lt; today+5y) after user confirmation. Buttons: Ate it · Tossed it · Delete.</td></tr>
       <tr><td><b>＋ Settings sheet</b></td><td>Opened from the gear icon (not a tab): OpenAI API key (SecureField, stored in Keychain), notification hour (default 9:00), default storage location. No stats in v1.</td></tr>
     </table></div>
@@ -412,7 +412,7 @@
     <h3>The core loop</h3>
     <div class="flow">
       <div class="step"><span class="n"></span><div><b>Shop, then scan</b><p>User taps the scan button, photographs the receipt. VisionKit auto-crops and de-skews.</p></div></div>
-      <div class="step"><span class="n"></span><div><b>LLM parses everything at once</b><p>One API call returns clean names, art key, category, quantity, storage guess, and shelf-life estimate per item. No barcode DB, no OCR post-processing.</p></div></div>
+      <div class="step"><span class="n"></span><div><b>LLM parses everything at once</b><p>One API call returns a curated item id, clean name, quantity, and shelf-life estimate per item. No barcode DB, no OCR post-processing.</p></div></div>
       <div class="step"><span class="n"></span><div><b>Confirm in one tap</b><p>Review sheet fixes trust: user corrects anything odd, then "Add N items". Dates the user edits are marked <code>userSet</code> and never overwritten.</p></div></div>
       <div class="step"><span class="n"></span><div><b>Live inventory</b><p>Home grid shows everything, soonest-expiring first. Pills tick down daily; notifications fire at T−2 days and on expiry day at the configured hour.</p></div></div>
       <div class="step"><span class="n"></span><div><b>Eat or toss</b><p>Drag an item to a drop zone (or use the detail sheet buttons). Consumed items leave the grid but persist, so waste stats can be added later.</p></div></div>
@@ -428,16 +428,14 @@
       <tr><td><code>id</code></td><td>UUID</td><td>primary</td></tr>
       <tr><td><code>name</code></td><td>String</td><td>clean display name ("Whole Milk")</td></tr>
       <tr><td><code>receiptText</code></td><td>String?</td><td>raw line from receipt ("TJ WHL MLK 1GAL")</td></tr>
-      <tr><td><code>artKey</code></td><td>String</td><td>key into the prebuilt art set; v1 stores the emoji itself. <code>artwork(for:)</code> resolves key → image, falling back to a category default.</td></tr>
-      <tr><td><code>category</code></td><td>enum</td><td><code>produce · dairy · meat · seafood · frozen · pantry · beverage · bakery · deli · leftovers · condiment · other</code></td></tr>
+      <tr><td><code>artKey</code></td><td>String</td><td>an <code>ItemID</code> rawValue from the curated vocabulary ("milk"); <code>Artwork</code> resolves id → emoji (v1) or a custom image later, unrecognized keys fall back to <code>unknown</code>'s art</td></tr>
       <tr><td><code>quantity</code></td><td>Int</td><td>≥1; consume decrements, removes at 0</td></tr>
-      <tr><td><code>storage</code></td><td>enum</td><td><code>fridge · freezer · pantry</code></td></tr>
-      <tr><td><code>purchaseDate</code></td><td>Date</td><td>from receipt if printed, else scan date</td></tr>
+      <tr><td><code>storage</code></td><td>enum</td><td><code>fridge · freezer · pantry</code>; new items get the Settings default, editable per item</td></tr>
+      <tr><td><code>purchaseDate</code></td><td>Date</td><td>the day the receipt was scanned (not read from the receipt)</td></tr>
       <tr><td><code>expiryDate</code></td><td>Date</td><td><code>purchaseDate + shelfLifeDays</code> initially</td></tr>
       <tr><td><code>expirySource</code></td><td>enum</td><td><code>llmEstimate · userSet · scannedLabel</code> — never overwrite <code>userSet</code>/<code>scannedLabel</code></td></tr>
       <tr><td><code>status</code></td><td>enum</td><td><code>active · eaten · tossed</code></td></tr>
       <tr><td><code>consumedDate</code></td><td>Date?</td><td>set when status changes; kept so waste stats can be added later</td></tr>
-      <tr><td><code>store</code></td><td>String?</td><td>e.g. "Trader Joe's"</td></tr>
     </table></div>
     <p class="muted">Urgency is computed, not stored: <code>daysLeft = calendarDays(now → expiryDate)</code>. Expired means end-of-day(expiryDate) &lt; now. Persistence is local-only SwiftData for v1; the schema is CloudKit-compatible (all optionals/defaults) so sync can be enabled later without migration.</p>
   </section>
@@ -446,7 +444,7 @@
   <section>
     <span class="eyebrow">LLM integration</span>
     <h2>One vision call does receipt → inventory</h2>
-    <p>Direct call to the OpenAI Chat Completions API with model <code>gpt-5-mini</code> (fast, pennies per receipt). The response shape is <b>enforced server-side</b> with a strict Structured Outputs JSON Schema — <code>SCHEMA</code> below, the canonical copy lives in <code>WhatsInMyFridge/Core/ReceiptSchema.swift</code> and is test-checked against the Swift DTOs — so replies always match the contract; the prompt carries only the content rules. The user's API key is entered in Settings and stored in Keychain — no backend for v1. Wrap it in an <code>LLMService</code> protocol so a proxy can replace it later.</p>
+    <p>Direct call to the OpenAI Chat Completions API with model <code>gpt-5-mini</code> (fast, pennies per receipt). The response shape is <b>enforced server-side</b> with a strict Structured Outputs JSON Schema — <code>SCHEMA</code> below, built programmatically in <code>WhatsInMyFridge/Core/ReceiptSchema.swift</code> and test-checked against the Swift DTOs — so replies always match the contract; the prompt carries only the content rules. Per item the LLM returns exactly: <code>id</code> (one of the curated <code>ItemID</code> vocabulary — the schema's enum makes anything else impossible), <code>name</code>, <code>receipt_text</code>, <code>quantity</code>, <code>shelf_life_days</code>. No store name, no purchase date (the app stamps the scan day), no emoji (art is resolved from <code>id</code> on-device), no storage guess (the Settings default applies). Unknown-item strategy is tiered: specific id → generic bucket id (<code>fruit</code>, <code>vegetable</code>, <code>meat</code>, …) → <code>unknown</code>, which the review sheet flags amber for fixing; ids added to the vocabulary later decode as <code>unknown</code> on older builds. The user's API key is entered in Settings and stored in Keychain — no backend for v1. Wrap it in an <code>LLMService</code> protocol so a proxy can replace it later.</p>
     <pre>POST https://api.openai.com/v1/chat/completions
 headers: Authorization: Bearer &lt;key&gt; · content-type: application/json
 body: { "model": "gpt-5-mini", "max_completion_tokens": 4000, "reasoning_effort": "low",
@@ -455,21 +453,23 @@ body: { "model": "gpt-5-mini", "max_completion_tokens": 4000, "reasoning_effort"
         "messages": [{ "role": "user", "content": [
           { "type": "image_url", "image_url": { "url": "data:image/jpeg;base64,&lt;receipt&gt;" }},
           { "type": "text", "text": PROMPT }]}] }</pre>
-    <p><b>PROMPT</b> (verbatim — content rules only; the JSON shape comes from SCHEMA):</p>
+    <p><b>PROMPT</b> (verbatim — content rules only; the JSON shape and allowed <code>id</code> values come from SCHEMA):</p>
     <pre>This is a grocery store receipt. Extract every FOOD and BEVERAGE item.
 Rules:
 - Expand abbreviations into clean, human-friendly names ("WHL MLK 1GAL" → "Whole Milk").
 - Skip non-food lines: tax, totals, coupons, bags, household goods, loyalty points.
 - If one line has a quantity multiplier, set quantity accordingly.
-- For each item, estimate typical shelf life in days for the storage you recommend,
-  counted from the purchase date, assuming it was refrigerated promptly.
-- Pick exactly one emoji that best represents each item.
-- If a line is probably food but you cannot identify it, include it with
-  name "Unknown item", confidence "low".</pre>
+- Estimate each item's typical shelf life in days from purchase, assuming it
+  is stored appropriately at home (refrigerated promptly where applicable).
+- For "id", pick the closest match from the allowed values. Prefer a specific
+  id; if nothing specific fits, pick a generic one (fruit, vegetable, dairy,
+  meat, seafood, bakery, beverage, grain, snack, condiment, frozen).
+- If a line is probably food but you cannot tell what it is, use id "unknown"
+  and name "Unknown item".</pre>
     <ul>
       <li><b>Parsing:</b> structured outputs guarantees schema-valid JSON, but the client stays defensive: strip Markdown code fences if present, then <code>JSONDecoder</code>. On decode failure (truncation, refusal), retry the call once; then surface a retry alert.</li>
       <li><b>Image prep:</b> longest edge ≤ 1568px, JPEG quality 0.8, before base64.</li>
-      <li><b>Low-confidence items</b> get the amber "tap to fix" treatment in the review sheet, never silently dropped.</li>
+      <li><b>Unidentifiable items</b> come back as id <code>unknown</code> and get the amber "tap to fix" treatment in the review sheet, never silently dropped.</li>
       <li><b>No key set:</b> scan button opens Settings with an inline explainer instead of the camera.</li>
     </ul>
   </section>

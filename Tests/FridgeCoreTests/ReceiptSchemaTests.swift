@@ -7,15 +7,19 @@ final class ReceiptSchemaTests: XCTestCase {
     private var itemSchema: [String: Any] = [:]
 
     override func setUpWithError() throws {
-        schema = try ReceiptSchema.object()
+        schema = ReceiptSchema.object()
         let items = try XCTUnwrap(schema["properties"] as? [String: Any])["items"]
         itemSchema = try XCTUnwrap((items as? [String: Any])?["items"] as? [String: Any])
     }
 
+    func testSchemaSerializesAsJSON() throws {
+        // Strict structured outputs rejects anything that isn't plain JSON.
+        XCTAssertNoThrow(try JSONSerialization.data(withJSONObject: ReceiptSchema.object()))
+    }
+
     func testTopLevelShape() throws {
         XCTAssertEqual(schema["additionalProperties"] as? Bool, false)
-        XCTAssertEqual(Set(try XCTUnwrap(schema["required"] as? [String])),
-                       ["store", "purchase_date", "items"])
+        XCTAssertEqual(try XCTUnwrap(schema["required"] as? [String]), ["items"])
     }
 
     func testItemShapeIsStrictAndComplete() throws {
@@ -24,32 +28,33 @@ final class ReceiptSchemaTests: XCTestCase {
         let properties = Set(try XCTUnwrap(itemSchema["properties"] as? [String: Any]).keys)
         // Strict mode demands every property be required, and vice versa.
         XCTAssertEqual(required, properties)
-        XCTAssertEqual(required, ["name", "receipt_text", "emoji", "category", "quantity",
-                                  "storage", "shelf_life_days", "confidence"])
+        XCTAssertEqual(required, ["id", "name", "receipt_text", "quantity", "shelf_life_days"])
     }
 
-    func testEnumsMatchSwiftTypes() throws {
+    func testIDEnumIsExactlyTheCuratedVocabulary() throws {
         let properties = try XCTUnwrap(itemSchema["properties"] as? [String: Any])
-        func enumValues(_ key: String) throws -> Set<String> {
-            Set(try XCTUnwrap((properties[key] as? [String: Any])?["enum"] as? [String]))
+        let idEnum = try XCTUnwrap((properties["id"] as? [String: Any])?["enum"] as? [String])
+        XCTAssertEqual(idEnum, ItemID.allCases.map(\.rawValue))
+        XCTAssertTrue(idEnum.contains("unknown"), "the fallback id must stay in the vocabulary")
+    }
+
+    func testEveryVocabularyIDHasArt() {
+        for id in ItemID.allCases {
+            XCTAssertFalse(id.emoji.isEmpty, "\(id.rawValue) has no emoji")
         }
-        XCTAssertEqual(try enumValues("category"),
-                       Set(FoodCategory.allCases.map(\.rawValue)))
-        XCTAssertEqual(try enumValues("storage"),
-                       Set(StorageLocation.allCases.map(\.rawValue)))
-        XCTAssertEqual(try enumValues("confidence"), ["high", "low"])
     }
 
     func testSchemaConformingReplyRoundTripsThroughParser() throws {
         // A maximal reply that obeys the schema (nulls included) must decode.
         let reply = """
-        { "store": null, "purchase_date": "2026-07-05",
-          "items": [{ "name": "Whole Milk", "receipt_text": null, "emoji": "🥛",
-                      "category": "dairy", "quantity": 1, "storage": "fridge",
-                      "shelf_life_days": 7, "confidence": "high" }] }
+        { "items": [{ "id": "milk", "name": "Whole Milk", "receipt_text": null,
+                      "quantity": 1, "shelf_life_days": 7 },
+                    { "id": "unknown", "name": "Unknown item", "receipt_text": "TJ 94823 MISC",
+                      "quantity": 1, "shelf_life_days": 3 }] }
         """
         let receipt = try ReceiptResponseParser.parse(reply)
-        XCTAssertEqual(receipt.items.count, 1)
+        XCTAssertEqual(receipt.items.count, 2)
         XCTAssertNil(receipt.items[0].receiptText)
+        XCTAssertEqual(receipt.items[1].id, .unknown)
     }
 }

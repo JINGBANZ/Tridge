@@ -88,3 +88,22 @@
 - **Rejected:** Keeping the footer line (was itself the cut-down remnant of a rejected stats screen,
   see *2026-07-04 — Items float frameless…*).
 
+### 2026-07-05 — Minimal LLM contract: curated item ids, no store/date/emoji
+
+- **Chose:** The LLM returns per item only `id`, `name`, `receipt_text`, `quantity`,
+  `shelf_life_days` — where `id` comes from the curated `ItemID` vocabulary
+  (`WhatsInMyFridge/Core/Types.swift`), schema-enforced so out-of-vocabulary values are impossible.
+  Art is resolved on-device from the id. No store name; `purchaseDate` is the scan day; storage
+  comes from the Settings default. Unknown-item handling is tiered: specific id → generic bucket id
+  (`fruit`, `vegetable`, …) → `unknown`, which the review sheet flags amber; the free-text `name`
+  still describes the item either way. Ids added to the vocabulary later decode as `.unknown` on
+  older builds (forward-compatible).
+- **Why:** Owner's direction. LLM-generated emoji were uncontrollable (multi-glyph, non-food,
+  unrenderable), whereas a closed id set guarantees every item maps to art we ship and makes a
+  future custom sprite set a pure asset swap. Store/purchase-date/category/confidence carried no
+  product value in v1; the generic buckets + `unknown` answer the "customers buy things outside the
+  enum" concern without unbounded vocabulary growth.
+- **Rejected:** Free-form LLM emoji (what v1 shipped — unvalidatable art); an ever-growing exhaustive
+  food taxonomy (unmaintainable, and strict-mode enums have practical size limits); failing/dropping
+  unrecognized items (silently losing food is worse than a generic icon).
+

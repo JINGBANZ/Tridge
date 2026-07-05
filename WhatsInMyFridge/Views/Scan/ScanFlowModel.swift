@@ -16,21 +16,23 @@ final class ScanFlowModel {
     /// One editable row in the review sheet.
     struct ReviewItem: Identifiable {
         let id = UUID()
+        var itemID: ItemID
         var name: String
         var receiptText: String?
-        var emoji: String
-        var category: FoodCategory
         var quantity: Int
-        var storage: StorageLocation
         var expiryDate: Date
-        var lowConfidence: Bool
         /// Set when the user touches the date chip; such dates save as
         /// `.userSet` and are never overwritten by later LLM guesses.
         var userEditedDate = false
+
+        /// The LLM couldn't identify this line — flagged amber for fixing.
+        var needsFix: Bool { itemID == .unknown }
+        var emoji: String { itemID.emoji }
     }
 
     var phase: Phase = .idle
-    var reviewStore: String?
+    /// The purchase date is the day the receipt was photographed — it is not
+    /// read off the receipt.
     var reviewPurchaseDate = Date()
     var reviewItems: [ReviewItem] = []
 
@@ -62,7 +64,6 @@ final class ScanFlowModel {
         phase = .idle
         pendingImage = nil
         reviewItems = []
-        reviewStore = nil
     }
 
     private func process(_ image: UIImage) {
@@ -76,7 +77,7 @@ final class ScanFlowModel {
             do {
                 guard let jpeg = image.receiptJPEGData() else { throw LLMError.unparseable }
                 let receipt = try await service.parseReceipt(jpegData: jpeg)
-                load(receipt, defaultStorage: defaultStorageLocation())
+                load(receipt, capturedOn: Date())
                 phase = .review
             } catch {
                 let message = (error as? LLMError)?.errorDescription
@@ -87,43 +88,32 @@ final class ScanFlowModel {
         }
     }
 
-    private func defaultStorageLocation() -> StorageLocation {
-        let raw = UserDefaults.standard.string(forKey: "defaultStorage") ?? ""
-        return StorageLocation(rawValue: raw) ?? .fridge
-    }
-
-    func load(_ receipt: ParsedReceipt, defaultStorage: StorageLocation) {
-        let purchase = receipt.purchaseDateValue() ?? Date()
-        reviewStore = receipt.store
+    func load(_ receipt: ParsedReceipt, capturedOn purchase: Date) {
         reviewPurchaseDate = purchase
         reviewItems = receipt.items.map { parsed in
             ReviewItem(
+                itemID: parsed.id,
                 name: parsed.name,
                 receiptText: parsed.receiptText,
-                emoji: Artwork.resolve(key: parsed.emoji, category: parsed.category),
-                category: parsed.category,
                 quantity: parsed.quantity,
-                storage: parsed.storage ?? defaultStorage,
                 expiryDate: Calendar.current.date(byAdding: .day, value: parsed.shelfLifeDays,
-                                                  to: purchase) ?? purchase,
-                lowConfidence: parsed.confidence == .low)
+                                                  to: purchase) ?? purchase)
         }
     }
 
     /// Saves all reviewed rows, schedules their notifications, and ends the flow.
     func confirm(into context: ModelContext, notificationHour: Int) {
+        let storage = defaultStorageLocation()
         let items = reviewItems.map { row in
             FridgeItem(
                 name: row.name,
                 receiptText: row.receiptText,
-                artKey: row.emoji,
-                category: row.category,
+                artKey: row.itemID.rawValue,
                 quantity: row.quantity,
-                storage: row.storage,
+                storage: storage,
                 purchaseDate: reviewPurchaseDate,
                 expiryDate: row.expiryDate,
-                expirySource: row.userEditedDate ? .userSet : .llmEstimate,
-                store: reviewStore)
+                expirySource: row.userEditedDate ? .userSet : .llmEstimate)
         }
         for item in items {
             context.insert(item)
@@ -137,5 +127,10 @@ final class ScanFlowModel {
             }
         }
         reset()
+    }
+
+    private func defaultStorageLocation() -> StorageLocation {
+        let raw = UserDefaults.standard.string(forKey: "defaultStorage") ?? ""
+        return StorageLocation(rawValue: raw) ?? .fridge
     }
 }
