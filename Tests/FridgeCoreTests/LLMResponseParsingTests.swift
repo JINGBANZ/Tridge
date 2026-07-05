@@ -3,40 +3,33 @@ import XCTest
 
 final class LLMResponseParsingTests: XCTestCase {
     private let sampleJSON = """
-    { "store": "Trader Joe's", "purchase_date": "2026-07-04",
-      "items": [
-        { "name": "Whole Milk", "receipt_text": "TJ WHL MLK 1GAL", "emoji": "🥛",
-          "category": "dairy", "quantity": 1, "storage": "fridge",
-          "shelf_life_days": 7, "confidence": "high" },
-        { "name": "Eggs", "receipt_text": "LG EGGS DOZEN", "emoji": "🥚",
-          "category": "dairy", "quantity": 12, "storage": "fridge",
-          "shelf_life_days": 18, "confidence": "high" }
+    { "items": [
+        { "id": "milk", "name": "Whole Milk", "receipt_text": "TJ WHL MLK 1GAL",
+          "quantity": 1, "shelf_life_days": 7 },
+        { "id": "eggs", "name": "Eggs", "receipt_text": "LG EGGS DOZEN",
+          "quantity": 12, "shelf_life_days": 18 }
       ] }
     """
 
     func testParsesPlainJSON() throws {
         let receipt = try ReceiptResponseParser.parse(sampleJSON)
-        XCTAssertEqual(receipt.store, "Trader Joe's")
-        XCTAssertEqual(receipt.purchaseDate, "2026-07-04")
         XCTAssertEqual(receipt.items.count, 2)
+        XCTAssertEqual(receipt.items[0].id, .milk)
         XCTAssertEqual(receipt.items[0].name, "Whole Milk")
         XCTAssertEqual(receipt.items[0].receiptText, "TJ WHL MLK 1GAL")
-        XCTAssertEqual(receipt.items[0].emoji, "🥛")
-        XCTAssertEqual(receipt.items[0].category, .dairy)
+        XCTAssertEqual(receipt.items[1].id, .eggs)
         XCTAssertEqual(receipt.items[1].quantity, 12)
         XCTAssertEqual(receipt.items[1].shelfLifeDays, 18)
-        XCTAssertEqual(receipt.items[0].confidence, .high)
     }
 
     func testParsesFencedJSON() throws {
         let fenced = "```json\n\(sampleJSON)\n```"
-        let receipt = try ReceiptResponseParser.parse(fenced)
-        XCTAssertEqual(receipt.items.count, 2)
+        XCTAssertEqual(try ReceiptResponseParser.parse(fenced).items.count, 2)
     }
 
     func testParsesFenceWithoutLanguageTag() throws {
         let fenced = "```\n\(sampleJSON)\n```"
-        XCTAssertEqual(try ReceiptResponseParser.parse(fenced).store, "Trader Joe's")
+        XCTAssertEqual(try ReceiptResponseParser.parse(fenced).items.count, 2)
     }
 
     func testParsesJSONSurroundedByProse() throws {
@@ -44,33 +37,39 @@ final class LLMResponseParsingTests: XCTestCase {
         XCTAssertEqual(try ReceiptResponseParser.parse(chatty).items.count, 2)
     }
 
-    func testUnknownCategoryAndStorageFallBack() throws {
+    func testUnrecognizedIDFallsBackToUnknown() throws {
+        // A vocabulary id added server-side later must not break older builds.
         let json = """
-        { "store": null, "purchase_date": null,
-          "items": [{ "name": "Mystery", "receipt_text": "X", "emoji": "🥫",
-                      "category": "cryogenics", "quantity": 1, "storage": "cellar",
-                      "shelf_life_days": 5, "confidence": "low" }] }
+        { "items": [{ "id": "dragonfruit", "name": "Dragon Fruit",
+                      "receipt_text": "DRGN FRT", "quantity": 1, "shelf_life_days": 5 }] }
         """
         let item = try ReceiptResponseParser.parse(json).items[0]
-        XCTAssertEqual(item.category, .other)
-        XCTAssertNil(item.storage, "unknown storage is left nil for the app's default to fill")
+        XCTAssertEqual(item.id, .unknown)
+        XCTAssertEqual(item.name, "Dragon Fruit", "the free-text name is preserved")
     }
 
     func testMissingOptionalFieldsGetDefaults() throws {
-        let json = #"{ "store": null, "purchase_date": null, "items": [{ "name": "Bread" }] }"#
+        let json = #"{ "items": [{ "id": "bread" }] }"#
         let item = try ReceiptResponseParser.parse(json).items[0]
+        XCTAssertEqual(item.id, .bread)
+        XCTAssertEqual(item.name, "Unknown item")
         XCTAssertEqual(item.quantity, 1)
         XCTAssertEqual(item.shelfLifeDays, 7)
-        XCTAssertEqual(item.confidence, .low)
-        XCTAssertEqual(item.emoji, "")
         XCTAssertNil(item.receiptText)
+    }
+
+    func testNullReceiptTextDecodes() throws {
+        let json = """
+        { "items": [{ "id": "milk", "name": "Milk", "receipt_text": null,
+                      "quantity": 1, "shelf_life_days": 7 }] }
+        """
+        XCTAssertNil(try ReceiptResponseParser.parse(json).items[0].receiptText)
     }
 
     func testQuantityClampedToAtLeastOne() throws {
         let json = """
-        { "store": null, "purchase_date": null,
-          "items": [{ "name": "Milk", "quantity": 0 },
-                    { "name": "Juice", "quantity": -3 }] }
+        { "items": [{ "id": "milk", "name": "Milk", "quantity": 0 },
+                    { "id": "juice", "name": "Juice", "quantity": -3 }] }
         """
         let receipt = try ReceiptResponseParser.parse(json)
         XCTAssertEqual(receipt.items[0].quantity, 1)
@@ -81,18 +80,5 @@ final class LLMResponseParsingTests: XCTestCase {
         XCTAssertThrowsError(try ReceiptResponseParser.parse("Sorry, I can't read this receipt."))
         XCTAssertThrowsError(try ReceiptResponseParser.parse("{ \"items\": [ truncated"))
         XCTAssertThrowsError(try ReceiptResponseParser.parse(""))
-    }
-
-    func testPurchaseDateValue() throws {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(identifier: "UTC")!
-        let receipt = try ReceiptResponseParser.parse(sampleJSON)
-        let date = try XCTUnwrap(receipt.purchaseDateValue(calendar: calendar))
-        XCTAssertEqual(calendar.component(.year, from: date), 2026)
-        XCTAssertEqual(calendar.component(.month, from: date), 7)
-        XCTAssertEqual(calendar.component(.day, from: date), 4)
-
-        let bad = ParsedReceipt(store: nil, purchaseDate: "not-a-date", items: [])
-        XCTAssertNil(bad.purchaseDateValue(calendar: calendar))
     }
 }

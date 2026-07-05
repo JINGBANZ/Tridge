@@ -46,10 +46,7 @@ struct ReviewSheet: View {
     }
 
     private var subtitle: String {
-        var parts: [String] = []
-        if let store = model.reviewStore { parts.append(store) }
-        parts.append(model.reviewPurchaseDate.formatted(.dateTime.month(.abbreviated).day()))
-        parts.append("\(model.reviewItems.count) item\(model.reviewItems.count == 1 ? "" : "s") found")
-        return parts.joined(separator: " · ")
+        let date = model.reviewPurchaseDate.formatted(.dateTime.month(.abbreviated).day())
+        return "\(date) · \(model.reviewItems.count) item\(model.reviewItems.count == 1 ? "" : "s") found"
     }
 }

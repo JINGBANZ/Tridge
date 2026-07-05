@@ -57,7 +57,7 @@ Mark breaking changes with `!` (`feat!:`) or a `BREAKING CHANGE:` footer. One lo
 MyFridge ("What's In My Fridge") is a native iOS app: photograph a grocery receipt, an LLM parses
 it into a fridge inventory with guessed expiration dates, and the home screen shows each item as an
 image on a minimal background, turning amber → red as expiry nears. Stack: iOS 17+, SwiftUI,
-SwiftData, direct Anthropic API calls — no backend, no third-party packages. The complete build
+SwiftData, direct OpenAI API calls — no backend, no third-party packages. The complete build
 spec is `design/fridge-design.html`; start there (via @wiki/index.md).
 
 ## Setup
@@ -65,7 +65,7 @@ spec is `design/fridge-design.html`; start there (via @wiki/index.md).
 - Development happens on a Linux box; Xcode/macOS exists only in CI (GitHub Actions macOS runners).
   Structure pure-logic code (LLM response parsing, urgency rules, date-regex parsing) into targets
   that build and pass under `swift test` on Linux.
-- The Anthropic API key is supplied by the end user at runtime (Settings → Keychain). No key is
+- The OpenAI API key is supplied by the end user at runtime (Settings → Keychain). No key is
   ever needed — or allowed — in the repo, CI, or build config.
 
 ## Commands
@@ -99,7 +99,7 @@ spec is `design/fridge-design.html`; start there (via @wiki/index.md).
 
 ## Security & safety
 
-- Never commit an Anthropic API key or any receipt images with personal data. The key lives only
+- Never commit an OpenAI API key or any receipt images with personal data. The key lives only
   in the device Keychain at runtime.
 
 ## Gotchas

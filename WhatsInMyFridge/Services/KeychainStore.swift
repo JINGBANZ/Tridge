@@ -1,11 +1,11 @@
 import Foundation
 import Security
 
-/// The Anthropic API key lives only here — in the device Keychain — never in
+/// The OpenAI API key lives only here — in the device Keychain — never in
 /// the repo, UserDefaults, or logs.
 enum KeychainStore {
     private static let service = "com.whatsinmyfridge.credentials"
-    private static let account = "anthropic-api-key"
+    private static let account = "openai-api-key"
 
     private static var baseQuery: [String: Any] {
         [kSecClass as String: kSecClassGenericPassword,

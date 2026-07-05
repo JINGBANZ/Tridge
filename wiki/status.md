@@ -22,13 +22,14 @@ $99/yr Apple Developer account).
 - `design/fridge-design.html` — the complete v2 design & build spec (mocks, tokens, screens,
   schema, LLM contract, acceptance criteria).
 - `Package.swift` + `WhatsInMyFridge/Core/` — Linux-testable FridgeCore: LLM receipt-JSON parsing
-  (`ReceiptParsing.swift`), urgency rules (`Urgency.swift`), date-label regex (`DateLabelParser.swift`),
-  shared enums (`Types.swift`).
+  (`ReceiptParsing.swift`), the enforced response schema (`ReceiptSchema.swift`), the curated
+  `ItemID` vocabulary + shared enums (`Types.swift`), urgency rules (`Urgency.swift`), date-label
+  regex (`DateLabelParser.swift`).
 - `Tests/FridgeCoreTests/` — parsing (incl. fenced/prose-wrapped output), urgency thresholds,
   date-regex tests; all pass via `swift test`.
 - `WhatsInMyFridge/` — the app: `App/` (entry, `AppTheme.swift` design tokens, preview seed),
   `Models/` (`FridgeItem.swift` SwiftData model, `Artwork.swift` artKey lookup), `Services/`
-  (`LLMService.swift` Anthropic client, `ReceiptScanner.swift` VisionKit camera, `DateLabelScanner.swift`
+  (`LLMService.swift` OpenAI structured-outputs client, `ReceiptScanner.swift` VisionKit camera, `DateLabelScanner.swift`
   Vision OCR, `NotificationService.swift`, `KeychainStore.swift`, `Haptics.swift`), `Views/`
   (Home grid + drag-to-consume, scan flow + review sheet, item detail + art picker, settings).
 - `WhatsInMyFridge.xcodeproj` — hand-written project (synchronized folder group) + shared scheme;
