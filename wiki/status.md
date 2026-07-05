@@ -25,8 +25,13 @@ $99/yr Apple Developer account).
   (`ReceiptParsing.swift`), the enforced response schema (`ReceiptSchema.swift`), the curated
   `ItemID` vocabulary + shared enums (`Types.swift`), urgency rules (`Urgency.swift`), date-label
   regex (`DateLabelParser.swift`).
-- `Tests/FridgeCoreTests/` — parsing (incl. fenced/prose-wrapped output), urgency thresholds,
-  date-regex tests; all pass via `swift test`.
+- `Tests/FridgeCoreTests/` — parsing (incl. fenced/prose-wrapped output), schema-contract, urgency
+  thresholds, date-regex tests; all pass via `swift test`.
+- `Tests/ReceiptScanSmokeTests/` — live LLM regression harness: fixture receipt images +
+  fuzzy `expected.json` inventories (see its `Fixtures/README.md`); runs only with
+  `OPENAI_API_KEY` set (skips otherwise), on demand in CI via
+  `.github/workflows/receipt-smoke.yml`. Ships one synthetic sample fixture; gitignored
+  `Fixtures/private/` for personal receipts.
 - `WhatsInMyFridge/` — the app: `App/` (entry, `AppTheme.swift` design tokens, preview seed),
   `Models/` (`FridgeItem.swift` SwiftData model, `Artwork.swift` artKey lookup), `Services/`
   (`LLMService.swift` OpenAI structured-outputs client, `ReceiptScanner.swift` VisionKit camera, `DateLabelScanner.swift`

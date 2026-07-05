@@ -107,3 +107,18 @@
   food taxonomy (unmaintainable, and strict-mode enums have practical size limits); failing/dropping
   unrecognized items (silently losing food is worse than a generic icon).
 
+### 2026-07-05 — Live receipt smoke tests with fuzzy fixture expectations
+
+- **Chose:** A Linux-runnable integration test target (`Tests/ReceiptScanSmokeTests`): fixture
+  receipt images + `expected.json` per fixture, sent through the real `OpenAIService` and matched
+  with deliberately fuzzy assertions (name keywords, count bounds, shelf-life ranges, forbidden
+  keywords — never verbatim strings or absolute dates). Skips without `OPENAI_API_KEY`; never runs
+  in regular CI, only via a manual `workflow_dispatch`. The OpenAI client moved into the FridgeCore
+  package target (with a completion-handler URLSession bridge) to make this possible without a Mac.
+- **Why:** Validates the product's core differentiator — receipt → inventory quality — and catches
+  model/prompt/schema regressions before any deploy, from a Linux box. Fuzzy matching because LLM
+  wording is not run-to-run stable; exact-output snapshots would flake.
+- **Rejected:** Mock-based tests only (can't catch model/prompt regressions); exact-output snapshot
+  tests (flaky by construction); running live tests in every CI push (cost, secret exposure, and a
+  network flake would block unrelated merges).
+
