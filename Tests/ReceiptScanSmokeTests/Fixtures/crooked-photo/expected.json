@@ -2,12 +2,80 @@
   "min_items": 6,
   "max_items": 6,
   "items": [
-    { "name": ["salmon"], "id": "salmon", "shelf_life_days": { "min": 1 } },
-    { "name": ["shrimp"], "id": "shrimp", "shelf_life_days": { "min": 1 } },
-    { "name": ["butter"], "id": "butter", "shelf_life_days": { "min": 1 } },
-    { "name": ["cheddar", "cheese"], "id": "cheese", "shelf_life_days": { "min": 1 } },
-    { "name": ["apple"], "id": "apple", "shelf_life_days": { "min": 1 } },
-    { "name": ["coffee"], "id": "coffee", "shelf_life_days": { "min": 1 } }
+    {
+      "name": [
+        "salmon"
+      ],
+      "id": [
+        "salmon",
+        "fish"
+      ],
+      "shelf_life_days": {
+        "min": 1
+      }
+    },
+    {
+      "name": [
+        "shrimp"
+      ],
+      "id": [
+        "shrimp",
+        "seafood"
+      ],
+      "shelf_life_days": {
+        "min": 1
+      }
+    },
+    {
+      "name": [
+        "butter"
+      ],
+      "id": [
+        "butter",
+        "dairy"
+      ],
+      "shelf_life_days": {
+        "min": 1
+      }
+    },
+    {
+      "name": [
+        "cheddar",
+        "cheese"
+      ],
+      "id": [
+        "cheese",
+        "dairy"
+      ],
+      "shelf_life_days": {
+        "min": 1
+      }
+    },
+    {
+      "name": [
+        "apple"
+      ],
+      "id": [
+        "apple",
+        "fruit"
+      ],
+      "shelf_life_days": {
+        "min": 1
+      }
+    },
+    {
+      "name": [
+        "coffee"
+      ],
+      "id": [
+        "coffee"
+      ],
+      "shelf_life_days": {
+        "min": 1
+      }
+    }
   ],
-  "absent": ["wipe"]
+  "absent": [
+    "wipe"
+  ]
 }

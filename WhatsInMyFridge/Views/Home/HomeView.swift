@@ -69,10 +69,7 @@ struct HomeView: View {
         .onChange(of: pickedPhoto) { _, item in
             guard let item else { return }
             pickedPhoto = nil
-            Task {
-                let data = try? await item.loadTransferable(type: Data.self)
-                scanFlow.handleCapture(data.flatMap(UIImage.init(data:)))
-            }
+            scanFlow.handlePickedPhoto(item)
         }
         .alert("Scan failed", isPresented: failedBinding, actions: {
             Button("Try Again") { scanFlow.retry() }

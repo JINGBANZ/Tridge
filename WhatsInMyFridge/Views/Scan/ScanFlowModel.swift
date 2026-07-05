@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import PhotosUI
 
 /// Owns the camera → LLM → review pipeline for one receipt scan.
 @Observable @MainActor
@@ -74,6 +75,25 @@ final class ScanFlowModel {
         handleCapture(image)
     }
     #endif
+
+    /// Loads a photo-library selection. Failures are logged and surfaced —
+    /// unlike a camera cancel, the user picked something and expects a result.
+    func handlePickedPhoto(_ item: PhotosPickerItem) {
+        Task {
+            do {
+                guard let data = try await item.loadTransferable(type: Data.self),
+                      let image = UIImage(data: data) else {
+                    AppLog.scan.error("Photo import produced no usable image data")
+                    phase = .failed("That photo couldn't be loaded. Try a different one.")
+                    return
+                }
+                handleCapture(image)
+            } catch {
+                AppLog.scan.error("Photo import failed: \(error.localizedDescription)")
+                phase = .failed("That photo couldn't be loaded. Try a different one.")
+            }
+        }
+    }
 
     func handleCapture(_ image: UIImage?) {
         guard let image else {
