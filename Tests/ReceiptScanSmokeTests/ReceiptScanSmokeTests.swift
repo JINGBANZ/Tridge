@@ -6,13 +6,13 @@ import XCTest
 /// inventory must satisfy its expected.json. Guards against model/prompt/schema
 /// regressions without deploying the app.
 ///
-/// Needs OPENAI_API_KEY in the environment (each fixture costs a fraction of a
-/// cent); skips cleanly otherwise, so plain `swift test` and CI stay green.
+/// Needs an OpenAI key — from the OPENAI_API_KEY environment variable or the
+/// gitignored `.env` at the repo root (each fixture costs a fraction of a
+/// cent); skips cleanly otherwise, so plain `swift test` stays green.
 final class ReceiptScanSmokeTests: XCTestCase {
     func testFixtureReceiptsParseToExpectedInventory() async throws {
-        guard let apiKey = ProcessInfo.processInfo.environment["OPENAI_API_KEY"],
-              !apiKey.isEmpty else {
-            throw XCTSkip("OPENAI_API_KEY not set — skipping live receipt smoke test.")
+        guard let apiKey = EnvFile.openAIKey() else {
+            throw XCTSkip("No OPENAI_API_KEY (env or .env) — skipping live receipt smoke test. Copy env.sample → .env to set one up.")
         }
         let fixtures = try ReceiptFixture.loadAll()
         try XCTSkipIf(fixtures.isEmpty,

@@ -85,14 +85,20 @@ struct ReceiptExpectation: Decodable {
             problems.append("\(receipt.items.count) items parsed, expected ≤ \(maxItems)")
         }
 
-        // Each expected item must claim a distinct parsed item.
-        var unclaimed = receipt.items
-        for expected in items {
-            guard let index = unclaimed.firstIndex(where: expected.matchesName) else {
+        // Each expected item must claim a distinct parsed item. Assignment is
+        // a maximum bipartite matching (not a greedy scan): with overlapping
+        // keywords like ["milk"] and ["whole"] against ["Whole Milk",
+        // "Almond Milk"], greedy first-match could report a spurious miss
+        // depending on listing order.
+        let assignment = maximumMatching(candidatesPerExpected: items.map { expected in
+            receipt.items.indices.filter { expected.matchesName(receipt.items[$0]) }
+        })
+        for (index, expected) in items.enumerated() {
+            guard let parsedIndex = assignment[index] else {
                 problems.append("missing item matching \(expected.name)")
                 continue
             }
-            problems += expected.fieldMismatches(in: unclaimed.remove(at: index))
+            problems += expected.fieldMismatches(in: receipt.items[parsedIndex])
         }
 
         for keyword in absent ?? [] {
@@ -102,4 +108,33 @@ struct ReceiptExpectation: Decodable {
         }
         return problems
     }
+}
+
+/// Maximum bipartite matching via DFS augmenting paths (Kuhn's algorithm).
+/// Returns, per expected-item index, the parsed-item index it claimed (nil if
+/// no assignment exists). Fixture sizes are tiny, so O(V·E) is plenty.
+func maximumMatching(candidatesPerExpected: [[Int]]) -> [Int?] {
+    var parsedOwner: [Int: Int] = [:] // parsed index → expected index
+
+    func assign(_ expected: Int, _ visited: inout Set<Int>) -> Bool {
+        for parsed in candidatesPerExpected[expected] where !visited.contains(parsed) {
+            visited.insert(parsed)
+            if parsedOwner[parsed] == nil || assign(parsedOwner[parsed]!, &visited) {
+                parsedOwner[parsed] = expected
+                return true
+            }
+        }
+        return false
+    }
+
+    for expected in candidatesPerExpected.indices {
+        var visited = Set<Int>()
+        _ = assign(expected, &visited)
+    }
+
+    var result = [Int?](repeating: nil, count: candidatesPerExpected.count)
+    for (parsed, expected) in parsedOwner {
+        result[expected] = parsed
+    }
+    return result
 }

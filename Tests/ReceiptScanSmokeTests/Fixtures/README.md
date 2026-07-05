@@ -4,13 +4,16 @@ Each fixture is a directory containing **one receipt image** (`.jpg`/`.jpeg`/`.p
 any file name) and an **`expected.json`**. The live smoke test
 (`ReceiptScanSmokeTests`) sends every fixture image through the real OpenAI
 structured-outputs call and asserts the parsed inventory satisfies the
-expectations. Run it with:
+expectations. Set the key up once — copy `env.sample` at the repo root to
+`.env` (gitignored) and fill in your `OPENAI_API_KEY` — then run:
 
 ```sh
-OPENAI_API_KEY=sk-… swift test --filter ReceiptScanSmokeTests
+swift test --filter ReceiptScanSmokeTests
 ```
 
-Without the key the test skips, so plain `swift test` and CI stay green.
+(An `OPENAI_API_KEY` environment variable also works and takes precedence.)
+Without a key the test skips, so plain `swift test` stays green. The smoke
+test is local-only by design: the key is never allowed in the repo or CI.
 
 ## Adding a fixture
 
@@ -39,7 +42,9 @@ Every field except `items[].name` is optional.
       "id": "milk",                            // exact ItemID rawValue (see
                                                // WhatsInMyFridge/Core/Types.swift)
       "quantity": 1,                           // exact
-      "shelf_life_days": { "min": 3, "max": 21 } // inclusive bounds
+      "shelf_life_days": { "min": 1 }            // inclusive bounds; keep loose —
+                                               // usually just min 1 (users correct
+                                               // dates themselves in review)
     }
   ],
   "absent": ["bag fee", "tax"]  // no parsed item name may contain these —

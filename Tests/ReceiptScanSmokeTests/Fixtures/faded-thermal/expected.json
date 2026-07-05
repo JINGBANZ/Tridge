@@ -1,0 +1,13 @@
+{
+  "min_items": 6,
+  "max_items": 7,
+  "items": [
+    { "name": ["banana"], "id": "banana", "shelf_life_days": { "min": 1 } },
+    { "name": ["bread"], "id": "bread", "shelf_life_days": { "min": 1 } },
+    { "name": ["yogurt"], "id": "yogurt", "shelf_life_days": { "min": 1 } },
+    { "name": ["orange juice", "juice"], "id": "juice", "shelf_life_days": { "min": 1 } },
+    { "name": ["pizza"], "shelf_life_days": { "min": 1 } },
+    { "name": ["ketchup"], "shelf_life_days": { "min": 1 } }
+  ],
+  "absent": ["total"]
+}
