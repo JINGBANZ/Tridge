@@ -29,6 +29,8 @@
 - **Rejected:** A key-holding proxy backend (Cloudflare Worker/Firebase) — right for a public App
   Store release, premature now.
 - **Revisit if:** The app is distributed beyond the owner (TestFlight external testers or App Store).
+- **Superseded by:** *2026-07-05 — OpenAI with enforced response schema* for the provider choice;
+  the no-backend / key-in-Keychain / `LLMService`-protocol parts stand.
 
 ### 2026-07-04 — Items float frameless on the background; prebuilt art only; one button
 
@@ -64,4 +66,25 @@
 - **Rejected:** XcodeGen/Tuist (third-party toolchain dependency, unavailable on Linux); a classic
   per-file pbxproj (every added file needs a hand edit); linking `FridgeCore` as a local package
   product (self-referential package/project layout is fragile in Xcode).
+
+### 2026-07-05 — OpenAI with enforced response schema
+
+- **Chose:** `OpenAIService` (Chat Completions, `gpt-5-mini`) with strict Structured Outputs: the
+  receipt reply is constrained server-side to the JSON Schema in
+  `WhatsInMyFridge/Core/ReceiptSchema.swift`, which tests cross-check against the Swift DTOs.
+  Supersedes the provider half of *2026-07-04 — No backend; user-supplied Anthropic key*.
+- **Why:** Owner's direction. The previous contract only *requested* the JSON shape in the prompt;
+  schema enforcement moves format guarantees from prompt discipline to the API, leaving client-side
+  parsing as defense-in-depth (truncation/refusal) rather than the primary contract.
+- **Rejected:** Staying on Anthropic (tool-use-based schema enforcement exists but the owner chose
+  OpenAI); prompt-only JSON with client validation (what v1 shipped — schema violations surfaced
+  only at parse time).
+
+### 2026-07-05 — No lifetime eaten/tossed counters
+
+- **Chose:** Drop the Settings-footer lifetime counters; v1 ships with no stats surface at all.
+  `status`/`consumedDate` still record consumption, so waste stats remain buildable later.
+- **Why:** Owner call — the counters were judged unnecessary.
+- **Rejected:** Keeping the footer line (was itself the cut-down remnant of a rejected stats screen,
+  see *2026-07-04 — Items float frameless…*).
 

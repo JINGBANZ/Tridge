@@ -9,7 +9,7 @@ enum LLMError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .missingKey:
-            "Add your Anthropic API key in Settings to scan receipts."
+            "Add your OpenAI API key in Settings to scan receipts."
         case .network:
             "Couldn't reach the parsing service. Check your connection and try again."
         case .apiFailure(let status):
@@ -28,16 +28,18 @@ protocol LLMService {
     func parseReceipt(jpegData: Data) async throws -> ParsedReceipt
 }
 
-/// Direct Anthropic Messages API client (no backend in v1; the key comes from
-/// Keychain via Settings).
-struct AnthropicService: LLMService {
+/// Direct OpenAI Chat Completions client (no backend in v1; the key comes from
+/// Keychain via Settings). The reply is constrained server-side to
+/// `ReceiptSchema` via strict structured outputs, so the shape is enforced —
+/// not merely requested in the prompt.
+struct OpenAIService: LLMService {
     var apiKey: String
     var session: URLSession = .shared
 
-    private static let endpoint = URL(string: "https://api.anthropic.com/v1/messages")!
-    private static let model = "claude-haiku-4-5"
+    private static let endpoint = URL(string: "https://api.openai.com/v1/chat/completions")!
+    private static let model = "gpt-5-mini"
 
-    /// The receipt prompt, verbatim from the spec.
+    /// Content rules only — the response shape is enforced by ReceiptSchema.
     static let prompt = """
     This is a grocery store receipt. Extract every FOOD and BEVERAGE item.
     Rules:
@@ -49,20 +51,14 @@ struct AnthropicService: LLMService {
     - Pick exactly one emoji that best represents each item.
     - If a line is probably food but you cannot identify it, include it with
       name "Unknown item", confidence "low".
-    Respond with ONLY this JSON, no prose:
-    { "store": string|null, "purchase_date": "YYYY-MM-DD"|null,
-      "items": [{ "name": string, "receipt_text": string, "emoji": string,
-                  "category": "produce|dairy|meat|seafood|frozen|pantry|beverage|bakery|deli|leftovers|condiment|other",
-                  "quantity": int, "storage": "fridge|freezer|pantry",
-                  "shelf_life_days": int, "confidence": "high|low" }] }
     """
 
     func parseReceipt(jpegData: Data) async throws -> ParsedReceipt {
-        let text = try await requestText(prompt: Self.prompt, jpegData: jpegData)
+        let text = try await requestText(jpegData: jpegData)
         if let receipt = try? ReceiptResponseParser.parse(text) { return receipt }
-        // One automatic retry with a stronger format reminder, per spec.
-        let retryText = try await requestText(prompt: Self.prompt + "\nReturn valid JSON only.",
-                                              jpegData: jpegData)
+        // Schema enforcement makes malformed JSON rare (truncation/refusal),
+        // but the spec's one automatic retry still applies.
+        let retryText = try await requestText(jpegData: jpegData)
         guard let receipt = try? ReceiptResponseParser.parse(retryText) else {
             throw LLMError.unparseable
         }
@@ -71,59 +67,48 @@ struct AnthropicService: LLMService {
 
     // MARK: Request plumbing
 
-    private struct RequestBody: Encodable {
-        struct Message: Encodable {
-            var role: String
-            var content: [Content]
-        }
-        struct Content: Encodable {
-            struct ImageSource: Encodable {
-                var type = "base64"
-                var mediaType = "image/jpeg"
-                var data: String
-                enum CodingKeys: String, CodingKey {
-                    case type, data
-                    case mediaType = "media_type"
-                }
-            }
-            var type: String
-            var source: ImageSource?
-            var text: String?
-        }
-        var model: String
-        var maxTokens: Int
-        var messages: [Message]
-        enum CodingKeys: String, CodingKey {
-            case model, messages
-            case maxTokens = "max_tokens"
-        }
-    }
-
     private struct ResponseBody: Decodable {
-        struct Content: Decodable {
-            var type: String
-            var text: String?
+        struct Choice: Decodable {
+            struct Message: Decodable {
+                var content: String?
+                var refusal: String?
+            }
+            var message: Message
         }
-        var content: [Content]
+        var choices: [Choice]
     }
 
-    private func requestText(prompt: String, jpegData: Data) async throws -> String {
-        let body = RequestBody(
-            model: Self.model,
-            maxTokens: 2000,
-            messages: [.init(role: "user", content: [
-                .init(type: "image",
-                      source: .init(data: jpegData.base64EncodedString()),
-                      text: nil),
-                .init(type: "text", source: nil, text: prompt),
-            ])])
+    private func requestText(jpegData: Data) async throws -> String {
+        // Built with JSONSerialization because the schema is itself a JSON
+        // object graph; Codable would need a wrapper type per nesting level.
+        let body: [String: Any] = [
+            "model": Self.model,
+            // Generous cap: gpt-5 reasoning tokens count against it.
+            "max_completion_tokens": 4000,
+            "reasoning_effort": "low",
+            "messages": [[
+                "role": "user",
+                "content": [
+                    ["type": "image_url",
+                     "image_url": ["url": "data:image/jpeg;base64,\(jpegData.base64EncodedString())"]],
+                    ["type": "text", "text": Self.prompt],
+                ],
+            ]],
+            "response_format": [
+                "type": "json_schema",
+                "json_schema": [
+                    "name": ReceiptSchema.name,
+                    "strict": true,
+                    "schema": try ReceiptSchema.object(),
+                ],
+            ],
+        ]
 
         var request = URLRequest(url: Self.endpoint)
         request.httpMethod = "POST"
-        request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
-        request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "content-type")
-        request.httpBody = try JSONEncoder().encode(body)
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (data, response): (Data, URLResponse)
         do {
@@ -137,9 +122,12 @@ struct AnthropicService: LLMService {
         guard (200..<300).contains(http.statusCode) else {
             throw LLMError.apiFailure(status: http.statusCode)
         }
-        guard let decoded = try? JSONDecoder().decode(ResponseBody.self, from: data) else {
+        guard let decoded = try? JSONDecoder().decode(ResponseBody.self, from: data),
+              let message = decoded.choices.first?.message,
+              message.refusal == nil,
+              let content = message.content else {
             throw LLMError.unparseable
         }
-        return decoded.content.compactMap(\.text).joined()
+        return content
     }
 }

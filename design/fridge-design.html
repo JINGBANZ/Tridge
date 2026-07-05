@@ -406,7 +406,7 @@
       <tr><td><b>2 · Scan</b></td><td>Scan button opens <code>VNDocumentCameraViewController</code> (VisionKit). On capture: full-screen progress ("Reading your receipt…", animated receipt emoji), image is downscaled to max 1568px long edge, JPEG 80%, sent to the LLM. Errors (network / key missing / unparseable) show a friendly retry alert.</td></tr>
       <tr><td><b>3 · Review sheet</b></td><td>Presented sheet (see mock). Store name + date + count header. Each row: art, clean name, original receipt text in small gray, qty, tappable date chip (opens compact date picker). Low-confidence items flagged amber with "tap to fix". Rows can be deleted (swipe) or edited (tap name). Primary button "Add N items to Fridge" saves all, schedules notifications, pops to Home where new items animate in.</td></tr>
       <tr><td><b>4 · Item Detail</b></td><td>Sheet with large art (tap to pick different art from the prebuilt set), name field, quantity stepper, storage picker (Fridge/Freezer/Pantry), expiry date picker with source note ("Guessed by AI — tap to correct"), and a <b>"📷 Scan date label"</b> button → camera + on-device Vision OCR (<code>VNRecognizeTextRequest</code>), regex-match date formats (<code>MM/DD/YY</code>, <code>DD MMM YYYY</code>, <code>YYYY-MM-DD</code>, "Best by …"), accept the first plausible date (today &lt; d &lt; today+5y) after user confirmation. Buttons: Ate it · Tossed it · Delete.</td></tr>
-      <tr><td><b>＋ Settings sheet</b></td><td>Opened from the gear icon (not a tab): Anthropic API key (SecureField, stored in Keychain), notification hour (default 9:00), default storage location. A small footer line shows lifetime counts: "You've eaten 34 items and tossed 6" — the only stats in v1.</td></tr>
+      <tr><td><b>＋ Settings sheet</b></td><td>Opened from the gear icon (not a tab): OpenAI API key (SecureField, stored in Keychain), notification hour (default 9:00), default storage location. No stats in v1.</td></tr>
     </table></div>
 
     <h3>The core loop</h3>
@@ -415,7 +415,7 @@
       <div class="step"><span class="n"></span><div><b>LLM parses everything at once</b><p>One API call returns clean names, art key, category, quantity, storage guess, and shelf-life estimate per item. No barcode DB, no OCR post-processing.</p></div></div>
       <div class="step"><span class="n"></span><div><b>Confirm in one tap</b><p>Review sheet fixes trust: user corrects anything odd, then "Add N items". Dates the user edits are marked <code>userSet</code> and never overwritten.</p></div></div>
       <div class="step"><span class="n"></span><div><b>Live inventory</b><p>Home grid shows everything, soonest-expiring first. Pills tick down daily; notifications fire at T−2 days and on expiry day at the configured hour.</p></div></div>
-      <div class="step"><span class="n"></span><div><b>Eat or toss</b><p>Drag an item to a drop zone (or use the detail sheet buttons). Consumed items leave the grid but persist for the lifetime counters.</p></div></div>
+      <div class="step"><span class="n"></span><div><b>Eat or toss</b><p>Drag an item to a drop zone (or use the detail sheet buttons). Consumed items leave the grid but persist, so waste stats can be added later.</p></div></div>
     </div>
   </section>
 
@@ -436,7 +436,7 @@
       <tr><td><code>expiryDate</code></td><td>Date</td><td><code>purchaseDate + shelfLifeDays</code> initially</td></tr>
       <tr><td><code>expirySource</code></td><td>enum</td><td><code>llmEstimate · userSet · scannedLabel</code> — never overwrite <code>userSet</code>/<code>scannedLabel</code></td></tr>
       <tr><td><code>status</code></td><td>enum</td><td><code>active · eaten · tossed</code></td></tr>
-      <tr><td><code>consumedDate</code></td><td>Date?</td><td>set when status changes; drives the lifetime counters</td></tr>
+      <tr><td><code>consumedDate</code></td><td>Date?</td><td>set when status changes; kept so waste stats can be added later</td></tr>
       <tr><td><code>store</code></td><td>String?</td><td>e.g. "Trader Joe's"</td></tr>
     </table></div>
     <p class="muted">Urgency is computed, not stored: <code>daysLeft = calendarDays(now → expiryDate)</code>. Expired means end-of-day(expiryDate) &lt; now. Persistence is local-only SwiftData for v1; the schema is CloudKit-compatible (all optionals/defaults) so sync can be enabled later without migration.</p>
@@ -446,14 +446,16 @@
   <section>
     <span class="eyebrow">LLM integration</span>
     <h2>One vision call does receipt → inventory</h2>
-    <p>Direct call to the Anthropic Messages API with model <code>claude-haiku-4-5</code> (fast, ~$0.003 per receipt). The user's API key is entered in Settings and stored in Keychain — no backend for v1. Wrap it in an <code>LLMService</code> protocol so a proxy can replace it later.</p>
-    <pre>POST https://api.anthropic.com/v1/messages
-headers: x-api-key: &lt;key&gt; · anthropic-version: 2023-06-01 · content-type: application/json
-body: { "model": "claude-haiku-4-5", "max_tokens": 2000,
+    <p>Direct call to the OpenAI Chat Completions API with model <code>gpt-5-mini</code> (fast, pennies per receipt). The response shape is <b>enforced server-side</b> with a strict Structured Outputs JSON Schema — <code>SCHEMA</code> below, the canonical copy lives in <code>WhatsInMyFridge/Core/ReceiptSchema.swift</code> and is test-checked against the Swift DTOs — so replies always match the contract; the prompt carries only the content rules. The user's API key is entered in Settings and stored in Keychain — no backend for v1. Wrap it in an <code>LLMService</code> protocol so a proxy can replace it later.</p>
+    <pre>POST https://api.openai.com/v1/chat/completions
+headers: Authorization: Bearer &lt;key&gt; · content-type: application/json
+body: { "model": "gpt-5-mini", "max_completion_tokens": 4000, "reasoning_effort": "low",
+        "response_format": { "type": "json_schema",
+          "json_schema": { "name": "parsed_receipt", "strict": true, "schema": SCHEMA }},
         "messages": [{ "role": "user", "content": [
-          { "type": "image", "source": { "type": "base64", "media_type": "image/jpeg", "data": "&lt;receipt&gt;" }},
+          { "type": "image_url", "image_url": { "url": "data:image/jpeg;base64,&lt;receipt&gt;" }},
           { "type": "text", "text": PROMPT }]}] }</pre>
-    <p><b>PROMPT</b> (verbatim):</p>
+    <p><b>PROMPT</b> (verbatim — content rules only; the JSON shape comes from SCHEMA):</p>
     <pre>This is a grocery store receipt. Extract every FOOD and BEVERAGE item.
 Rules:
 - Expand abbreviations into clean, human-friendly names ("WHL MLK 1GAL" → "Whole Milk").
@@ -463,15 +465,9 @@ Rules:
   counted from the purchase date, assuming it was refrigerated promptly.
 - Pick exactly one emoji that best represents each item.
 - If a line is probably food but you cannot identify it, include it with
-  name "Unknown item", confidence "low".
-Respond with ONLY this JSON, no prose:
-{ "store": string|null, "purchase_date": "YYYY-MM-DD"|null,
-  "items": [{ "name": string, "receipt_text": string, "emoji": string,
-              "category": "produce|dairy|meat|seafood|frozen|pantry|beverage|bakery|deli|leftovers|condiment|other",
-              "quantity": int, "storage": "fridge|freezer|pantry",
-              "shelf_life_days": int, "confidence": "high|low" }] }</pre>
+  name "Unknown item", confidence "low".</pre>
     <ul>
-      <li><b>Parsing:</b> strip Markdown code fences if present, then <code>JSONDecoder</code>. On decode failure, retry once with a "Return valid JSON only" reminder appended; then surface a retry alert.</li>
+      <li><b>Parsing:</b> structured outputs guarantees schema-valid JSON, but the client stays defensive: strip Markdown code fences if present, then <code>JSONDecoder</code>. On decode failure (truncation, refusal), retry the call once; then surface a retry alert.</li>
       <li><b>Image prep:</b> longest edge ≤ 1568px, JPEG quality 0.8, before base64.</li>
       <li><b>Low-confidence items</b> get the amber "tap to fix" treatment in the review sheet, never silently dropped.</li>
       <li><b>No key set:</b> scan button opens Settings with an inline explainer instead of the camera.</li>
@@ -486,7 +482,7 @@ Respond with ONLY this JSON, no prose:
 ├─ App/            WhatsInMyFridgeApp.swift · AppTheme.swift (tokens above)
 ├─ Models/         FridgeItem.swift (SwiftData @Model + enums) · Artwork.swift (artKey → image lookup)
 ├─ Services/
-│  ├─ LLMService.swift              protocol + AnthropicService (URLSession, async/await)
+│  ├─ LLMService.swift              protocol + OpenAIService (URLSession, async/await)
 │  ├─ ReceiptScanner.swift          VisionKit wrapper → UIImage
 │  ├─ DateLabelScanner.swift        Vision OCR + date-regex parsing
 │  ├─ NotificationService.swift     schedule/cancel per item

@@ -71,7 +71,7 @@ final class ScanFlowModel {
             return
         }
         phase = .processing
-        let service: LLMService = AnthropicService(apiKey: apiKey)
+        let service: LLMService = OpenAIService(apiKey: apiKey)
         Task {
             do {
                 guard let jpeg = image.receiptJPEGData() else { throw LLMError.unparseable }
