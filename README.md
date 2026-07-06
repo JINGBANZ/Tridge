@@ -28,15 +28,14 @@ browser. Agents: start with [`AGENTS.md`](AGENTS.md), then [`wiki/index.md`](wik
 Every CI run publishes the `WhatsInMyFridge-simulator` build artifact (GitHub →
 **Actions** → latest run → **Artifacts**): a zipped simulator app for running
 in the browser on [Appetize.io](https://appetize.io). It's a Debug build, so
-the long-press scan-menu extras ("Try sample receipt", "Seed the App") are
-included.
+the scan-menu extras ("Try sample receipt", "Seed the App") are included.
 
 ### Browser simulator via Appetize.io
 
-No Apple account, no hardware. The camera doesn't exist here: the scan button
-falls back to the photo-library picker, and "Try sample receipt" covers the
-full scan → review → inventory flow. To just see the app working with zero
-setup, long-press the scan button → **Seed the App**: it fills the fridge
+No Apple account, no hardware. The camera doesn't exist here: the scan
+button's menu offers "Choose from album" instead, and "Try sample receipt"
+covers the full scan → review → inventory flow. To just see the app working
+with zero setup, tap the scan button → **Seed the App**: it fills the fridge
 with preset items across every urgency tier — no API key, no LLM call.
 
 1. Download the `WhatsInMyFridge-simulator` artifact and unzip it once (GitHub
@@ -56,7 +55,8 @@ PR and updates it on every push, so changes are viewable before they reach
 Heads-up on cloud-simulator sessions: every session starts from a wiped
 device, so the OpenAI key must be re-pasted (Settings → key → Done) each
 session before scanning — all scan inputs, including "Try sample receipt",
-route to Settings until a key is stored.
+route to Settings until a key is stored ("Type it in" and "Seed the App"
+work without one).
 
 Real receipt camera and date-label OCR need a physical iPhone — that
 distribution path (SideStore sideloading) is planned separately.
