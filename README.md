@@ -24,10 +24,14 @@ browser. Agents: start with [`AGENTS.md`](AGENTS.md), then [`wiki/index.md`](wik
 
 ## Installing a test build (no Mac needed)
 
-Every CI run publishes the `WhatsInMyFridge-simulator` build artifact (GitHub →
-**Actions** → latest run → **Artifacts**): a zipped simulator app for running
-in the browser on [Appetize.io](https://appetize.io). It's a Debug build, so
-the long-press → "Try sample receipt" flow is included.
+Every CI run publishes two build artifacts (GitHub → **Actions** → latest run →
+**Artifacts**). Both are Debug builds, so the long-press → "Try sample receipt"
+flow is included.
+
+- `WhatsInMyFridge-simulator` — zipped simulator app, for running in the
+  browser on [Appetize.io](https://appetize.io)
+- `WhatsInMyFridge-ipa` — **unsigned** ipa, for sideloading onto an iPhone with
+  [SideStore](https://sidestore.io) (which re-signs it with your own Apple ID)
 
 ### Browser simulator via Appetize.io
 
@@ -46,8 +50,43 @@ full scan → review → inventory flow.
 If the `APPETIZE_API_TOKEN` repo secret is configured, CI uploads each push
 to Appetize automatically — then you just reopen your existing Appetize link.
 
-Real receipt camera and date-label OCR need a physical iPhone — that
-distribution path (SideStore sideloading) is planned separately.
+### Your iPhone via SideStore (free Apple ID, no Mac)
+
+The only path where the real receipt camera and date-label OCR work.
+Free-Apple-ID limits apply: signatures last 7 days (refresh happens on-device
+in SideStore — no computer needed after setup) and max 3 sideloaded apps.
+
+One-time setup (see [docs.sidestore.io](https://docs.sidestore.io) for the
+authoritative, current steps — iOS point releases occasionally break
+sideloading until SideStore ships a fix). This needs a computer with the
+iPhone on USB — any local macOS/Windows/Linux machine works (a remote
+VPS does not; no USB):
+
+1. Download **iloader** ([iloader.app](https://iloader.app), SideStore's
+   official installer — macOS/Windows/Linux builds), connect the iPhone over
+   USB, sign in with your Apple ID. It generates the device pairing file and
+   installs SideStore, signed with your free Apple ID. After this, installs
+   and refreshes happen entirely on the phone — no computer involved again.
+2. On the phone, install **LocalDevVPN** from the App Store and toggle it on
+   whenever installing/refreshing — this loopback VPN is what lets SideStore
+   re-sign apps on-device without a computer.
+
+Per build:
+
+1. Download the `WhatsInMyFridge-ipa` artifact, unzip the outer artifact zip
+   to get `WhatsInMyFridge.ipa`, and get it onto the phone (any file transfer:
+   cloud drive, local web server, …).
+2. In SideStore: **+** → pick the ipa. SideStore signs it with your Apple ID
+   and installs it. Re-tap **Refresh** any time before the 7-day signature
+   expires.
+
+Optional accelerator: [**LiveContainer**](https://github.com/LiveContainer/LiveContainer)
+(installable through SideStore, or pick iloader's SideStore + LiveContainer
+combo during setup) runs apps as guests inside its own container. Importing a
+new ipa then needs **no re-signing round-trip at all** and doesn't count
+against the free-Apple-ID 3-app limit — the fastest install-per-build loop.
+Guest caveats: no remote push (the app only uses local notifications) and
+entitlements aren't applied.
 
 ### With a Mac (Xcode 16+)
 

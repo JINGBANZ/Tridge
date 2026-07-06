@@ -176,3 +176,26 @@
   Tricentis); real-device clouds (BrowserStack/LambdaTest — camera image injection is attractive
   but paid; revisit if camera bugs need cloud reproduction). On-device distribution for the real
   camera/OCR (SideStore) is deliberately split into its own follow-up PR.
+
+### 2026-07-06 — Device test builds via SideStore, with LiveContainer as the fast lane
+
+- **Chose:** CI's macOS job also packages an unsigned Debug ipa artifact per run. On-device
+  installs go through SideStore, which re-signs the ipa with the owner's free Apple ID and
+  refreshes the 7-day signature on-device (LocalDevVPN loopback trick) after a one-time USB
+  setup with SideStore's official iloader installer, run on any local desktop — the Linux dev
+  box is a VPS with no USB access, so the owner's MacBook does this step. LiveContainer
+  (installed via SideStore) is the documented iteration accelerator: importing a new ipa needs
+  no re-signing round-trip and doesn't count against the free-Apple-ID 3-app limit.
+- **Why:** The real receipt camera and date-label OCR only run on a physical iPhone. No $99
+  Apple Developer Program, and installs can't depend on the VPS (no USB) and shouldn't depend
+  on the MacBook being awake and nearby — SideStore is the sideloader whose post-setup refresh
+  loop needs no computer at all.
+- **Rejected:** TestFlight (needs the $99/yr program; also 10–30 min processing per build vs
+  seconds for a sideload); classic AltStore (its AltServer officially runs only on macOS/Windows
+  and must be reachable on the owner's Wi-Fi for every install *and* every 7-day refresh; the
+  community AltServer-Linux port's last release was 2022); AltStore PAL (EU/Japan/Brazil-only
+  marketplace requiring the paid program + notarization); TrollStore (CoreTrust exploit patched
+  permanently at iOS 17.0.1); xtool's direct Linux→iPhone loop (fastest option but SwiftData's
+  closed-source `@Model` macro cannot run on a Linux host — xtool-org/xtool#149; revisit if
+  fixed); CI-signed ipas (signing certificates require the paid program, and secrets-in-CI
+  surface area is deliberately kept minimal).
