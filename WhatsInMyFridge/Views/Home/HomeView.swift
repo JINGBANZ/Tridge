@@ -271,6 +271,11 @@ struct HomeView: View {
             } label: {
                 Label("Try sample receipt", systemImage: "testtube.2")
             }
+            Button {
+                PreviewData.seed(into: context)
+            } label: {
+                Label("Seed the App", systemImage: "sparkles")
+            }
             #endif
         } label: {
             Text("🧾")

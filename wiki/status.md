@@ -37,7 +37,8 @@ is a planned separate PR.
   photo); gitignored `Fixtures/private/` for personal receipts.
 - `WhatsInMyFridge/` — the app: `App/` (entry, `AppTheme.swift` design tokens, preview seed),
   scan input via document camera or photo-library import (camera-free platforms fall back
-  automatically; debug builds bundle `Resources/SampleReceipt.jpg`), `Core/AppLog.swift` +
+  automatically; debug builds bundle `Resources/SampleReceipt.jpg` and a "Seed the App" scan-menu
+  action that inserts the preset `PreviewData` inventory with no key or LLM call), `Core/AppLog.swift` +
   Settings → Copy diagnostics as the tester feedback loop,
   `Models/` (`FridgeItem.swift` SwiftData model, `Artwork.swift` artKey lookup), `Services/`
   (`LLMService.swift` OpenAI structured-outputs client, `ReceiptScanner.swift` VisionKit camera, `DateLabelScanner.swift`

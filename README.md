@@ -27,13 +27,16 @@ browser. Agents: start with [`AGENTS.md`](AGENTS.md), then [`wiki/index.md`](wik
 Every CI run publishes the `WhatsInMyFridge-simulator` build artifact (GitHub →
 **Actions** → latest run → **Artifacts**): a zipped simulator app for running
 in the browser on [Appetize.io](https://appetize.io). It's a Debug build, so
-the long-press → "Try sample receipt" flow is included.
+the long-press scan-menu extras ("Try sample receipt", "Seed the App") are
+included.
 
 ### Browser simulator via Appetize.io
 
 No Apple account, no hardware. The camera doesn't exist here: the scan button
 falls back to the photo-library picker, and "Try sample receipt" covers the
-full scan → review → inventory flow.
+full scan → review → inventory flow. To just see the app working with zero
+setup, long-press the scan button → **Seed the App**: it fills the fridge
+with preset items across every urgency tier — no API key, no LLM call.
 
 1. Download the `WhatsInMyFridge-simulator` artifact and unzip it once (GitHub
    wraps artifacts in an outer zip) to get `WhatsInMyFridge-sim.zip`.
