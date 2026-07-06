@@ -22,24 +22,43 @@ browser. Agents: start with [`AGENTS.md`](AGENTS.md), then [`wiki/index.md`](wik
 - Runtime setup: paste your OpenAI API key in Settings (gear icon) — it is
   stored only in the device Keychain.
 
-## Manual testing on a simulator or device
+## Installing a test build (no Mac needed)
 
-Requires a Mac with Xcode 16+ (the iOS SDK doesn't exist on Linux):
+Every CI run publishes the `WhatsInMyFridge-simulator` build artifact (GitHub →
+**Actions** → latest run → **Artifacts**): a zipped simulator app for running
+in the browser on [Appetize.io](https://appetize.io). It's a Debug build, so
+the long-press → "Try sample receipt" flow is included.
+
+### Browser simulator via Appetize.io
+
+No Apple account, no hardware. The camera doesn't exist here: the scan button
+falls back to the photo-library picker, and "Try sample receipt" covers the
+full scan → review → inventory flow.
+
+1. Download the `WhatsInMyFridge-simulator` artifact and unzip it once (GitHub
+   wraps artifacts in an outer zip) to get `WhatsInMyFridge-sim.zip`.
+2. Sign up free at [appetize.io](https://appetize.io), **Upload** →
+   `WhatsInMyFridge-sim.zip` (the zipped `.app`, not the ipa), platform iOS.
+3. Open the generated app page and press play. Free tier: 100 streaming
+   minutes/month, one session at a time, ~2-minute inactivity timeout —
+   enough for solo smoke tests.
+
+If the `APPETIZE_API_TOKEN` repo secret is configured, CI uploads each push
+to Appetize automatically — then you just reopen your existing Appetize link.
+
+Real receipt camera and date-label OCR need a physical iPhone — that
+distribution path (SideStore sideloading) is planned separately.
+
+### With a Mac (Xcode 16+)
 
 1. Clone the repo, open `WhatsInMyFridge.xcodeproj`.
 2. **Simulator:** pick any iPhone simulator and press Run. No Apple account
-   needed. The document camera doesn't exist on the simulator, but the scan
-   button falls back to the photo-library picker there (drag receipt images
-   into the simulator's Photos app first), and debug builds offer "Try sample
-   receipt" via long-press — so the whole scan → review → inventory flow is
-   testable without hardware. Only the real camera and date-label OCR capture
-   need a device.
+   needed. Same camera fallbacks as Appetize (drag receipt images into the
+   simulator's Photos app to test the picker path).
 3. **Your iPhone (free Apple ID):** in the target's Signing & Capabilities set
    your personal team and a unique bundle id, enable Developer Mode on the phone
    (Settings → Privacy & Security), plug it in and press Run. Free-account
    signatures expire after 7 days — re-run from Xcode to refresh.
-4. **No Mac at hand:** join the Apple Developer Program ($99/yr) and distribute
-   CI builds via TestFlight (see the spec's "Development environment" section).
 
 ## Reporting issues from a test build
 

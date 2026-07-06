@@ -21,11 +21,58 @@ jobs:
       - uses: actions/checkout@v4
       - name: Full logic test suite
         run: swift test
+      # Debug on purpose: keeps the DEBUG-only "Try sample receipt" path in test builds.
       - name: Build for iOS Simulator
         run: >
           xcodebuild
           -project WhatsInMyFridge.xcodeproj
           -scheme WhatsInMyFridge
+          -sdk iphonesimulator
+          -configuration Debug
+          -derivedDataPath build
           -destination 'generic/platform=iOS Simulator'
           build
           CODE_SIGNING_ALLOWED=NO
+      - name: Zip simulator app (Appetize.io upload format)
+        run: |
+          cd build/Build/Products/Debug-iphonesimulator
+          zip -r -y "$GITHUB_WORKSPACE/WhatsInMyFridge-sim.zip" WhatsInMyFridge.app
+      - name: Upload simulator app
+        uses: actions/upload-artifact@v4
+        with:
+          name: WhatsInMyFridge-simulator
+          path: WhatsInMyFridge-sim.zip
+
+  # No-ops until the owner creates a free Appetize.io account and adds the
+  # APPETIZE_API_TOKEN repo secret (a distribution credential — NOT the OpenAI key,
+  # which stays banned from repo/CI). Set the APPETIZE_APP_PUBLICKEY repo *variable*
+  # after the first upload to update the same Appetize app (stable URL) instead of
+  # creating a new one per push.
+  appetize-publish:
+    name: publish simulator build to Appetize.io
+    needs: ios-build
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    env:
+      APPETIZE_API_TOKEN: ${{ secrets.APPETIZE_API_TOKEN }}
+    steps:
+      - name: Skip (no APPETIZE_API_TOKEN secret configured)
+        if: env.APPETIZE_API_TOKEN == ''
+        run: echo "APPETIZE_API_TOKEN secret not set — skipping Appetize upload."
+      - uses: actions/download-artifact@v4
+        if: env.APPETIZE_API_TOKEN != ''
+        with:
+          name: WhatsInMyFridge-simulator
+      - name: Upload to Appetize
+        if: env.APPETIZE_API_TOKEN != ''
+        env:
+          PUBLIC_KEY: ${{ vars.APPETIZE_APP_PUBLICKEY }}
+        # Token goes only via basic-auth user (never echoed); response has no secrets.
+        run: |
+          url="https://api.appetize.io/v1/apps"
+          [ -n "$PUBLIC_KEY" ] && url="$url/$PUBLIC_KEY"
+          curl --fail-with-body -sS -u "${APPETIZE_API_TOKEN}:" "$url" \
+            -F "file=@WhatsInMyFridge-sim.zip" \
+            -F "platform=ios" \
+            -o response.json
+          echo "Appetize app URL: $(python3 -c 'import json;print(json.load(open("response.json")).get("appURL",""))')"

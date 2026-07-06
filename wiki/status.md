@@ -7,15 +7,18 @@
 
 ## Current phase
 
-v1 implemented end-to-end from the spec. Logic tests pass on Linux (`swift test`); the iOS build is
-compiled only by CI's macOS job (`.github/workflows/ci.yml`), so the first CI run on the v1 PR is the
-outstanding verification.
+v1 merged and CI green (Linux `swift test` + macOS build). CI now also publishes an installable
+test build on every run: a zipped Debug simulator app for Appetize.io browser testing. Install
+instructions are in `README.md` → "Installing a test build". The `APPETIZE_API_TOKEN` repo secret
+is set, so the auto-publish job uploads each `main` push to Appetize.
 
 ## Next action
 
-Watch CI on the v1 PR: fix anything the macOS `xcodebuild` job surfaces, then merge. After that:
-run through the spec's acceptance checklist on a simulator/device (needs a Mac or TestFlight via the
-$99/yr Apple Developer account).
+After the first `main` push triggers the Appetize upload: take the `publicKey` from the job log
+and set it as the `APPETIZE_APP_PUBLICKEY` repo variable so later pushes update one stable app.
+Then run the browser-testable part of the spec's acceptance checklist on Appetize (photo-library
+and sample-receipt scan paths). The on-device path (real camera + date-label OCR via SideStore)
+is a planned separate PR.
 
 ## Built
 
@@ -42,7 +45,9 @@ $99/yr Apple Developer account).
   (Home grid + drag-to-consume, scan flow + review sheet, item detail + art picker, settings).
 - `WhatsInMyFridge.xcodeproj` — hand-written project (synchronized folder group) + shared scheme;
   see the decision log for why it's hand-authored.
-- `.github/workflows/ci.yml` — Linux `swift test` + macOS `swift test` and simulator `xcodebuild`.
+- `.github/workflows/ci.yml` — Linux `swift test`; macOS `swift test` + Debug simulator build,
+  published as the `WhatsInMyFridge-simulator` artifact (Appetize.io's upload format); Appetize
+  auto-publish job on `main` pushes (no-ops without the `APPETIZE_API_TOKEN` secret).
 - `AGENTS.md` / `CLAUDE.md` — agent instructions; shared-rules block syncs from JINGBANZ/rules.
 - `.github/workflows/sync-shared-rules.yml` — weekly shared-rules sync (stub → JINGBANZ/workflows).
 - `.github/workflows/claude.yml`, `.github/workflows/claude-code-review.yml` — @claude mentions and
@@ -51,5 +56,7 @@ $99/yr Apple Developer account).
 
 ## Not yet built
 
-- On-device verification of the spec's acceptance checklist (no simulator on the Linux dev box).
-- TestFlight distribution — needs the $99/yr Apple Developer account; after CI builds work.
+- On-device distribution (unsigned-ipa CI artifact + SideStore install docs) — planned as its own
+  PR; needed for the camera/OCR items of the acceptance checklist.
+- Verification of the spec's acceptance checklist on a test build (Appetize covers the
+  simulator-safe items).
