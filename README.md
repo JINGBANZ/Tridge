@@ -20,7 +20,8 @@ browser. Agents: start with [`AGENTS.md`](AGENTS.md), then [`wiki/index.md`](wik
 - iOS app (macOS + Xcode 16): open `WhatsInMyFridge.xcodeproj`, or
   `xcodebuild -scheme WhatsInMyFridge -destination 'generic/platform=iOS Simulator' build`
 - Runtime setup: paste your OpenAI API key in Settings (gear icon) — it is
-  stored only in the device Keychain.
+  stored only on the device: in the Keychain on real hardware, in local
+  defaults on simulators (unsigned simulator builds have no Keychain access).
 
 ## Installing a test build (no Mac needed)
 
