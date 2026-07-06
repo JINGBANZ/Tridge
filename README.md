@@ -58,13 +58,15 @@ in SideStore — no computer needed after setup) and max 3 sideloaded apps.
 
 One-time setup (see [docs.sidestore.io](https://docs.sidestore.io) for the
 authoritative, current steps — iOS point releases occasionally break
-sideloading until SideStore ships a fix):
+sideloading until SideStore ships a fix). This needs a computer with the
+iPhone on USB — any local macOS/Windows/Linux machine works (a remote
+VPS does not; no USB):
 
-1. On the Linux box, download **iloader** ([iloader.app](https://iloader.app),
-   SideStore's official installer — Linux builds provided; needs `usbmuxd` for
-   USB connectivity), connect the iPhone over USB, sign in with your Apple ID.
-   It generates the device pairing file and installs SideStore, signed with
-   your free Apple ID.
+1. Download **iloader** ([iloader.app](https://iloader.app), SideStore's
+   official installer — macOS/Windows/Linux builds), connect the iPhone over
+   USB, sign in with your Apple ID. It generates the device pairing file and
+   installs SideStore, signed with your free Apple ID. After this, installs
+   and refreshes happen entirely on the phone — no computer involved again.
 2. On the phone, install **LocalDevVPN** from the App Store and toggle it on
    whenever installing/refreshing — this loopback VPN is what lets SideStore
    re-sign apps on-device without a computer.
@@ -77,6 +79,14 @@ Per build:
 2. In SideStore: **+** → pick the ipa. SideStore signs it with your Apple ID
    and installs it. Re-tap **Refresh** any time before the 7-day signature
    expires.
+
+Optional accelerator: [**LiveContainer**](https://github.com/LiveContainer/LiveContainer)
+(installable through SideStore, or pick iloader's SideStore + LiveContainer
+combo during setup) runs apps as guests inside its own container. Importing a
+new ipa then needs **no re-signing round-trip at all** and doesn't count
+against the free-Apple-ID 3-app limit — the fastest install-per-build loop.
+Guest caveats: no remote push (the app only uses local notifications) and
+entitlements aren't applied.
 
 ### With a Mac (Xcode 16+)
 

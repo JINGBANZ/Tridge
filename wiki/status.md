@@ -16,8 +16,9 @@ ipa (SideStore sideloading onto the owner's iPhone with a free Apple ID). Instal
 
 Owner-side distribution setup: create a free Appetize.io account (optionally add the
 `APPETIZE_API_TOKEN` repo secret so CI auto-publishes each push), and do the one-time SideStore
-pairing of the iPhone from the Linux box. Then run the spec's acceptance checklist on the test
-builds — the SideStore install is the path where the real camera and date-label OCR are testable.
+pairing of the iPhone over USB from a local computer (the owner's MacBook — the dev VPS has no
+USB). Then run the spec's acceptance checklist on the test builds — the SideStore install is the
+path where the real camera and date-label OCR are testable.
 
 ## Built
 
