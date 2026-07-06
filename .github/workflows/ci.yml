@@ -76,3 +76,65 @@ jobs:
             -F "platform=ios" \
             -o response.json
           echo "Appetize app URL: $(python3 -c 'import json;print(json.load(open("response.json")).get("appURL",""))')"
+
+  # Each PR gets its own Appetize app so changes are viewable before merging to
+  # main. The app is tagged with the PR number via Appetize's `note` field, so
+  # re-pushes update the same app; appetize-cleanup.yml deletes it on PR close.
+  appetize-preview:
+    name: PR preview on Appetize.io
+    needs: ios-build
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    env:
+      APPETIZE_API_TOKEN: ${{ secrets.APPETIZE_API_TOKEN }}
+    steps:
+      - name: Skip (no APPETIZE_API_TOKEN secret configured)
+        if: env.APPETIZE_API_TOKEN == ''
+        run: echo "APPETIZE_API_TOKEN secret not set — skipping PR preview."
+      - uses: actions/download-artifact@v4
+        if: env.APPETIZE_API_TOKEN != ''
+        with:
+          name: WhatsInMyFridge-simulator
+      - name: Upload PR build to Appetize
+        if: env.APPETIZE_API_TOKEN != ''
+        id: upload
+        env:
+          NOTE: gh-pr-${{ github.event.pull_request.number }}
+        run: |
+          key=$(curl --fail -sS -u "${APPETIZE_API_TOKEN}:" "https://api.appetize.io/v1/apps" \
+            | python3 -c '
+          import json, os, sys
+          j = json.load(sys.stdin)
+          apps = j.get("data", []) if isinstance(j, dict) else j
+          print(next((a["publicKey"] for a in apps if a.get("note") == os.environ["NOTE"]), ""))')
+          url="https://api.appetize.io/v1/apps${key:+/$key}"
+          curl --fail-with-body -sS -u "${APPETIZE_API_TOKEN}:" "$url" \
+            -F "file=@WhatsInMyFridge-sim.zip" \
+            -F "platform=ios" \
+            -F "note=${NOTE}" \
+            -o response.json
+          echo "publicKey=$(python3 -c 'import json;print(json.load(open("response.json"))["publicKey"])')" >> "$GITHUB_OUTPUT"
+      - name: Comment preview link on PR
+        if: env.APPETIZE_API_TOKEN != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          KEY: ${{ steps.upload.outputs.publicKey }}
+          PR: ${{ github.event.pull_request.number }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          marker="<!-- appetize-pr-preview -->"
+          body="${marker}
+          ### 📱 Appetize preview
+
+          **https://appetize.io/app/${KEY}** — updated for ${SHA}.
+
+          Sessions start from a clean device: paste your OpenAI key in Settings (gear) first, then scan — or long-press the scan button for \"Try sample receipt\"."
+          cid=$(gh api "repos/${{ github.repository }}/issues/${PR}/comments" --paginate \
+            --jq "[.[] | select(.body | startswith(\"${marker}\"))][0].id // empty")
+          if [ -n "$cid" ]; then
+            gh api -X PATCH "repos/${{ github.repository }}/issues/comments/${cid}" -f body="$body" --silent
+          else
+            gh api "repos/${{ github.repository }}/issues/${PR}/comments" -f body="$body" --silent
+          fi
