@@ -7,18 +7,18 @@
 
 ## Current phase
 
-v1 merged and CI green (Linux `swift test` + macOS build). CI now also publishes installable test
-builds on every run: a zipped Debug simulator app (Appetize.io browser testing) and an unsigned Debug
-ipa (SideStore sideloading onto the owner's iPhone with a free Apple ID). Install instructions are in
-`README.md` → "Installing a test build".
+v1 merged and CI green (Linux `swift test` + macOS build). CI now also publishes an installable
+test build on every run: a zipped Debug simulator app for Appetize.io browser testing. Install
+instructions are in `README.md` → "Installing a test build". The `APPETIZE_API_TOKEN` repo secret
+is set, so the auto-publish job uploads each `main` push to Appetize.
 
 ## Next action
 
-Owner-side distribution setup: create a free Appetize.io account (optionally add the
-`APPETIZE_API_TOKEN` repo secret so CI auto-publishes each push), and do the one-time SideStore
-pairing of the iPhone over USB from a local computer (the owner's MacBook — the dev VPS has no
-USB). Then run the spec's acceptance checklist on the test builds — the SideStore install is the
-path where the real camera and date-label OCR are testable.
+After the first `main` push triggers the Appetize upload: take the `publicKey` from the job log
+and set it as the `APPETIZE_APP_PUBLICKEY` repo variable so later pushes update one stable app.
+Then run the browser-testable part of the spec's acceptance checklist on Appetize (photo-library
+and sample-receipt scan paths). The on-device path (real camera + date-label OCR via SideStore)
+is a planned separate PR.
 
 ## Built
 
@@ -45,10 +45,9 @@ path where the real camera and date-label OCR are testable.
   (Home grid + drag-to-consume, scan flow + review sheet, item detail + art picker, settings).
 - `WhatsInMyFridge.xcodeproj` — hand-written project (synchronized folder group) + shared scheme;
   see the decision log for why it's hand-authored.
-- `.github/workflows/ci.yml` — Linux `swift test`; macOS `swift test` + Debug builds for simulator
-  and device, published as artifacts (`WhatsInMyFridge-simulator` zip for Appetize.io,
-  `WhatsInMyFridge-ipa` unsigned ipa for SideStore); optional Appetize auto-publish job that
-  no-ops until the `APPETIZE_API_TOKEN` secret exists.
+- `.github/workflows/ci.yml` — Linux `swift test`; macOS `swift test` + Debug simulator build,
+  published as the `WhatsInMyFridge-simulator` artifact (Appetize.io's upload format); Appetize
+  auto-publish job on `main` pushes (no-ops without the `APPETIZE_API_TOKEN` secret).
 - `AGENTS.md` / `CLAUDE.md` — agent instructions; shared-rules block syncs from JINGBANZ/rules.
 - `.github/workflows/sync-shared-rules.yml` — weekly shared-rules sync (stub → JINGBANZ/workflows).
 - `.github/workflows/claude.yml`, `.github/workflows/claude-code-review.yml` — @claude mentions and
@@ -57,7 +56,7 @@ path where the real camera and date-label OCR are testable.
 
 ## Not yet built
 
-- Verification of the spec's acceptance checklist on a test build (Appetize for the simulator-safe
-  items, SideStore install for camera/OCR items).
-- Owner-side distribution accounts/pairing (Appetize account + token secret; SideStore one-time
-  device pairing) — documented in `README.md`, cannot be done from CI.
+- On-device distribution (unsigned-ipa CI artifact + SideStore install docs) — planned as its own
+  PR; needed for the camera/OCR items of the acceptance checklist.
+- Verification of the spec's acceptance checklist on a test build (Appetize covers the
+  simulator-safe items).

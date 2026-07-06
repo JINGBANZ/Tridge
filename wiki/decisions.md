@@ -159,25 +159,20 @@
   recommended path for no benefit); leaving `store` at its default (silent server-side retention
   of receipt images).
 
-### 2026-07-05 — Test builds via Appetize.io (browser) + SideStore (device), not TestFlight
+### 2026-07-05 — Browser test builds via Appetize.io, not TestFlight
 
-- **Chose:** CI's macOS job publishes two Debug artifacts per run — a zipped simulator `.app`
-  (Appetize.io's upload format) and an unsigned ipa — plus an auto-publish job that uploads the
-  simulator build to Appetize when the `APPETIZE_API_TOKEN` repo secret exists (a distribution
-  credential the owner adds; unrelated to the OpenAI-key ban). On-device installs go through
-  SideStore, which re-signs the unsigned ipa with the owner's free Apple ID and refreshes the
-  7-day signature on-device (LocalDevVPN loopback trick) after a one-time USB setup with
-  SideStore's official iloader installer, run on any local desktop — the Linux dev box is a VPS
-  with no USB access, so the owner's MacBook does this step. Debug configuration on purpose:
-  it keeps the bundled "Try sample receipt" flow in every test build.
-- **Why:** No $99 Apple Developer Program, and development runs on a remote VPS. Appetize needs
-  no Apple credentials at all and runs in a browser (camera-free testing is already first-class
-  in the app); SideStore is the free path where the real receipt camera and date-label OCR work,
-  and it is the sideloader whose post-setup refresh loop needs no computer at all — installs
-  can't depend on the VPS (no USB) and shouldn't depend on the MacBook being awake and nearby.
+- **Chose:** CI's macOS job publishes a zipped Debug simulator `.app` per run (Appetize.io's
+  upload format — it does not accept ipas), plus an auto-publish job that uploads it to Appetize
+  on `main` pushes when the `APPETIZE_API_TOKEN` repo secret exists (a distribution credential
+  the owner adds; unrelated to the OpenAI-key ban). Debug configuration on purpose: it keeps the
+  bundled "Try sample receipt" flow in every test build.
+- **Why:** No $99 Apple Developer Program, and development runs on a remote Linux VPS with no
+  local Xcode. Appetize needs no Apple credentials at all and runs in a browser; camera-free
+  testing is already first-class in the app (photo-library fallback + sample receipt), and
+  Appetize can seed the simulator photo library, so the full scan → review → inventory flow is
+  browser-testable. Free tier (100 min/month, one session) is enough for solo smoke tests.
 - **Rejected:** TestFlight (needs the $99/yr program; still the right answer if the app ever goes
-  beyond the owner); classic AltStore (its AltServer officially runs only on macOS/Windows and
-  must be reachable on the owner's Wi-Fi for every install *and* every 7-day refresh; the
-  community AltServer-Linux port's last release was 2022); AltStore PAL (EU/Japan/Brazil-only
-  marketplace, not a sign-your-own-ipa tool); CI-signed ipas (signing certificates require the
-  paid program, and secrets-in-CI surface area is deliberately kept minimal).
+  beyond the owner); Waldo Sessions (comparable free simulator minutes but uncertain future under
+  Tricentis); real-device clouds (BrowserStack/LambdaTest — camera image injection is attractive
+  but paid; revisit if camera bugs need cloud reproduction). On-device distribution for the real
+  camera/OCR (SideStore) is deliberately split into its own follow-up PR.
