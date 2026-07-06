@@ -42,6 +42,29 @@ jobs:
         with:
           name: WhatsInMyFridge-simulator
           path: WhatsInMyFridge-sim.zip
+      - name: Build for iOS device (unsigned)
+        run: >
+          xcodebuild
+          -project WhatsInMyFridge.xcodeproj
+          -scheme WhatsInMyFridge
+          -sdk iphoneos
+          -configuration Debug
+          -derivedDataPath build
+          -destination 'generic/platform=iOS'
+          build
+          CODE_SIGNING_ALLOWED=NO
+      # Unsigned ipa: SideStore/AltStore re-sign it with the user's own Apple ID on install.
+      - name: Package unsigned ipa
+        run: |
+          cd build/Build/Products/Debug-iphoneos
+          mkdir Payload
+          cp -R WhatsInMyFridge.app Payload/
+          zip -r -y "$GITHUB_WORKSPACE/WhatsInMyFridge.ipa" Payload
+      - name: Upload unsigned ipa
+        uses: actions/upload-artifact@v4
+        with:
+          name: WhatsInMyFridge-ipa
+          path: WhatsInMyFridge.ipa
 
   # No-ops until the owner creates a free Appetize.io account and adds the
   # APPETIZE_API_TOKEN repo secret (a distribution credential — NOT the OpenAI key,
