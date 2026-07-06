@@ -79,6 +79,8 @@
 - **Rejected:** Staying on Anthropic (tool-use-based schema enforcement exists but the owner chose
   OpenAI); prompt-only JSON with client validation (what v1 shipped — schema violations surfaced
   only at parse time).
+- **Superseded by:** *2026-07-05 — Responses API replaces Chat Completions* for the endpoint;
+  the provider, model, and enforced-schema choices stand.
 
 ### 2026-07-05 — No lifetime eaten/tossed counters
 
@@ -142,6 +144,20 @@
 - **Rejected:** Camera-only input (untestable off-device); a crash/telemetry SDK like Sentry
   (third-party dependency + backend, against v1 constraints); OS-level log capture as the only
   loop (Console.app/`simctl` need a Mac; testers won't run them).
+
+### 2026-07-05 — Responses API replaces Chat Completions
+
+- **Chose:** `OpenAIService` calls `POST /v1/responses` (`input`/`input_image`, `text.format`
+  structured outputs, `max_output_tokens`, `reasoning.effort`) with **`store: false`** — receipts
+  are personal data and Responses retains request content server-side by default. Supersedes the
+  endpoint half of *2026-07-05 — OpenAI with enforced response schema*.
+- **Why:** OpenAI's official guidance recommends Responses for all new projects (Chat Completions
+  stays supported but new capabilities land on Responses first), and the migration cost was one
+  file. `store: false` makes the privacy posture explicit rather than accidental. Verified live:
+  all three smoke fixtures pass against the real endpoint.
+- **Rejected:** Staying on Chat Completions (fine for a single-turn call, but leaves us off the
+  recommended path for no benefit); leaving `store` at its default (silent server-side retention
+  of receipt images).
 
 ### 2026-07-05 — Test builds via Appetize.io (browser) + SideStore (device), not TestFlight
 

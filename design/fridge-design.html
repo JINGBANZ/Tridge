@@ -444,15 +444,16 @@
   <section>
     <span class="eyebrow">LLM integration</span>
     <h2>One vision call does receipt → inventory</h2>
-    <p>Direct call to the OpenAI Chat Completions API with model <code>gpt-5-mini</code> (fast, pennies per receipt). The response shape is <b>enforced server-side</b> with a strict Structured Outputs JSON Schema — <code>SCHEMA</code> below, built programmatically in <code>WhatsInMyFridge/Core/ReceiptSchema.swift</code> and test-checked against the Swift DTOs — so replies always match the contract; the prompt carries only the content rules. Per item the LLM returns exactly: <code>id</code> (one of the curated <code>ItemID</code> vocabulary — the schema's enum makes anything else impossible), <code>name</code>, <code>receipt_text</code>, <code>quantity</code>, <code>shelf_life_days</code>. No store name, no purchase date (the app stamps the scan day), no emoji (art is resolved from <code>id</code> on-device), no storage guess (the Settings default applies). Unknown-item strategy is tiered: specific id → generic bucket id (<code>fruit</code>, <code>vegetable</code>, <code>meat</code>, …) → <code>unknown</code>, which the review sheet flags amber for fixing; ids added to the vocabulary later decode as <code>unknown</code> on older builds. The user's API key is entered in Settings and stored in Keychain — no backend for v1. Wrap it in an <code>LLMService</code> protocol so a proxy can replace it later.</p>
-    <pre>POST https://api.openai.com/v1/chat/completions
+    <p>Direct call to the OpenAI Responses API with model <code>gpt-5-mini</code> (fast, pennies per receipt). The response shape is <b>enforced server-side</b> with a strict Structured Outputs JSON Schema — <code>SCHEMA</code> below, built programmatically in <code>WhatsInMyFridge/Core/ReceiptSchema.swift</code> and test-checked against the Swift DTOs — so replies always match the contract; the prompt carries only the content rules. Per item the LLM returns exactly: <code>id</code> (one of the curated <code>ItemID</code> vocabulary — the schema's enum makes anything else impossible), <code>name</code>, <code>receipt_text</code>, <code>quantity</code>, <code>shelf_life_days</code>. No store name, no purchase date (the app stamps the scan day), no emoji (art is resolved from <code>id</code> on-device), no storage guess (the Settings default applies). Unknown-item strategy is tiered: specific id → generic bucket id (<code>fruit</code>, <code>vegetable</code>, <code>meat</code>, …) → <code>unknown</code>, which the review sheet flags amber for fixing; ids added to the vocabulary later decode as <code>unknown</code> on older builds. The user's API key is entered in Settings and stored in Keychain — no backend for v1. Wrap it in an <code>LLMService</code> protocol so a proxy can replace it later.</p>
+    <pre>POST https://api.openai.com/v1/responses
 headers: Authorization: Bearer &lt;key&gt; · content-type: application/json
-body: { "model": "gpt-5-mini", "max_completion_tokens": 4000, "reasoning_effort": "low",
-        "response_format": { "type": "json_schema",
-          "json_schema": { "name": "parsed_receipt", "strict": true, "schema": SCHEMA }},
-        "messages": [{ "role": "user", "content": [
-          { "type": "image_url", "image_url": { "url": "data:image/jpeg;base64,&lt;receipt&gt;" }},
-          { "type": "text", "text": PROMPT }]}] }</pre>
+body: { "model": "gpt-5-mini", "max_output_tokens": 4000, "reasoning": { "effort": "low" },
+        "store": false,          ← receipts are personal data; Responses retains by default
+        "text": { "format": { "type": "json_schema",
+                  "name": "parsed_receipt", "strict": true, "schema": SCHEMA }},
+        "input": [{ "role": "user", "content": [
+          { "type": "input_image", "image_url": "data:image/jpeg;base64,&lt;receipt&gt;" },
+          { "type": "input_text", "text": PROMPT }]}] }</pre>
     <p><b>PROMPT</b> (verbatim — content rules only; the JSON shape and allowed <code>id</code> values come from SCHEMA):</p>
     <pre>This is a grocery store receipt. Extract every FOOD and BEVERAGE item.
 Rules:
