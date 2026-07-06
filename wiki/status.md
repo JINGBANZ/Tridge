@@ -14,11 +14,10 @@ is set, so the auto-publish job uploads each `main` push to Appetize.
 
 ## Next action
 
-After the first `main` push triggers the Appetize upload: take the `publicKey` from the job log
-and set it as the `APPETIZE_APP_PUBLICKEY` repo variable so later pushes update one stable app.
-Then run the browser-testable part of the spec's acceptance checklist on Appetize (photo-library
-and sample-receipt scan paths). The on-device path (real camera + date-label OCR via SideStore)
-is a planned separate PR.
+Run the browser-testable part of the spec's acceptance checklist on Appetize (photo-library and
+sample-receipt scan paths; the stable app is pinned via the `APPETIZE_APP_PUBLICKEY` repo
+variable). The on-device path (real camera + date-label OCR via SideStore) is PR #9, on hold at
+the owner's request.
 
 ## Built
 
@@ -47,7 +46,10 @@ is a planned separate PR.
   see the decision log for why it's hand-authored.
 - `.github/workflows/ci.yml` — Linux `swift test`; macOS `swift test` + Debug simulator build,
   published as the `WhatsInMyFridge-simulator` artifact (Appetize.io's upload format); Appetize
-  auto-publish job on `main` pushes (no-ops without the `APPETIZE_API_TOKEN` secret).
+  auto-publish on `main` pushes (stable app pinned by the `APPETIZE_APP_PUBLICKEY` repo variable)
+  and a per-PR preview app whose link is commented on the PR (both no-op without the
+  `APPETIZE_API_TOKEN` secret). `.github/workflows/appetize-cleanup.yml` deletes a PR's preview
+  app when the PR closes.
 - `AGENTS.md` / `CLAUDE.md` — agent instructions; shared-rules block syncs from JINGBANZ/rules.
 - `.github/workflows/sync-shared-rules.yml` — weekly shared-rules sync (stub → JINGBANZ/workflows).
 - `.github/workflows/claude.yml`, `.github/workflows/claude-code-review.yml` — @claude mentions and

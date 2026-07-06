@@ -1,0 +1,33 @@
+name: Appetize preview cleanup
+
+# Deletes the PR's preview app (created by ci.yml → appetize-preview, tagged
+# `gh-pr-<number>` in Appetize's note field) when the PR closes, so previews
+# don't accumulate against the free-tier app list.
+on:
+  pull_request:
+    types: [closed]
+
+jobs:
+  delete-preview:
+    name: delete this PR's Appetize app
+    runs-on: ubuntu-latest
+    env:
+      APPETIZE_API_TOKEN: ${{ secrets.APPETIZE_API_TOKEN }}
+    steps:
+      - name: Delete preview app
+        if: env.APPETIZE_API_TOKEN != ''
+        env:
+          NOTE: gh-pr-${{ github.event.pull_request.number }}
+        run: |
+          key=$(curl --fail -sS -u "${APPETIZE_API_TOKEN}:" "https://api.appetize.io/v1/apps" \
+            | python3 -c '
+          import json, os, sys
+          j = json.load(sys.stdin)
+          apps = j.get("data", []) if isinstance(j, dict) else j
+          print(next((a["publicKey"] for a in apps if a.get("note") == os.environ["NOTE"]), ""))')
+          if [ -n "$key" ]; then
+            curl --fail -sS -u "${APPETIZE_API_TOKEN}:" -X DELETE "https://api.appetize.io/v1/apps/$key"
+            echo "Deleted preview app $key (${NOTE})."
+          else
+            echo "No preview app tagged ${NOTE} — nothing to delete."
+          fi

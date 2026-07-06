@@ -45,6 +45,14 @@ full scan → review → inventory flow.
 
 If the `APPETIZE_API_TOKEN` repo secret is configured, CI uploads each push
 to Appetize automatically — then you just reopen your existing Appetize link.
+Pull requests get their own separate preview app: CI comments the link on the
+PR and updates it on every push, so changes are viewable before they reach
+`main` (the preview app is deleted when the PR closes).
+
+Heads-up on cloud-simulator sessions: every session starts from a wiped
+device, so the OpenAI key must be re-pasted (Settings → key → Done) each
+session before scanning — all scan inputs, including "Try sample receipt",
+route to Settings until a key is stored.
 
 Real receipt camera and date-label OCR need a physical iPhone — that
 distribution path (SideStore sideloading) is planned separately.
