@@ -2,17 +2,14 @@
 import Foundation
 import SwiftData
 
-/// In-memory container seeded with the home-screen mock's inventory, for
-/// Xcode previews only.
+/// The home-screen mock's inventory, for Xcode previews and the scan menu's
+/// "Seed the App" action (debug builds) — populates the fridge with no
+/// API key or LLM call so the grid, urgency tints, and drag-to-consume are
+/// viewable anywhere, including browser-hosted simulators.
 enum PreviewData {
-    static let container: ModelContainer = {
-        let container = try! ModelContainer(
-            for: FridgeItem.self,
-            configurations: ModelConfiguration(isStoredInMemoryOnly: true))
-        // A throwaway context: the static initializer is nonisolated, so the
-        // main-actor-bound mainContext is off limits here.
-        let context = ModelContext(container)
-
+    /// Inserts the preset items with expiries relative to today, covering
+    /// every urgency tier (expired → today → soon → fresh).
+    static func seed(into context: ModelContext) {
         func seed(_ name: String, _ id: ItemID, daysLeft: Int, quantity: Int = 1) {
             let expiry = Calendar.current.date(byAdding: .day, value: daysLeft, to: Date())!
             context.insert(FridgeItem(
@@ -34,6 +31,16 @@ enum PreviewData {
         seed("Cheddar", .cheese, daysLeft: 24)
         seed("Butter", .butter, daysLeft: 30)
         try? context.save() // hand-made contexts don't autosave
+    }
+
+    /// In-memory container pre-seeded for Xcode previews.
+    static let container: ModelContainer = {
+        let container = try! ModelContainer(
+            for: FridgeItem.self,
+            configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+        // A throwaway context: the static initializer is nonisolated, so the
+        // main-actor-bound mainContext is off limits here.
+        seed(into: ModelContext(container))
         return container
     }()
 }
