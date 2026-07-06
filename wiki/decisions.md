@@ -176,3 +176,22 @@
   Tricentis); real-device clouds (BrowserStack/LambdaTest — camera image injection is attractive
   but paid; revisit if camera bugs need cloud reproduction). On-device distribution for the real
   camera/OCR (SideStore) is deliberately split into its own follow-up PR.
+
+### 2026-07-06 — Simulator builds store the API key in UserDefaults, not the Keychain
+
+- **Chose:** `KeychainStore` branches on `#if targetEnvironment(simulator)`: simulators persist
+  the OpenAI key in `UserDefaults`; real devices keep the Keychain path, now with OSStatus
+  failure logging on the new `AppLog.keychain` channel (status codes only, never key material).
+- **Why:** Owner-reported bug on Appetize: pasting the key and tapping Done never stored it, so
+  every scan bounced back to Settings. The CI simulator artifact is built with
+  `CODE_SIGNING_ALLOWED=NO`; an app with no code signature has no entitlements, so every
+  `SecItem*` call fails with `errSecMissingEntitlement` (-34018) — and the old code discarded
+  the status, making the failure silent. The simulator keychain offers no real protection over
+  its app container anyway, so UserDefaults is the honest equivalent there, and the security
+  posture on real hardware (the only place a key is at actual risk) is unchanged.
+- **Rejected:** Ad-hoc-signing the CI simulator build to restore entitlements (unverifiable
+  from the Linux box that the entitlements Appetize's runtime accepts would result; app-level
+  fix is deterministic); a runtime write-probe fallback (keychain-then-defaults) on all
+  platforms (dead code on device, and a silent downgrade path is worse than an explicit
+  compile-time branch); surfacing a save-error alert instead of fixing storage (keeps the
+  simulator unusable).

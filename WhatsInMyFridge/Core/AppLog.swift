@@ -46,6 +46,8 @@ public enum AppLog {
     public static let scan = LogChannel("scan")
     public static let llm = LogChannel("llm")
     public static let ocr = LogChannel("ocr")
+    /// Key-storage failures only — status codes, never key material.
+    public static let keychain = LogChannel("keychain")
 
     #if canImport(OSLog)
     /// This session's app log entries plus an app/OS header — the payload
