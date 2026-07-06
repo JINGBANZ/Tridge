@@ -96,6 +96,11 @@ struct HomeView: View {
 
     // MARK: Header
 
+    /// The header counts units, not rows — a ×3 milk is three items.
+    private var unitCount: Int {
+        items.reduce(0) { $0 + $1.quantity }
+    }
+
     private var header: some View {
         HStack {
             Text("Fridge")
@@ -103,7 +108,7 @@ struct HomeView: View {
                 .foregroundStyle(AppTheme.ink)
             Spacer()
             HStack(spacing: 10) {
-                Text("\(items.count) item\(items.count == 1 ? "" : "s")")
+                Text("\(unitCount) item\(unitCount == 1 ? "" : "s")")
                     .font(AppTheme.countFont)
                     .foregroundStyle(AppTheme.mutedInk)
                 Button {
@@ -268,12 +273,12 @@ struct HomeView: View {
             Button {
                 scanFlow.startScan(from: .photoLibrary)
             } label: {
-                Label("Choose from album", systemImage: "photo.on.rectangle")
+                Label("Choose from library", systemImage: "photo.on.rectangle")
             }
             Button {
                 showManualAdd = true
             } label: {
-                Label("Type it in", systemImage: "square.and.pencil")
+                Label("Type to add", systemImage: "square.and.pencil")
             }
             #if DEBUG
             Button {

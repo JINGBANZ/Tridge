@@ -27,7 +27,7 @@ struct ManualAddSheet: View {
                             showArtPicker = true
                         } label: {
                             Text(Artwork.emoji(forKey: artKey))
-                                .font(.system(size: 96))
+                                .font(.system(size: AppTheme.heroArtSize))
                                 .shadow(color: AppTheme.artShadow.color,
                                         radius: AppTheme.artShadow.radius,
                                         y: AppTheme.artShadow.y)

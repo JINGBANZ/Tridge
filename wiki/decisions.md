@@ -201,7 +201,7 @@
 ### 2026-07-06 — Scan button: single tap opens the add menu; manual entry joins it
 
 - **Chose:** One tap on the scan button opens the source menu (Scan with camera · Choose from
-  album · Type it in, plus the debug extras); no long-press behavior. "Type it in" is a
+  library · Type to add, plus the debug extras); no long-press behavior. "Type to add" is a
   manual-add sheet (art, name, quantity, expiry — saved as `.userSet`, no API key needed), and
   the review sheet's quantity became an editable chip alongside the date chip. Supersedes the
   tap-scans / long-press-menu split of *2026-07-05 — Photo import + in-app diagnostics*.

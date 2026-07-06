@@ -36,7 +36,7 @@ the owner's request.
   photo); gitignored `Fixtures/private/` for personal receipts.
 - `WhatsInMyFridge/` — the app: `App/` (entry, `AppTheme.swift` design tokens, preview seed),
   a single-tap add menu on the scan button (camera scan where a document camera exists ·
-  photo-library import · "Type it in" manual entry via `Views/Home/ManualAddSheet.swift`, which
+  photo-library import · "Type to add" manual entry via `Views/Home/ManualAddSheet.swift`, which
   needs no API key; debug builds add `Resources/SampleReceipt.jpg` and a "Seed the App" action
   that inserts the preset `PreviewData` inventory with no key or LLM call), `Core/AppLog.swift` +
   Settings → Copy diagnostics as the tester feedback loop,

@@ -33,7 +33,7 @@ the scan-menu extras ("Try sample receipt", "Seed the App") are included.
 ### Browser simulator via Appetize.io
 
 No Apple account, no hardware. The camera doesn't exist here: the scan
-button's menu offers "Choose from album" instead, and "Try sample receipt"
+button's menu offers "Choose from library" instead, and "Try sample receipt"
 covers the full scan → review → inventory flow. To just see the app working
 with zero setup, tap the scan button → **Seed the App**: it fills the fridge
 with preset items across every urgency tier — no API key, no LLM call.
@@ -55,7 +55,7 @@ PR and updates it on every push, so changes are viewable before they reach
 Heads-up on cloud-simulator sessions: every session starts from a wiped
 device, so the OpenAI key must be re-pasted (Settings → key → Done) each
 session before scanning — all scan inputs, including "Try sample receipt",
-route to Settings until a key is stored ("Type it in" and "Seed the App"
+route to Settings until a key is stored ("Type to add" and "Seed the App"
 work without one).
 
 Real receipt camera and date-label OCR need a physical iPhone — that

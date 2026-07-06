@@ -32,19 +32,19 @@ struct ReviewRow: View {
                 showQuantityStepper = true
             } label: {
                 Text("×\(item.quantity)")
-                    .font(.system(size: 10.5, weight: .bold).monospacedDigit())
+                    .font(AppTheme.chipFont.monospacedDigit())
                     .foregroundStyle(AppTheme.mutedInk)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
+                    .padding(.horizontal, AppTheme.chipPadding.h)
+                    .padding(.vertical, AppTheme.chipPadding.v)
                     .background(AppTheme.mutedInk.opacity(0.12), in: Capsule())
             }
             .buttonStyle(.borderless)
             .accessibilityLabel("Quantity \(item.quantity)")
             .popover(isPresented: $showQuantityStepper) {
                 Stepper("×\(item.quantity)", value: $item.quantity, in: 1...99)
-                    .font(.system(size: 14, weight: .semibold).monospacedDigit())
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
+                    .font(AppTheme.stepperPopoverFont.monospacedDigit())
+                    .padding(.horizontal, AppTheme.stepperPopoverPadding.h)
+                    .padding(.vertical, AppTheme.stepperPopoverPadding.v)
                     .presentationCompactAdaptation(.popover)
             }
 
@@ -54,11 +54,11 @@ struct ReviewRow: View {
                 Text(item.needsFix && !item.userEditedDate
                      ? "Guess"
                      : item.expiryDate.formatted(.dateTime.month(.abbreviated).day()))
-                    .font(.system(size: 10.5, weight: .bold))
+                    .font(AppTheme.chipFont)
                     .foregroundStyle(item.needsFix && !item.userEditedDate
                                      ? AppTheme.soon : AppTheme.brandGreen)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
+                    .padding(.horizontal, AppTheme.chipPadding.h)
+                    .padding(.vertical, AppTheme.chipPadding.v)
                     .background(
                         (item.needsFix && !item.userEditedDate
                          ? AppTheme.soon : AppTheme.brandGreen).opacity(0.12),
