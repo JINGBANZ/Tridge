@@ -52,6 +52,9 @@ the owner's request.
   `APPETIZE_API_TOKEN` secret). `.github/workflows/appetize-cleanup.yml` deletes a PR's preview
   app when the PR closes.
 - `AGENTS.md` / `CLAUDE.md` — agent instructions; shared-rules block syncs from JINGBANZ/rules.
+- `.claude/settings.json` — pins Cloudflare's official Claude Code plugin (`cloudflare@cloudflare`,
+  marketplace `cloudflare/skills`): platform skills + Cloudflare MCP servers for coding agents,
+  ahead of the `server/` Worker build (see the decision log, *2026-07-07*).
 - `.github/workflows/sync-shared-rules.yml` — weekly shared-rules sync (stub → JINGBANZ/workflows).
 - `.github/workflows/claude.yml`, `.github/workflows/claude-code-review.yml` — @claude mentions and
   automatic PR review (need the `CLAUDE_CODE_OAUTH_TOKEN` secret via `/install-github-app`).
@@ -59,6 +62,9 @@ the owner's request.
 
 ## Not yet built
 
+- `server/` — the Cloudflare Workers receipt-scan proxy (TypeScript) that will hold the OpenAI
+  key, plus the app-side proxy `LLMService` swap and BYOK retirement; decided, not started
+  (decision log, *2026-07-07 — Backend: Cloudflare Workers proxy*).
 - On-device distribution (unsigned-ipa CI artifact + SideStore install docs) — planned as its own
   PR; needed for the camera/OCR items of the acceptance checklist.
 - Verification of the spec's acceptance checklist on a test build (Appetize covers the

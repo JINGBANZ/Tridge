@@ -29,8 +29,9 @@
 - **Rejected:** A key-holding proxy backend (Cloudflare Worker/Firebase) — right for a public App
   Store release, premature now.
 - **Revisit if:** The app is distributed beyond the owner (TestFlight external testers or App Store).
-- **Superseded by:** *2026-07-05 — OpenAI with enforced response schema* for the provider choice;
-  the no-backend / key-in-Keychain / `LLMService`-protocol parts stand.
+- **Superseded by:** *2026-07-05 — OpenAI with enforced response schema* for the provider choice,
+  and *2026-07-07 — Backend: Cloudflare Workers proxy* for the no-backend / key-in-Keychain parts;
+  the `LLMService`-protocol part stands.
 
 ### 2026-07-04 — Items float frameless on the background; prebuilt art only; one button
 
@@ -195,3 +196,29 @@
   platforms (dead code on device, and a silent downgrade path is worse than an explicit
   compile-time branch); surfacing a save-error alert instead of fixing storage (keeps the
   simulator unusable).
+
+### 2026-07-07 — Backend: Cloudflare Workers proxy (TypeScript) will hold the OpenAI key
+
+- **Chose:** Move the receipt-scan LLM call behind our own API: a thin TypeScript Worker on
+  Cloudflare Workers (a `server/` directory, cleanly separated from the app) that receives the
+  receipt JPEG, calls the OpenAI Responses API with a server-held key (`wrangler secret`), and
+  returns the same `ParsedReceipt` JSON the app already parses. The app swaps in a proxy-backed
+  `LLMService` conformance at its single construction site; all parsing/DTO/urgency logic stays
+  in `FridgeCore`. Supersedes the no-backend / key-in-Keychain halves of *2026-07-04 — No
+  backend; user-supplied Anthropic key in Keychain*.
+- **Why:** A consumer release can't ask users to bring an OpenAI key, and shipping our key in the
+  binary is trivially extractable. Among hosts researched (July 2026), Workers uniquely combines:
+  no wall-clock limit on HTTP requests (the 10–60 s OpenAI call is I/O wait, exempt from the
+  10 ms free-plan CPU cap), 100 MB request bodies, ~ms isolate cold starts, 100k free
+  requests/day (~300× expected volume), secrets outside the repo, and near-zero ops — the top
+  criterion with no DevOps staff. Owner accepted TypeScript for the worker; clear app/server
+  separation was the condition.
+- **Rejected:** Cloud Run + Vapor (Swift end-to-end, 300 s timeout, ~2M free req/mo — the
+  documented runner-up, at the price of Docker images, slower cold starts, GCP administration);
+  Vercel Functions (hard 4.5 MB body cap vs 1–5 MB photos); Lambda behind API Gateway (29 s
+  integration timeout); Render free tier (15-min idle spin-down, ~1 min wake breaks the scan
+  UX); Railway ($5/mo minimum, no sustained free tier); Fly.io (no free tier for new orgs).
+- **Agent tooling:** `.claude/settings.json` pins Cloudflare's official Claude Code plugin
+  (`cloudflare@cloudflare` from the `cloudflare/skills` marketplace) so coding agents get the
+  platform skills (workers, wrangler, durable-objects, …) and Cloudflare's remote MCP servers
+  (docs, api, bindings, builds, observability) on repo trust, rather than per-user setup.
