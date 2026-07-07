@@ -25,7 +25,7 @@ struct ItemDetailSheet: View {
                             showArtPicker = true
                         } label: {
                             Text(Artwork.artwork(for: item))
-                                .font(.system(size: 96))
+                                .font(.system(size: AppTheme.heroArtSize))
                                 .shadow(color: AppTheme.artShadow.color,
                                         radius: AppTheme.artShadow.radius,
                                         y: AppTheme.artShadow.y)

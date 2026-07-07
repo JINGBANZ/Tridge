@@ -19,6 +19,7 @@ struct HomeView: View {
     @State private var selectedItem: FridgeItem?
     @State private var showSettings = false
     @State private var settingsKeyExplainer = false
+    @State private var showManualAdd = false
     @State private var pickedPhoto: PhotosPickerItem?
 
     // Drag-to-consume state
@@ -61,6 +62,9 @@ struct HomeView: View {
         .sheet(isPresented: reviewBinding) {
             ReviewSheet(model: scanFlow)
         }
+        .sheet(isPresented: $showManualAdd) {
+            ManualAddSheet()
+        }
         .fullScreenCover(isPresented: cameraBinding) {
             DocumentCameraView { scanFlow.handleCapture($0) }
                 .ignoresSafeArea()
@@ -92,6 +96,11 @@ struct HomeView: View {
 
     // MARK: Header
 
+    /// The header counts units, not rows — a ×3 milk is three items.
+    private var unitCount: Int {
+        items.reduce(0) { $0 + $1.quantity }
+    }
+
     private var header: some View {
         HStack {
             Text("Fridge")
@@ -99,7 +108,7 @@ struct HomeView: View {
                 .foregroundStyle(AppTheme.ink)
             Spacer()
             HStack(spacing: 10) {
-                Text("\(items.count) item\(items.count == 1 ? "" : "s")")
+                Text("\(unitCount) item\(unitCount == 1 ? "" : "s")")
                     .font(AppTheme.countFont)
                     .foregroundStyle(AppTheme.mutedInk)
                 Button {
@@ -249,8 +258,9 @@ struct HomeView: View {
         }
     }
 
-    /// Tap scans (camera, or photo library where no camera exists); long-press
-    /// offers the source menu. Still the home screen's single control.
+    /// One tap opens the add menu: scan (camera where it exists, album
+    /// anywhere) or type an item in by hand. Still the home screen's single
+    /// control — no hidden long-press.
     private var scanButton: some View {
         Menu {
             if DocumentCameraView.isCameraSupported {
@@ -263,7 +273,12 @@ struct HomeView: View {
             Button {
                 scanFlow.startScan(from: .photoLibrary)
             } label: {
-                Label("Choose photo", systemImage: "photo.on.rectangle")
+                Label("Choose from library", systemImage: "photo.on.rectangle")
+            }
+            Button {
+                showManualAdd = true
+            } label: {
+                Label("Type to add", systemImage: "square.and.pencil")
             }
             #if DEBUG
             Button {
@@ -287,10 +302,8 @@ struct HomeView: View {
                     in: Circle())
                 .overlay(Circle().strokeBorder(.white.opacity(0.35), lineWidth: 1))
                 .shadow(color: AppTheme.brandGreen.opacity(0.45), radius: 10, y: 8)
-        } primaryAction: {
-            scanFlow.startScan()
         }
-        .accessibilityLabel("Scan receipt")
+        .accessibilityLabel("Add items")
     }
 
     // MARK: Scan flow plumbing

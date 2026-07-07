@@ -40,9 +40,10 @@ the owner's request.
   never run in CI. Ships three synthetic fixtures (clean, faded-thermal, crooked low-res
   photo); gitignored `Fixtures/private/` for personal receipts.
 - `Tridge/` — the app: `App/` (entry, `AppTheme.swift` design tokens, preview seed),
-  scan input via document camera or photo-library import (camera-free platforms fall back
-  automatically; debug builds bundle `Resources/SampleReceipt.jpg` and a "Seed the App" scan-menu
-  action that inserts the preset `PreviewData` inventory with no key or LLM call), `Core/AppLog.swift` +
+  a single-tap add menu on the scan button (camera scan where a document camera exists ·
+  photo-library import · "Type to add" manual entry via `Views/Home/ManualAddSheet.swift`, which
+  needs no API key; debug builds add `Resources/SampleReceipt.jpg` and a "Seed the App" action
+  that inserts the preset `PreviewData` inventory with no key or LLM call), `Core/AppLog.swift` +
   Settings → Copy diagnostics as the tester feedback loop,
   `Models/` (`FridgeItem.swift` SwiftData model, `Artwork.swift` artKey lookup), `Services/`
   (`LLMService.swift` OpenAI structured-outputs client, `ReceiptScanner.swift` VisionKit camera, `DateLabelScanner.swift`
