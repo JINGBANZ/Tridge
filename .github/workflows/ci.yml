@@ -130,7 +130,7 @@ jobs:
 
           **https://appetize.io/app/${KEY}** — updated for ${SHA}.
 
-          Sessions start from a clean device: paste your OpenAI key in Settings (gear) first, then scan — or long-press the scan button for \"Try sample receipt\"."
+          Sessions start from a clean device: paste your OpenAI key in Settings (gear) first, then scan — or tap the scan button for \"Try sample receipt\"."
           cid=$(gh api "repos/${{ github.repository }}/issues/${PR}/comments" --paginate \
             --jq "[.[] | select(.body | startswith(\"${marker}\"))][0].id // empty")
           if [ -n "$cid" ]; then

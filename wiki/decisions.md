@@ -144,6 +144,8 @@
 - **Rejected:** Camera-only input (untestable off-device); a crash/telemetry SDK like Sentry
   (third-party dependency + backend, against v1 constraints); OS-level log capture as the only
   loop (Console.app/`simctl` need a Mac; testers won't run them).
+- **Superseded by:** *2026-07-06 — Scan button: single tap opens the add menu* for the
+  tap-scans / long-press-menu split; the photo-library path, sample receipt, and diagnostics stand.
 
 ### 2026-07-05 — Responses API replaces Chat Completions
 
@@ -195,3 +197,17 @@
   platforms (dead code on device, and a silent downgrade path is worse than an explicit
   compile-time branch); surfacing a save-error alert instead of fixing storage (keeps the
   simulator unusable).
+
+### 2026-07-06 — Scan button: single tap opens the add menu; manual entry joins it
+
+- **Chose:** One tap on the scan button opens the source menu (Scan with camera · Choose from
+  library · Type to add, plus the debug extras); no long-press behavior. "Type to add" is a
+  manual-add sheet (art, name, quantity, expiry — saved as `.userSet`, no API key needed), and
+  the review sheet's quantity became an editable chip alongside the date chip. Supersedes the
+  tap-scans / long-press-menu split of *2026-07-05 — Photo import + in-app diagnostics*.
+- **Why:** Owner's direction. The long-press menu was invisible — nothing hinted it existed, so
+  the album path and debug actions were effectively hidden; one extra tap on the common path
+  buys discoverability for every path. Manual entry covers items with no receipt (gifts,
+  leftovers, loose produce) and gives a zero-key way to use the app for real.
+- **Rejected:** Tap-scans + long-press menu (what shipped — undiscoverable); a second visible
+  button for manual add (breaks the spec's single-control home screen).
