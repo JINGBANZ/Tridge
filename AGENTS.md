@@ -54,7 +54,7 @@ Mark breaking changes with `!` (`feat!:`) or a `BREAKING CHANGE:` footer. One lo
 
 ## Project overview
 
-MyFridge ("What's In My Fridge") is a native iOS app: photograph a grocery receipt, an LLM parses
+Tridge is a native iOS app: photograph a grocery receipt, an LLM parses
 it into a fridge inventory with guessed expiration dates, and the home screen shows each item as an
 image on a minimal background, turning amber → red as expiry nears. Stack: iOS 17+, SwiftUI,
 SwiftData, no third-party packages. The LLM call is moving behind `server/` — a Cloudflare
@@ -78,7 +78,7 @@ the migration. The complete build spec is `design/fridge-design.html`; start the
 | -------- | ------------------------------------------------------------------------ |
 | Test     | `swift test` (Linux-runnable logic targets)                              |
 | LLM smoke test | `swift test --filter ReceiptScanSmokeTests` (live API, local-only; key from env or `.env` — copy `env.sample`; skips without key) |
-| Build    | `xcodebuild -scheme WhatsInMyFridge -destination 'generic/platform=iOS Simulator' build` (CI/macOS only) |
+| Build    | `xcodebuild -scheme Tridge -destination 'generic/platform=iOS Simulator' build` (CI/macOS only) |
 | Server test | `cd server && npm run typecheck && npm test` (Vitest + tsc; Node 22+) |
 | Server deploy | `cd server && npm run deploy` (or CI, on `main`, once `CLOUDFLARE_API_TOKEN` is set) |
 | **Gate** | `swift test` + server typecheck/test on Linux; on macOS/CI, build + full test suite |

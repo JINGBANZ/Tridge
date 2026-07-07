@@ -28,7 +28,7 @@ the owner's request.
 
 - `design/fridge-design.html` — the complete v2 design & build spec (mocks, tokens, screens,
   schema, LLM contract, acceptance criteria).
-- `Package.swift` + `WhatsInMyFridge/Core/` — Linux-testable FridgeCore: LLM receipt-JSON parsing
+- `Package.swift` + `Tridge/Core/` — Linux-testable FridgeCore: LLM receipt-JSON parsing
   (`ReceiptParsing.swift`), the enforced response schema (`ReceiptSchema.swift`), the curated
   `ItemID` vocabulary + shared enums (`Types.swift`), urgency rules (`Urgency.swift`), date-label
   regex (`DateLabelParser.swift`).
@@ -39,7 +39,7 @@ the owner's request.
   from the environment or a gitignored `.env` (copy `env.sample`), skips without one, and is
   never run in CI. Ships three synthetic fixtures (clean, faded-thermal, crooked low-res
   photo); gitignored `Fixtures/private/` for personal receipts.
-- `WhatsInMyFridge/` — the app: `App/` (entry, `AppTheme.swift` design tokens, preview seed),
+- `Tridge/` — the app: `App/` (entry, `AppTheme.swift` design tokens, preview seed),
   scan input via document camera or photo-library import (camera-free platforms fall back
   automatically; debug builds bundle `Resources/SampleReceipt.jpg` and a "Seed the App" scan-menu
   action that inserts the preset `PreviewData` inventory with no key or LLM call), `Core/AppLog.swift` +
@@ -48,11 +48,11 @@ the owner's request.
   (`LLMService.swift` OpenAI structured-outputs client, `ReceiptScanner.swift` VisionKit camera, `DateLabelScanner.swift`
   Vision OCR, `NotificationService.swift`, `KeychainStore.swift`, `Haptics.swift`), `Views/`
   (Home grid + drag-to-consume, scan flow + review sheet, item detail + art picker, settings).
-- `WhatsInMyFridge.xcodeproj` — hand-written project (synchronized folder group) + shared scheme;
+- `Tridge.xcodeproj` — hand-written project (synchronized folder group) + shared scheme;
   see the decision log for why it's hand-authored.
 - `.github/workflows/ci.yml` — Linux `swift test`; server typecheck + Vitest;
   macOS `swift test` + Debug simulator build,
-  published as the `WhatsInMyFridge-simulator` artifact (Appetize.io's upload format); Appetize
+  published as the `Tridge-simulator` artifact (Appetize.io's upload format); Appetize
   auto-publish on `main` pushes (stable app pinned by the `APPETIZE_APP_PUBLICKEY` repo variable)
   and a per-PR preview app whose link is commented on the PR (both no-op without the
   `APPETIZE_API_TOKEN` secret). `.github/workflows/appetize-cleanup.yml` deletes a PR's preview

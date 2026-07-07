@@ -7,7 +7,7 @@
 //   SCAN_API_TOKEN  — app bearer token; generate: openssl rand -base64 32
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "myfridge-scan-api-test",
+  "name": "tridge-scan-api-test",
   "main": "src/index.ts",
   "compatibility_date": "2026-07-07",
   "compatibility_flags": ["nodejs_compat"],

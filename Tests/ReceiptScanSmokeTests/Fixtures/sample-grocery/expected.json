@@ -1,5 +1,5 @@
 {
-  "image": "../../../../WhatsInMyFridge/Resources/SampleReceipt.jpg",
+  "image": "../../../../Tridge/Resources/SampleReceipt.jpg",
   "min_items": 6,
   "max_items": 6,
   "items": [

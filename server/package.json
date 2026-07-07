@@ -1,5 +1,5 @@
 {
-  "name": "myfridge-scan-api",
+  "name": "tridge-scan-api",
   "private": true,
   "type": "module",
   "scripts": {

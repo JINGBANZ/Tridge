@@ -1,4 +1,4 @@
-# MyFridge — What's In My Fridge
+# Tridge
 
 Scan your grocery receipt → an LLM turns it into a live fridge inventory with
 expiration dates → items float on a minimal home screen, turning amber, then red,
@@ -17,15 +17,15 @@ browser. Agents: start with [`AGENTS.md`](AGENTS.md), then [`wiki/index.md`](wik
   fill in your key, then `swift test --filter ReceiptScanSmokeTests`. See
   [`Tests/ReceiptScanSmokeTests/Fixtures/README.md`](Tests/ReceiptScanSmokeTests/Fixtures/README.md)
   for how to add your own receipt images + expected inventory.
-- iOS app (macOS + Xcode 16): open `WhatsInMyFridge.xcodeproj`, or
-  `xcodebuild -scheme WhatsInMyFridge -destination 'generic/platform=iOS Simulator' build`
+- iOS app (macOS + Xcode 16): open `Tridge.xcodeproj`, or
+  `xcodebuild -scheme Tridge -destination 'generic/platform=iOS Simulator' build`
 - Runtime setup: paste your OpenAI API key in Settings (gear icon) — it is
   stored only on the device: in the Keychain on real hardware, in local
   defaults on simulators (unsigned simulator builds have no Keychain access).
 
 ## Installing a test build (no Mac needed)
 
-Every CI run publishes the `WhatsInMyFridge-simulator` build artifact (GitHub →
+Every CI run publishes the `Tridge-simulator` build artifact (GitHub →
 **Actions** → latest run → **Artifacts**): a zipped simulator app for running
 in the browser on [Appetize.io](https://appetize.io). It's a Debug build, so
 the long-press scan-menu extras ("Try sample receipt", "Seed the App") are
@@ -39,10 +39,10 @@ full scan → review → inventory flow. To just see the app working with zero
 setup, long-press the scan button → **Seed the App**: it fills the fridge
 with preset items across every urgency tier — no API key, no LLM call.
 
-1. Download the `WhatsInMyFridge-simulator` artifact and unzip it once (GitHub
-   wraps artifacts in an outer zip) to get `WhatsInMyFridge-sim.zip`.
+1. Download the `Tridge-simulator` artifact and unzip it once (GitHub
+   wraps artifacts in an outer zip) to get `Tridge-sim.zip`.
 2. Sign up free at [appetize.io](https://appetize.io), **Upload** →
-   `WhatsInMyFridge-sim.zip` (the zipped `.app`, not the ipa), platform iOS.
+   `Tridge-sim.zip` (the zipped `.app`, not the ipa), platform iOS.
 3. Open the generated app page and press play. Free tier: 100 streaming
    minutes/month, one session at a time, ~2-minute inactivity timeout —
    enough for solo smoke tests.
@@ -63,7 +63,7 @@ distribution path (SideStore sideloading) is planned separately.
 
 ### With a Mac (Xcode 16+)
 
-1. Clone the repo, open `WhatsInMyFridge.xcodeproj`.
+1. Clone the repo, open `Tridge.xcodeproj`.
 2. **Simulator:** pick any iPhone simulator and press Run. No Apple account
    needed. Same camera fallbacks as Appetize (drag receipt images into the
    simulator's Photos app to test the picker path).
@@ -85,7 +85,7 @@ The feedback loop is built in:
 Logs cover the current launch only, so copy right after reproducing. For hard
 crashes: on-device crash logs live under iOS Settings → Privacy & Security →
 Analytics & Improvements → Analytics Data (share the newest
-`WhatsInMyFridge-…​.ips` file).
+`Tridge-…​.ips` file).
 
 ## v1
 

@@ -2,7 +2,7 @@
 
 > Single source of truth for "what pages exist in this wiki" — the navigation layer any fresh reader
 > (human or agent) starts from. Keep it in sync whenever you add, rename, or remove a page.
-> MyFridge is an iOS app that turns a scanned grocery receipt into a live fridge inventory with
+> Tridge is an iOS app that turns a scanned grocery receipt into a live fridge inventory with
 > LLM-guessed expiration dates.
 
 ## Start here
