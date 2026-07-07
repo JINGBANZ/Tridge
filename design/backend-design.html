@@ -1,0 +1,420 @@
+<!doctype html>
+<!-- Backend design doc: the receipt-scan API (Cloudflare Worker, server/).
+     Companion to fridge-design.html (the app spec). Open in a browser.
+     Wiki entry point: wiki/index.md; decisions: wiki/decisions.md → 2026-07-07. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tridge — Receipt-Scan Backend Design</title>
+<style>
+  :root{
+    --bg:#F7F8F5; --panel:#FFFFFF; --ink:#20241F; --muted:#687164;
+    --line:#E2E6DC; --accent:#2F7D4E; --accent-soft:#E7F2EA;
+    --amber:#B4711A; --amber-soft:#F7ECDC; --red:#D9534A; --red-soft:#F8E4E2;
+    --code-bg:#F0F2EC;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#151815; --panel:#1B1F1B; --ink:#E9ECE6; --muted:#99A294;
+      --line:#2C312A; --accent:#5FBF8A; --accent-soft:#20362A;
+      --amber:#D99A4E; --amber-soft:#372B1A; --red:#E07B74; --red-soft:#3A2422;
+      --code-bg:#22271F;
+    }
+  }
+  :root[data-theme="light"]{
+    --bg:#F7F8F5; --panel:#FFFFFF; --ink:#20241F; --muted:#687164;
+    --line:#E2E6DC; --accent:#2F7D4E; --accent-soft:#E7F2EA;
+    --amber:#B4711A; --amber-soft:#F7ECDC; --red:#D9534A; --red-soft:#F8E4E2;
+    --code-bg:#F0F2EC;
+  }
+  :root[data-theme="dark"]{
+    --bg:#151815; --panel:#1B1F1B; --ink:#E9ECE6; --muted:#99A294;
+    --line:#2C312A; --accent:#5FBF8A; --accent-soft:#20362A;
+    --amber:#D99A4E; --amber-soft:#372B1A; --red:#E07B74; --red-soft:#3A2422;
+    --code-bg:#22271F;
+  }
+  html{background:var(--bg);}
+  body{
+    font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    color:var(--ink); background:var(--bg); line-height:1.6; font-size:16px;
+    margin:0; padding:0 20px 96px;
+  }
+  main{max-width:860px; margin:0 auto;}
+  h1,h2,h3{font-family:ui-rounded,system-ui,-apple-system,sans-serif; line-height:1.15; text-wrap:balance;}
+  h1{font-size:34px; font-weight:800; letter-spacing:-.02em; margin:10px 0 6px;}
+  h2{font-size:23px; font-weight:800; margin:56px 0 14px; padding-top:22px; border-top:1px solid var(--line);}
+  h3{font-size:17px; font-weight:700; margin:26px 0 8px;}
+  p{margin:10px 0; max-width:70ch;}
+  .eyebrow{
+    font-size:12px; font-weight:700; letter-spacing:.12em; text-transform:uppercase;
+    color:var(--accent); margin:44px 0 0;
+  }
+  .meta{color:var(--muted); font-size:14px; margin:0 0 34px; display:flex; flex-wrap:wrap; gap:6px 18px;}
+  .muted{color:var(--muted);}
+  small, .small{font-size:13.5px;}
+  code{
+    background:var(--code-bg); border-radius:6px; padding:1px 6px; font-size:13.5px;
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+  }
+  pre{
+    background:var(--code-bg); border:1px solid var(--line); border-radius:12px;
+    padding:16px 18px; overflow-x:auto; font-size:13.5px; line-height:1.55;
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+  }
+  pre code{background:none; padding:0; font-size:inherit;}
+  a{color:var(--accent); text-decoration-thickness:1px; text-underline-offset:2px;}
+  a:focus-visible, button:focus-visible{outline:2px solid var(--accent); outline-offset:2px; border-radius:4px;}
+
+  .verdict{
+    background:var(--accent-soft); border:1px solid var(--accent); border-radius:16px;
+    padding:22px 26px; margin:28px 0 8px;
+  }
+  .verdict .pick{
+    font-family:ui-rounded,system-ui,sans-serif; font-weight:800; font-size:24px;
+    display:flex; align-items:baseline; gap:12px; flex-wrap:wrap;
+  }
+  .verdict .pick .price{font-size:15px; font-weight:700; color:var(--accent);}
+  .verdict p{margin:10px 0 0;}
+
+  .pill{
+    display:inline-block; font-size:12px; font-weight:700; border-radius:999px;
+    padding:2px 10px; letter-spacing:.02em; white-space:nowrap; line-height:1.7;
+  }
+  .pill.ok{background:var(--accent-soft); color:var(--accent);}
+  .pill.warn{background:var(--amber-soft); color:var(--amber);}
+  .pill.bad{background:var(--red-soft); color:var(--red);}
+
+  .tablewrap{overflow-x:auto; border:1px solid var(--line); border-radius:12px; margin:18px 0;}
+  table{border-collapse:collapse; width:100%; font-size:14px; min-width:680px;}
+  th{
+    text-align:left; font-size:12px; letter-spacing:.06em; text-transform:uppercase;
+    color:var(--muted); font-weight:700; padding:10px 14px; border-bottom:1px solid var(--line);
+    background:var(--panel);
+  }
+  td{padding:10px 14px; border-bottom:1px solid var(--line); vertical-align:top; background:var(--panel);}
+  tr:last-child td{border-bottom:none;}
+  td.num{font-variant-numeric:tabular-nums; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:13px;}
+  .provider{font-weight:700; white-space:nowrap;}
+
+  .flow{
+    display:flex; align-items:stretch; gap:0; margin:22px 0; overflow-x:auto; padding-bottom:6px;
+  }
+  .flow .node{
+    background:var(--panel); border:1px solid var(--line); border-radius:14px;
+    padding:14px 18px; min-width:172px; flex:1;
+  }
+  .flow .node.hl{border-color:var(--accent); background:var(--accent-soft);}
+  .flow .node b{font-family:ui-rounded,system-ui,sans-serif; font-size:15px; display:block; margin-bottom:4px;}
+  .flow .node span{font-size:13px; color:var(--muted); display:block; line-height:1.5;}
+  .flow .arrow{
+    align-self:center; padding:0 10px; color:var(--muted); font-size:13px; text-align:center;
+    min-width:86px; line-height:1.4; flex-shrink:0;
+  }
+  .flow .arrow b{display:block; color:var(--ink); font-size:15px;}
+
+  /* request pipeline (gauntlet) */
+  .gauntlet{display:flex; flex-direction:column; gap:0; margin:20px 0; max-width:620px;}
+  .gate{
+    display:flex; gap:14px; align-items:baseline; background:var(--panel);
+    border:1px solid var(--line); border-radius:12px; padding:12px 16px; position:relative;
+  }
+  .gate + .gate{margin-top:14px;}
+  .gate + .gate::before{
+    content:""; position:absolute; left:28px; top:-15px; height:14px; width:1px; background:var(--line);
+  }
+  .gate .status{
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12.5px; font-weight:700;
+    color:var(--red); min-width:64px; text-align:right; flex-shrink:0;
+  }
+  .gate .status.pass{color:var(--accent);}
+  .gate b{font-family:ui-rounded,system-ui,sans-serif; font-size:14.5px;}
+  .gate span{font-size:13.5px; color:var(--muted); display:block;}
+  .gate.final{border-color:var(--accent); background:var(--accent-soft);}
+
+  .cols{display:grid; grid-template-columns:1fr 1fr; gap:16px; margin:18px 0;}
+  @media (max-width:640px){.cols{grid-template-columns:1fr;}}
+  .col{background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:16px 20px;}
+  .col h3{margin-top:0;}
+  .col ul{margin:8px 0 0; padding-left:20px;}
+  .col li{margin:6px 0; font-size:14.5px;}
+
+  ol.steps{list-style:none; counter-reset:step; margin:18px 0; padding:0;}
+  ol.steps li{
+    counter-increment:step; position:relative; padding:0 0 22px 52px; margin:0;
+  }
+  ol.steps li::before{
+    content:counter(step);
+    position:absolute; left:0; top:0; width:32px; height:32px; border-radius:50%;
+    background:var(--accent-soft); color:var(--accent); font-weight:800;
+    display:flex; align-items:center; justify-content:center;
+    font-family:ui-rounded,system-ui,sans-serif; font-size:15px;
+  }
+  ol.steps li.done::before{content:"✓"; background:var(--accent); color:var(--bg);}
+  ol.steps li::after{
+    content:""; position:absolute; left:15.5px; top:36px; bottom:2px; width:1px; background:var(--line);
+  }
+  ol.steps li:last-child::after{display:none;}
+  ol.steps b{font-family:ui-rounded,system-ui,sans-serif;}
+  ol.steps p{margin:4px 0 0; font-size:14.5px;}
+
+  ul.sources{padding-left:0; list-style:none; margin:14px 0;}
+  ul.sources li{
+    margin:8px 0; font-size:14px; display:flex; gap:10px; align-items:baseline; flex-wrap:wrap;
+  }
+  .callout{
+    border-left:3px solid var(--amber); background:var(--amber-soft);
+    border-radius:0 12px 12px 0; padding:12px 18px; margin:18px 0; font-size:14.5px;
+  }
+  .callout.green{border-left-color:var(--accent); background:var(--accent-soft);}
+  .filetree{font-size:13.5px; line-height:1.7;}
+  ul{max-width:75ch;}
+  li{margin:5px 0;}
+</style>
+</head>
+<body>
+
+<main>
+  <p class="eyebrow">Tridge · Backend design — deployed</p>
+  <h1>Receipt scanning moves server-side</h1>
+  <p class="meta">
+    <span>Updated July 7, 2026 · test environment <b>live</b> (<a href="https://github.com/JINGBANZ/Tridge/pull/15">PR #15</a>, rename <a href="https://github.com/JINGBANZ/Tridge/pull/17">PR #17</a>)</span>
+    <span>Code: <code>server/</code> · decisions: <code>wiki/decisions.md → 2026-07-07</code></span>
+  </p>
+
+  <div class="verdict">
+    <div class="pick">
+      Cloudflare Workers · TypeScript
+      <span class="price">$0/mo at our scale · <span class="pill ok">Deployed &amp; verified live</span></span>
+    </div>
+    <p>
+      <code>tridge-scan-api-test</code> is live at
+      <code>https://tridge-scan-api-test.forrestzjb.workers.dev</code>: it receives the receipt
+      JPEG, calls the OpenAI Responses API with the server-held key, and returns the same
+      <code>ParsedReceipt</code> JSON the app already parses. Verified end-to-end against a
+      fixture receipt (200 with 6 correctly parsed items in ~11 s) plus the 401/404/415 rejection
+      paths. 24 Vitest cases + clean <code>tsc</code>; two Swift parity tests pin the worker's
+      prompt/schema to the app's copies. Remaining setup: connect the repo to Workers Builds so
+      <code>main</code> pushes auto-deploy.
+    </p>
+  </div>
+
+  <h2>Architecture as built</h2>
+  <div class="flow">
+    <div class="node">
+      <b>iOS app</b>
+      <span>JPEG ≤ 1568 px · BYOK path still active; <code>ProxyLLMService</code> swap is next</span>
+    </div>
+    <div class="arrow"><b>→</b>POST /v1/receipt-scan<br>image/jpeg + bearer token</div>
+    <div class="node hl">
+      <b>Worker (test env)</b>
+      <span>holds OpenAI key · owns prompt, model, schema, retry · rate limits · <code>store:true</code> for debugging</span>
+    </div>
+    <div class="arrow"><b>→</b>Responses API<br>gpt-5-mini · strict schema</div>
+    <div class="node">
+      <b>OpenAI</b>
+      <span>vision parse → schema-constrained receipt JSON (10–60 s)</span>
+    </div>
+  </div>
+
+  <h3>How a request is protected — the gauntlet, in code order</h3>
+  <div class="gauntlet">
+    <div class="gate"><span class="status">404·405</span><div><b>Route + method</b><span>only <code>POST /v1/receipt-scan</code> exists</span></div></div>
+    <div class="gate"><span class="status">429</span><div><b>Per-IP rate limit — 10 scans/min</b><span>Workers rate-limiting binding, keyed by <code>CF-Connecting-IP</code>. Checked <em>before</em> auth so the token can't be brute-forced faster than 10 tries/min. <code>Retry-After: 60</code>.</span></div></div>
+    <div class="gate"><span class="status">401</span><div><b>Bearer token, compared timing-safely</b><span><code>SCAN_API_TOKEN</code> worker secret; SHA-256 digests + <code>timingSafeEqual</code> — no length or prefix leaks.</span></div></div>
+    <div class="gate"><span class="status">415·413·400</span><div><b>Strict input validation</b><span><code>image/jpeg</code> only; 8 MB cap enforced via Content-Length before buffering, re-checked after; empty bodies rejected.</span></div></div>
+    <div class="gate final"><span class="status pass">200</span><div><b>Proxy the scan</b><span>base64 → Responses API with strict schema; refusal/unparseable retried once then <code>422</code>; upstream errors → <code>502</code> with the OpenAI body logged, never echoed.</span></div></div>
+  </div>
+
+  <p class="small muted">
+    Plus: structured JSON logs (Workers Logs, observability on, full sampling) that never contain
+    image bytes or key material; <code>max_output_tokens: 4000</code> bounds each scan's spend; the
+    README mandates a dedicated OpenAI <em>test-project</em> key with a budget cap, so a leaked
+    token's worst case is a capped test budget.
+  </p>
+
+  <h3>What lives where</h3>
+  <div class="cols">
+    <div class="col">
+      <h3>server/ (new)</h3>
+      <ul class="filetree">
+        <li><code>src/index.ts</code> — handler: gauntlet + proxy + error mapping</li>
+        <li><code>src/contract.ts</code> — prompt, model, request builder, reply extraction</li>
+        <li><code>src/receipt-schema.json</code> — strict schema, 100-id vocabulary</li>
+        <li><code>src/secrets.d.ts</code> — secret names merged into generated <code>Env</code></li>
+        <li><code>wrangler.jsonc</code> — test env config + rate-limit binding</li>
+        <li><code>test/</code> — 24 Vitest cases</li>
+      </ul>
+    </div>
+    <div class="col">
+      <h3>App (unchanged this PR)</h3>
+      <ul class="filetree">
+        <li><code>LLMService</code> protocol — the swap seam (one construction site)</li>
+        <li><code>ReceiptResponseParser</code>, DTOs, urgency — stay in FridgeCore</li>
+        <li><b>New:</b> <code>ServerContractParityTests</code> — <code>swift test</code> fails if the worker's prompt/schema drift from the app's</li>
+        <li>BYOK Settings/Keychain path — retires after the proxy swap</li>
+      </ul>
+    </div>
+  </div>
+
+  <h2>API contract (implemented)</h2>
+<pre><code>POST /v1/receipt-scan
+Authorization: Bearer &lt;SCAN_API_TOKEN&gt;      # worker secret; openssl rand -base64 32
+Content-Type: image/jpeg                     # raw body, ≤ 8 MB
+
+200 OK  application/json                     # exactly what the app parses today
+{ "items": [ { "id": "milk", "name": "Whole Milk",
+    "receipt_text": "WHL MLK", "quantity": 1, "shelf_life_days": 7 } ] }
+
+400 empty body                413 body &gt; 8 MB
+401 bad/missing token         415 not image/jpeg
+404/405 wrong route/method    422 unparseable receipt or refusal (after 1 retry)
+429 rate limited (Retry-After: 60)           502 OpenAI failure (body never echoed)</code></pre>
+  <p class="small">
+    All errors are <code>{"error": "&lt;human-readable message&gt;"}</code>. The 200 body is passed
+    through from the schema-constrained model reply, so the app's existing parser (defaults,
+    clamps, unknown-id fallback) keeps working unchanged.
+  </p>
+
+  <h2>Test environment vs production</h2>
+  <div class="tablewrap">
+    <table>
+      <tr><th></th><th>Test env — deployed now (<code>myfridge-scan-api-test</code>)</th><th>Production — separate endpoint, later</th></tr>
+      <tr><td class="provider">Client auth</td><td>Static bearer token (rotatable secret)</td><td>Apple App Attest assertion per scan + per-device quotas</td></tr>
+      <tr><td class="provider">OpenAI <code>store</code></td><td><code>true</code> — owner's call, so failed test scans are inspectable in OpenAI's dashboard</td><td><code>false</code> — receipts are personal data</td></tr>
+      <tr><td class="provider">OpenAI key</td><td>Dedicated test-project key, budget-capped</td><td>Separate prod key, isolated budget + alerts</td></tr>
+      <tr><td class="provider">Rate limiting</td><td>10/min per IP (binding)</td><td>Per-device quotas (KV/DO) + tighter IP limits</td></tr>
+      <tr><td class="provider">URL</td><td><code>tridge-scan-api-test.forrestzjb.workers.dev</code></td><td>Custom domain (unlocks WAF rules) — optional</td></tr>
+    </table>
+  </div>
+  <p class="small muted">
+    Honest limit of the test posture: a static token embedded in any shipped binary is extractable.
+    Acceptable pre-release because the endpoint serves only the owner and the blast radius is a
+    capped test budget; App Attest is the durable fix and slots in behind the same endpoint with no
+    contract change.
+  </p>
+
+  <h2>Cloudflare best practices applied</h2>
+  <p class="small">Built against the <code>workers-best-practices</code> skill from Cloudflare's official <code>cloudflare/skills</code> plugin:</p>
+  <ul>
+    <li>Current <code>compatibility_date</code> + <code>nodejs_compat</code>; JSONC config.</li>
+    <li><code>Env</code> generated by <code>wrangler types</code> — bindings are never hand-written; only the two secrets merge in via <code>secrets.d.ts</code> (they can't appear in config by design).</li>
+    <li>Secrets exclusively via <code>wrangler secret put</code> — nothing in repo or CI config, consistent with the repo's existing key ban.</li>
+    <li>Observability enabled (full head sampling) with structured JSON logs.</li>
+    <li>No floating promises, no module-level request state, explicit try/catch (no <code>passThroughOnException</code>), Web Crypto only, timing-safe secret comparison.</li>
+  </ul>
+
+  <h2>Migration plan — where we are</h2>
+  <ol class="steps">
+    <li class="done">
+      <b>Stand up the Worker (test env) — deployed &amp; verified, PR #15</b>
+      <p>Live at <code>tridge-scan-api-test.forrestzjb.workers.dev</code> with both secrets set and the fixture-receipt scan passing end-to-end. Ongoing deploys: connect the repo to <b>Workers Builds</b> (dashboard → worker → Settings → Builds; root directory <code>server</code>, branch <code>main</code>, watch paths <code>server/**</code>) — the one remaining dashboard step. CI gates PRs with the server suite.</p>
+    </li>
+    <li>
+      <b>Add <code>ProxyLLMService</code> behind a debug toggle</b>
+      <p>Posts the JPEG to the worker, feeds the response through the existing parser; BYOK stays as fallback during validation; smoke tests gain a <code>BACKEND_URL</code> variant.</p>
+    </li>
+    <li>
+      <b>Flip the default</b>
+      <p>Proxy becomes the scan path at the single construction site (<code>ScanFlowModel</code>). Watch Workers Logs + OpenAI spend.</p>
+    </li>
+    <li>
+      <b>Remove BYOK</b>
+      <p>Delete the Settings key field, <code>KeychainStore</code>, and the app's direct OpenAI path — the parity tests retire with it (the contract then lives only server-side).</p>
+    </li>
+    <li>
+      <b>Production environment</b>
+      <p>Separate Wrangler env/URL: <code>store:false</code>, App Attest verification, per-device quotas, isolated prod key.</p>
+    </li>
+  </ol>
+
+  <div class="callout green">
+    <b>To deploy the test env now:</b> add the <code>CLOUDFLARE_API_TOKEN</code> +
+    <code>CLOUDFLARE_ACCOUNT_ID</code> repo secrets (CI deploys on merge), or run the three
+    commands in <code>server/README.md → Deploy</code> locally. Remember: the OpenAI usage is now
+    billed to us — set a budget cap on the test project.
+  </div>
+
+  <h2>Appendix — the hosting research that picked Workers</h2>
+  <p class="small muted">
+    Researched July 2026. ✓ = survived three independent verification passes against official docs;
+    ○ = single official source. Kept as the decision record behind
+    <code>wiki/decisions.md → 2026-07-07</code>.
+  </p>
+  <div class="tablewrap">
+    <table>
+      <tr>
+        <th>Platform</th><th>Timeout for a 10–60 s call</th><th>Upload limit</th>
+        <th>Cold start</th><th>Cost at ~10k req/mo</th><th>Verdict</th>
+      </tr>
+      <tr>
+        <td class="provider">Cloudflare Workers</td>
+        <td>No wall-clock limit while client connected ✓; upstream fetch unlimited ✓; 10 ms CPU cap is fine — waiting is I/O ✓</td>
+        <td class="num">100 MB ✓</td>
+        <td>~ms (isolates)</td>
+        <td class="num">$0 (100k req/day free ✓); $5/mo paid tier if needed</td>
+        <td><span class="pill ok">Chosen</span></td>
+      </tr>
+      <tr>
+        <td class="provider">Google Cloud Run</td>
+        <td>300 s default, up to 3600 s ✓</td>
+        <td class="num">32 MB (HTTP/1)</td>
+        <td>~1–5 s container boot</td>
+        <td class="num">~$0 (≈2M free req/mo ○)</td>
+        <td><span class="pill ok">Runner-up (Swift/Vapor path)</span></td>
+      </tr>
+      <tr>
+        <td class="provider">Fly.io</td>
+        <td>No platform timeout</td>
+        <td class="num">No hard limit</td>
+        <td>~100s of ms (machine start)</td>
+        <td class="num">No free tier for new orgs ○; $2–6/mo</td>
+        <td><span class="pill warn">Fine, but paid + more ops</span></td>
+      </tr>
+      <tr>
+        <td class="provider">Railway</td>
+        <td>No practical limit</td>
+        <td class="num">No hard limit</td>
+        <td>Always-on</td>
+        <td class="num">$5/mo minimum; $1 trial credit only ○</td>
+        <td><span class="pill warn">Great DX, worst hobby economics</span></td>
+      </tr>
+      <tr>
+        <td class="provider">Render (free)</td>
+        <td>OK once running</td>
+        <td class="num">OK</td>
+        <td><b>15-min idle spin-down, ~1 min wake ○</b></td>
+        <td class="num">$0 / $7+ to avoid spin-down</td>
+        <td><span class="pill bad">Cold start breaks the UX</span></td>
+      </tr>
+      <tr>
+        <td class="provider">Vercel Functions</td>
+        <td>300 s Hobby ✓</td>
+        <td class="num"><b>4.5 MB hard cap → 413 ✓</b></td>
+        <td>~100s of ms</td>
+        <td class="num">$0 Hobby</td>
+        <td><span class="pill bad">Body limit disqualifies</span></td>
+      </tr>
+      <tr>
+        <td class="provider">AWS Lambda</td>
+        <td>API GW cuts at 29 s ○; Function URLs work</td>
+        <td class="num">6 MB sync</td>
+        <td>~100s of ms–s</td>
+        <td class="num">~$0</td>
+        <td><span class="pill bad">Highest ops burden for no benefit</span></td>
+      </tr>
+    </table>
+  </div>
+
+  <h3>Sources</h3>
+  <ul class="sources">
+    <li><span class="pill ok">✓ 3-0</span><a href="https://developers.cloudflare.com/workers/platform/limits/">Cloudflare Workers limits</a> — duration, CPU, body-size, free-tier figures</li>
+    <li><span class="pill ok">✓ 3-0</span><a href="https://vercel.com/docs/functions/limitations">Vercel function limitations</a> — 300 s Hobby; 4.5 MB body cap</li>
+    <li><span class="pill ok">✓</span><a href="https://docs.cloud.google.com/run/docs/configuring/request-timeout">Cloud Run request timeout</a> — 300 s default, 3600 s max</li>
+    <li><span class="pill warn">○</span><a href="https://fly.io/docs/about/pricing/">Fly.io pricing</a> · <a href="https://docs.railway.com/pricing">Railway pricing</a> · <a href="https://render.com/docs/free">Render free tier</a> · <a href="https://aws.amazon.com/blogs/compute/serverless-strategies-for-streaming-llm-responses/">AWS on LLM responses</a> · <a href="https://cloud.google.com/run/pricing">Cloud Run pricing</a></li>
+    <li><span class="pill ok">ref</span><a href="https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/">Workers rate-limiting binding</a> · <a href="https://github.com/cloudflare/skills">cloudflare/skills</a> (workers-best-practices)</li>
+  </ul>
+</main>
+
+</body>
+</html>

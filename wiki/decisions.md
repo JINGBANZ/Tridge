@@ -55,10 +55,10 @@
 
 ### 2026-07-04 — Root SwiftPM package + hand-written Xcode project
 
-- **Chose:** A root `Package.swift` exposing `FridgeCore` (sources at `WhatsInMyFridge/Core/`, tests
+- **Chose:** A root `Package.swift` exposing `FridgeCore` (sources at `Tridge/Core/`, tests
   at `Tests/FridgeCoreTests/`) so the pure logic runs under `swift test` on the Linux dev box, and a
-  hand-authored `WhatsInMyFridge.xcodeproj` (objectVersion 77, one synchronized folder group over
-  `WhatsInMyFridge/`) that compiles the Core sources directly into the app target — no package
+  hand-authored `Tridge.xcodeproj` (objectVersion 77, one synchronized folder group over
+  `Tridge/`) that compiles the Core sources directly into the app target — no package
   product link, no `import FridgeCore` in app code.
 - **Why:** Development happens on Linux with no Xcode; the project file must be writable and
   maintainable by hand. Synchronized folder groups mean new files join the target with zero pbxproj
@@ -72,7 +72,7 @@
 
 - **Chose:** `OpenAIService` (Chat Completions, `gpt-5-mini`) with strict Structured Outputs: the
   receipt reply is constrained server-side to the JSON Schema in
-  `WhatsInMyFridge/Core/ReceiptSchema.swift`, which tests cross-check against the Swift DTOs.
+  `Tridge/Core/ReceiptSchema.swift`, which tests cross-check against the Swift DTOs.
   Supersedes the provider half of *2026-07-04 — No backend; user-supplied Anthropic key*.
 - **Why:** Owner's direction. The previous contract only *requested* the JSON shape in the prompt;
   schema enforcement moves format guarantees from prompt discipline to the API, leaving client-side
@@ -95,7 +95,7 @@
 
 - **Chose:** The LLM returns per item only `id`, `name`, `receipt_text`, `quantity`,
   `shelf_life_days` — where `id` comes from the curated `ItemID` vocabulary
-  (`WhatsInMyFridge/Core/Types.swift`), schema-enforced so out-of-vocabulary values are impossible.
+  (`Tridge/Core/Types.swift`), schema-enforced so out-of-vocabulary values are impossible.
   Art is resolved on-device from the id. No store name; `purchaseDate` is the scan day; storage
   comes from the Settings default. Unknown-item handling is tiered: specific id → generic bucket id
   (`fruit`, `vegetable`, …) → `unknown`, which the review sheet flags amber; the free-text `name`
@@ -135,7 +135,7 @@
   back to a photo-library picker wherever the document camera is unavailable (Simulator,
   browser-hosted simulators), long-press offers the source menu, and debug builds bundle a
   synthetic sample receipt — the camera is an enhancement, not a requirement. (2) `AppLog`
-  (`WhatsInMyFridge/Core/AppLog.swift`, OSLog-backed on Apple platforms, stdout on Linux) logs every
+  (`Tridge/Core/AppLog.swift`, OSLog-backed on Apple platforms, stdout on Linux) logs every
   scan/LLM/OCR failure point, and Settings → "Copy diagnostics" puts the session's logs on the
   clipboard for pasting into bug reports.
 - **Why:** Owner testing happens in browser/cloud simulators and via sideloading, with feedback
@@ -262,3 +262,19 @@
   wrong sequencing while the endpoint serves only the owner); Cloudflare WAF/zone rate rules
   (need a custom domain; the workers.dev binding-based limit covers the test env); mTLS/signed
   URLs (operational overkill for a single-client hobby API).
+
+### 2026-07-07 — Product renamed to Tridge
+
+- **Chose:** Rename the product from "MyFridge" / "What's In My Fridge" / "WhatsInMyFridge" to
+  **Tridge** everywhere it surfaces: the Xcode target/scheme/product, the `Tridge/` source folder,
+  the `TridgeApp` entry point, user-visible strings, docs, and CI artifact names. The bundle id
+  becomes `com.tridge.app` and the Keychain service `com.tridge.credentials`; the OSLog subsystem
+  becomes `com.tridge`. The scan-API worker is renamed `tridge-scan-api-test` (npm package
+  `tridge-scan-api`). The GitHub repo is renamed `JINGBANZ/Tridge` (GitHub keeps redirects from the
+  old path). The `FridgeCore` Swift module and the `ItemID`/DTO names are deliberately kept.
+- **Why:** Owner decision on the product name. Doing it pre-release keeps the blast radius small:
+  the bundle-id and Keychain-service change would orphan any stored key, which is acceptable with no
+  users yet, and the worker is renamed before its first deploy so no live traffic is affected.
+- **Rejected:** Keeping `WhatsInMyFridge` as an internal-only name (leaves a permanent mismatch
+  between the shipped product and the codebase); deferring the bundle-id/Keychain-service change to
+  avoid orphaning keys (no benefit pre-release, and a later change would then break real users).

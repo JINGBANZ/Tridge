@@ -15,9 +15,9 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "FA0000000000000000000006"
-               BuildableName = "WhatsInMyFridge.app"
-               BlueprintName = "WhatsInMyFridge"
-               ReferencedContainer = "container:WhatsInMyFridge.xcodeproj">
+               BuildableName = "Tridge.app"
+               BlueprintName = "Tridge"
+               ReferencedContainer = "container:Tridge.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
       </BuildActionEntries>
@@ -44,9 +44,9 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "FA0000000000000000000006"
-            BuildableName = "WhatsInMyFridge.app"
-            BlueprintName = "WhatsInMyFridge"
-            ReferencedContainer = "container:WhatsInMyFridge.xcodeproj">
+            BuildableName = "Tridge.app"
+            BlueprintName = "Tridge"
+            ReferencedContainer = "container:Tridge.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </LaunchAction>
@@ -61,9 +61,9 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "FA0000000000000000000006"
-            BuildableName = "WhatsInMyFridge.app"
-            BlueprintName = "WhatsInMyFridge"
-            ReferencedContainer = "container:WhatsInMyFridge.xcodeproj">
+            BuildableName = "Tridge.app"
+            BlueprintName = "Tridge"
+            ReferencedContainer = "container:Tridge.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </ProfileAction>

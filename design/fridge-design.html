@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>What's In My Fridge — Design & Build Spec</title>
+<title>Tridge — Design & Build Spec</title>
 <style>
   *{box-sizing:border-box; margin:0; padding:0;}
   :root{
@@ -237,7 +237,7 @@
       <div class="app-icon">🧊</div>
       <span class="eyebrow">Design &amp; build spec · v2 · iOS</span>
     </div>
-    <h1>What's In My Fridge</h1>
+    <h1>Tridge</h1>
     <p class="lede">Scan a grocery receipt, and your fridge appears on screen — every item as a prebuilt image floating on a soft background, quietly turning amber, then red, as it nears expiry. This document is the complete, one-shot build spec: design direction, every screen and interaction, data model, LLM contract, dev-environment requirements, and acceptance criteria.</p>
   </header>
 
@@ -444,7 +444,7 @@
   <section>
     <span class="eyebrow">LLM integration</span>
     <h2>One vision call does receipt → inventory</h2>
-    <p>Direct call to the OpenAI Responses API with model <code>gpt-5-mini</code> (fast, pennies per receipt). The response shape is <b>enforced server-side</b> with a strict Structured Outputs JSON Schema — <code>SCHEMA</code> below, built programmatically in <code>WhatsInMyFridge/Core/ReceiptSchema.swift</code> and test-checked against the Swift DTOs — so replies always match the contract; the prompt carries only the content rules. Per item the LLM returns exactly: <code>id</code> (one of the curated <code>ItemID</code> vocabulary — the schema's enum makes anything else impossible), <code>name</code>, <code>receipt_text</code>, <code>quantity</code>, <code>shelf_life_days</code>. No store name, no purchase date (the app stamps the scan day), no emoji (art is resolved from <code>id</code> on-device), no storage guess (the Settings default applies). Unknown-item strategy is tiered: specific id → generic bucket id (<code>fruit</code>, <code>vegetable</code>, <code>meat</code>, …) → <code>unknown</code>, which the review sheet flags amber for fixing; ids added to the vocabulary later decode as <code>unknown</code> on older builds. The user's API key is entered in Settings and stored in Keychain — no backend for v1. Wrap it in an <code>LLMService</code> protocol so a proxy can replace it later.</p>
+    <p>Direct call to the OpenAI Responses API with model <code>gpt-5-mini</code> (fast, pennies per receipt). The response shape is <b>enforced server-side</b> with a strict Structured Outputs JSON Schema — <code>SCHEMA</code> below, built programmatically in <code>Tridge/Core/ReceiptSchema.swift</code> and test-checked against the Swift DTOs — so replies always match the contract; the prompt carries only the content rules. Per item the LLM returns exactly: <code>id</code> (one of the curated <code>ItemID</code> vocabulary — the schema's enum makes anything else impossible), <code>name</code>, <code>receipt_text</code>, <code>quantity</code>, <code>shelf_life_days</code>. No store name, no purchase date (the app stamps the scan day), no emoji (art is resolved from <code>id</code> on-device), no storage guess (the Settings default applies). Unknown-item strategy is tiered: specific id → generic bucket id (<code>fruit</code>, <code>vegetable</code>, <code>meat</code>, …) → <code>unknown</code>, which the review sheet flags amber for fixing; ids added to the vocabulary later decode as <code>unknown</code> on older builds. The user's API key is entered in Settings and stored in Keychain — no backend for v1. Wrap it in an <code>LLMService</code> protocol so a proxy can replace it later.</p>
     <pre>POST https://api.openai.com/v1/responses
 headers: Authorization: Bearer &lt;key&gt; · content-type: application/json
 body: { "model": "gpt-5-mini", "max_output_tokens": 4000, "reasoning": { "effort": "low" },
@@ -479,8 +479,8 @@ Rules:
   <section>
     <span class="eyebrow">Architecture</span>
     <h2>Project layout</h2>
-    <pre>WhatsInMyFridge/                    (iOS 17+, Swift 5.10, SwiftUI, no third-party packages)
-├─ App/            WhatsInMyFridgeApp.swift · AppTheme.swift (tokens above)
+    <pre>Tridge/                    (iOS 17+, Swift 5.10, SwiftUI, no third-party packages)
+├─ App/            TridgeApp.swift · AppTheme.swift (tokens above)
 ├─ Models/         FridgeItem.swift (SwiftData @Model + enums) · Artwork.swift (artKey → image lookup)
 ├─ Services/
 │  ├─ LLMService.swift              protocol + OpenAIService (URLSession, async/await)
