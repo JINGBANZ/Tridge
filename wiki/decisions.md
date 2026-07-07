@@ -233,8 +233,10 @@
   OpenAI errors are logged, never echoed), and structured JSON logs with no image/key material.
   `STORE_RESPONSES=true` at OpenAI — owner's call so failed test scans are inspectable in the
   OpenAI dashboard — and the OpenAI key should be a dedicated test-project key with a budget
-  cap. Production later is a separate Wrangler environment/URL: `store:false`, App Attest
-  assertions, per-device quotas.
+  cap. Deploys go through Cloudflare Workers Builds (the platform-recommended git
+  integration; no Cloudflare token stored in GitHub), CI only gates PRs. Production later is
+  a separate Wrangler environment/URL: `store:false`, App Attest assertions, per-device
+  quotas.
 - **Why:** A static token in a client binary is extractable in principle, so it can't be the
   production story — but for a pre-release test endpoint the realistic blast radius is our
   test-project OpenAI budget, which the rate limit plus budget cap bound. App Attest is the

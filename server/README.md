@@ -35,15 +35,20 @@ npm test                         # vitest
 npm run dev                      # local worker on http://localhost:8787
 ```
 
-## Deploy (first time)
+## Deploy
+
+One-time bootstrap (auth via `wrangler login`, or `CLOUDFLARE_API_TOKEN` +
+`CLOUDFLARE_ACCOUNT_ID` env vars on a headless box):
 
 ```sh
-npx wrangler login
 npx wrangler secret put OPENAI_API_KEY   # dedicated test-project key with a budget cap
 npx wrangler secret put SCAN_API_TOKEN   # openssl rand -base64 32
 npm run deploy
 ```
 
-CI auto-deploys on `main` pushes once the `CLOUDFLARE_API_TOKEN` (+
-`CLOUDFLARE_ACCOUNT_ID`) repo secrets exist; until then the deploy job no-ops.
-Secrets set with `wrangler secret put` persist across deploys.
+Ongoing deploys use **Cloudflare Workers Builds** (the platform-recommended
+git integration, no tokens in GitHub): dashboard → the worker → Settings →
+Builds → Connect the GitHub repo, root directory `server`, branch `main`,
+build watch paths `server/**`. Every `main` push touching `server/` then
+builds and deploys automatically. Secrets set with `wrangler secret put`
+persist across deploys.

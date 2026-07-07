@@ -31,28 +31,9 @@ jobs:
       - run: npm run typecheck
       - run: npm test
 
-  # No-op until the owner adds the CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID
-  # repo secrets (deploy credentials — NOT the OpenAI key, which stays banned
-  # from repo/CI; the worker's key is set once via `wrangler secret put`).
-  server-deploy:
-    name: deploy scan API (test env)
-    needs: server-tests
-    if: github.event_name == 'push'
-    runs-on: ubuntu-latest
-    env:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-    steps:
-      - name: Skip (no CLOUDFLARE_API_TOKEN secret configured)
-        if: env.CLOUDFLARE_API_TOKEN == ''
-        run: echo "CLOUDFLARE_API_TOKEN secret not set — skipping deploy."
-      - uses: actions/checkout@v4
-        if: env.CLOUDFLARE_API_TOKEN != ''
-      - uses: cloudflare/wrangler-action@v3
-        if: env.CLOUDFLARE_API_TOKEN != ''
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          workingDirectory: server
+  # Deploys are NOT done here: the worker deploys via Cloudflare Workers Builds
+  # (the platform's recommended git integration) on pushes to main that touch
+  # server/ — see server/README.md → Deploy. CI's job is only to gate PRs.
 
   ios-build:
     name: build + tests (macOS)

@@ -16,10 +16,11 @@ yet deployed; the app still uses the BYOK direct-OpenAI path.
 
 ## Next action
 
-Deploy the scan API test environment: owner adds the `CLOUDFLARE_API_TOKEN` +
-`CLOUDFLARE_ACCOUNT_ID` repo secrets (or runs `wrangler login` locally), sets the worker
-secrets per `server/README.md`, and deploys. Then wire the app: a proxy-backed `LLMService`
-conformance behind a debug toggle. Still open: the browser-testable acceptance checklist on
+Deploy the scan API test environment per `server/README.md`: one-time bootstrap (worker
+secrets + first `wrangler deploy`), then connect the repo to Cloudflare Workers Builds
+(dashboard → worker → Settings → Builds; root directory `server`, watch paths `server/**`)
+so `main` pushes auto-deploy. Then wire the app: a proxy-backed `LLMService` conformance
+behind a debug toggle. Still open: the browser-testable acceptance checklist on
 Appetize; the on-device path (real camera + date-label OCR via SideStore) is PR #9, on hold at
 the owner's request.
 
@@ -49,8 +50,8 @@ the owner's request.
   (Home grid + drag-to-consume, scan flow + review sheet, item detail + art picker, settings).
 - `WhatsInMyFridge.xcodeproj` — hand-written project (synchronized folder group) + shared scheme;
   see the decision log for why it's hand-authored.
-- `.github/workflows/ci.yml` — Linux `swift test`; server typecheck + Vitest (plus the gated
-  test-env deploy job); macOS `swift test` + Debug simulator build,
+- `.github/workflows/ci.yml` — Linux `swift test`; server typecheck + Vitest;
+  macOS `swift test` + Debug simulator build,
   published as the `WhatsInMyFridge-simulator` artifact (Appetize.io's upload format); Appetize
   auto-publish on `main` pushes (stable app pinned by the `APPETIZE_APP_PUBLICKEY` repo variable)
   and a per-PR preview app whose link is commented on the PR (both no-op without the
@@ -66,8 +67,8 @@ the owner's request.
   test-env posture (`STORE_RESPONSES=true`, static token — see the decision log, *2026-07-07*).
   Vitest + tsc suite (`npm run typecheck && npm test`);
   `Tests/FridgeCoreTests/ServerContractParityTests.swift` pins its prompt/schema copies to the
-  app's. CI runs the server suite on every PR and auto-deploys `main` pushes once the
-  `CLOUDFLARE_API_TOKEN`/`CLOUDFLARE_ACCOUNT_ID` secrets exist. Setup/API: `server/README.md`.
+  app's. CI gates PRs with the server suite; deploys go through Cloudflare Workers Builds
+  (git integration), not CI. Setup/API: `server/README.md`.
 - `wiki/` — this design-docs set.
 
 ## Not yet built
