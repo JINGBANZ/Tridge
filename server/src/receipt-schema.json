@@ -1,0 +1,43 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["items"],
+  "properties": {
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "name", "receipt_text", "quantity", "shelf_life_days"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Closest matching item id. Prefer a specific id; fall back to a generic bucket (fruit, vegetable, dairy, meat, seafood, bakery, beverage, grain, snack, condiment, frozen); use \"unknown\" only when the item cannot be identified.",
+            "enum": [
+              "apple", "banana", "orange", "grapes", "strawberry", "blueberry", "lemon", "peach",
+              "pear", "watermelon", "melon", "pineapple", "kiwi", "cherry", "mango", "avocado", "coconut",
+              "lettuce", "spinach", "broccoli", "carrot", "corn", "cucumber", "tomato", "potato",
+              "sweet_potato", "onion", "garlic", "pepper", "mushroom", "eggplant", "peas", "beans",
+              "milk", "cheese", "butter", "yogurt", "eggs", "ice_cream",
+              "chicken", "beef", "pork", "bacon", "sausage", "turkey", "ground_meat",
+              "fish", "salmon", "tuna", "shrimp", "crab",
+              "bread", "bagel", "croissant", "tortilla", "cake", "cookie", "muffin",
+              "juice", "soda", "coffee", "tea", "beer", "wine", "water",
+              "rice", "pasta", "noodles", "cereal", "soup", "canned_goods",
+              "sauce", "oil", "honey", "jam", "peanut_butter", "nuts", "chips",
+              "crackers", "chocolate", "candy", "popcorn",
+              "pizza", "sandwich", "sushi", "salad", "leftovers", "frozen_meal",
+              "fruit", "vegetable", "dairy", "meat", "seafood", "bakery", "beverage", "grain",
+              "snack", "condiment", "frozen",
+              "unknown"
+            ]
+          },
+          "name": { "type": "string" },
+          "receipt_text": { "type": ["string", "null"] },
+          "quantity": { "type": "integer" },
+          "shelf_life_days": { "type": "integer" }
+        }
+      }
+    }
+  }
+}

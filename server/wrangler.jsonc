@@ -1,0 +1,33 @@
+// Test environment of the receipt-scan API. The future production deployment
+// gets its own environment (separate URL, secrets, STORE_RESPONSES=false,
+// App Attest verification) — see wiki/decisions.md → 2026-07-07 entries.
+//
+// Secrets (never here; set per environment with `wrangler secret put`):
+//   OPENAI_API_KEY  — dedicated OpenAI *test* project key with a budget cap
+//   SCAN_API_TOKEN  — app bearer token; generate: openssl rand -base64 32
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "myfridge-scan-api-test",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-07",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  },
+  "vars": {
+    // "true" only in the test environment: lets failed scans be inspected in
+    // OpenAI's dashboard. Production must set "false" — receipts are personal data.
+    "STORE_RESPONSES": "true"
+  },
+  // 10 scans/min per client IP — generous for a human scanning receipts,
+  // tight for abuse. Counted per Cloudflare location (eventually consistent).
+  "ratelimits": [
+    {
+      "name": "SCAN_RATE_LIMIT",
+      "namespace_id": "1001",
+      "simple": { "limit": 10, "period": 60 }
+    }
+  ]
+}

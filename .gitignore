@@ -12,3 +12,9 @@ Tests/ReceiptScanSmokeTests/Fixtures/private/
 
 # Local secrets (copy env.sample → .env)
 .env
+
+# Worker (server/)
+server/node_modules/
+server/.wrangler/
+server/.dev.vars
+server/worker-configuration.d.ts

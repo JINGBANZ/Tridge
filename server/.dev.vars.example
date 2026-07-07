@@ -1,0 +1,5 @@
+# Local-only secrets for `wrangler dev` — copy to .dev.vars (gitignored).
+# Use a dedicated OpenAI test-project key with a budget cap, never a prod key.
+OPENAI_API_KEY=sk-proj-your-test-key
+# Generate with: openssl rand -base64 32
+SCAN_API_TOKEN=replace-with-a-random-token
