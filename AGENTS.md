@@ -57,16 +57,20 @@ Mark breaking changes with `!` (`feat!:`) or a `BREAKING CHANGE:` footer. One lo
 MyFridge ("What's In My Fridge") is a native iOS app: photograph a grocery receipt, an LLM parses
 it into a fridge inventory with guessed expiration dates, and the home screen shows each item as an
 image on a minimal background, turning amber → red as expiry nears. Stack: iOS 17+, SwiftUI,
-SwiftData, direct OpenAI API calls — no backend, no third-party packages. The complete build
-spec is `design/fridge-design.html`; start there (via @wiki/index.md).
+SwiftData, no third-party packages. The LLM call is moving behind `server/` — a Cloudflare
+Worker (TypeScript) that holds the OpenAI key; the app's direct-call BYOK path remains during
+the migration. The complete build spec is `design/fridge-design.html`; start there
+(via @wiki/index.md).
 
 ## Setup
 
 - Development happens on a Linux box; Xcode/macOS exists only in CI (GitHub Actions macOS runners).
   Structure pure-logic code (LLM response parsing, urgency rules, date-regex parsing) into targets
   that build and pass under `swift test` on Linux.
-- The OpenAI API key is supplied by the end user at runtime (Settings → Keychain). No key is
-  ever needed — or allowed — in the repo, CI, or build config.
+- The OpenAI API key is supplied by the end user at runtime (Settings → Keychain), or held
+  server-side as a Cloudflare Worker secret (`wrangler secret put`, run from a dev machine).
+  No key is ever needed — or allowed — in the repo, CI, or build config.
+- `server/` (the scan API worker) needs Node 22+; `npm install` inside `server/`.
 
 ## Commands
 
@@ -75,10 +79,11 @@ spec is `design/fridge-design.html`; start there (via @wiki/index.md).
 | Test     | `swift test` (Linux-runnable logic targets)                              |
 | LLM smoke test | `swift test --filter ReceiptScanSmokeTests` (live API, local-only; key from env or `.env` — copy `env.sample`; skips without key) |
 | Build    | `xcodebuild -scheme WhatsInMyFridge -destination 'generic/platform=iOS Simulator' build` (CI/macOS only) |
-| **Gate** | `swift test` on Linux; on macOS/CI, build + full test suite              |
+| Server test | `cd server && npm run typecheck && npm test` (Vitest + tsc; Node 22+) |
+| Server deploy | `cd server && npm run deploy` (or CI, on `main`, once `CLOUDFLARE_API_TOKEN` is set) |
+| **Gate** | `swift test` + server typecheck/test on Linux; on macOS/CI, build + full test suite |
 
-> No code exists yet. When creating the Xcode project, keep this table true — update it if the
-> canonical commands differ.
+> Keep this table true — update it whenever the canonical commands change.
 
 ## Code style
 
@@ -100,8 +105,8 @@ spec is `design/fridge-design.html`; start there (via @wiki/index.md).
 
 ## Security & safety
 
-- Never commit an OpenAI API key or any receipt images with personal data. The key lives only
-  in the device Keychain at runtime.
+- Never commit an OpenAI API key or any receipt images with personal data. Keys live only in
+  the device Keychain (BYOK path) or in Cloudflare Worker secrets (`server/`).
 
 ## Gotchas
 

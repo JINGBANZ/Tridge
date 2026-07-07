@@ -29,8 +29,9 @@
 - **Rejected:** A key-holding proxy backend (Cloudflare Worker/Firebase) — right for a public App
   Store release, premature now.
 - **Revisit if:** The app is distributed beyond the owner (TestFlight external testers or App Store).
-- **Superseded by:** *2026-07-05 — OpenAI with enforced response schema* for the provider choice;
-  the no-backend / key-in-Keychain / `LLMService`-protocol parts stand.
+- **Superseded by:** *2026-07-05 — OpenAI with enforced response schema* for the provider choice,
+  and *2026-07-07 — Backend: Cloudflare Workers proxy* for the no-backend / key-in-Keychain parts;
+  the `LLMService`-protocol part stands.
 
 ### 2026-07-04 — Items float frameless on the background; prebuilt art only; one button
 
@@ -211,3 +212,53 @@
   leftovers, loose produce) and gives a zero-key way to use the app for real.
 - **Rejected:** Tap-scans + long-press menu (what shipped — undiscoverable); a second visible
   button for manual add (breaks the spec's single-control home screen).
+
+### 2026-07-07 — Backend: Cloudflare Workers proxy (TypeScript) holds the OpenAI key
+
+- **Chose:** Move the receipt-scan LLM call behind our own API: `server/`, a TypeScript worker
+  on Cloudflare Workers, receives the receipt JPEG, calls the OpenAI Responses API with a
+  server-held key (`wrangler secret put`), and returns the same `ParsedReceipt` JSON the app
+  already parses. The app will swap in a proxy-backed `LLMService` conformance; all parsing/DTO
+  logic stays in `FridgeCore`, and `Tests/FridgeCoreTests/ServerContractParityTests.swift` pins
+  the duplicated prompt+schema to the app copies during the migration. Supersedes the
+  no-backend / key-in-Keychain halves of *2026-07-04 — No backend*.
+- **Why:** A consumer release can't ask users for an OpenAI key, and shipping our key in the
+  binary is trivially extractable. Among hosts researched (July 2026), Workers uniquely
+  combines: no wall-clock limit on HTTP requests (the 10–60 s OpenAI call is I/O wait, exempt
+  from the 10 ms free-plan CPU cap), 100 MB request bodies, ~ms isolate cold starts, 100k free
+  requests/day (~300× expected volume), and near-zero ops — the top criterion with no DevOps
+  staff. Owner accepted TypeScript for the worker with clear app/server separation.
+- **Rejected:** Cloud Run + Vapor (Swift end-to-end, 300 s default timeout, ~2M free req/mo —
+  the runner-up, at the price of Docker images, slower cold starts, GCP administration); Vercel
+  Functions (hard 4.5 MB body cap vs 1–5 MB photos); Lambda behind API Gateway (29 s integration
+  timeout); Render free tier (15-min idle spin-down, ~1 min wake breaks the scan UX); Railway
+  ($5/mo minimum, no sustained free tier); Fly.io (no free tier for new orgs).
+- **Agent tooling:** Cloudflare's official Claude Code plugin (`cloudflare@cloudflare`, from the
+  `cloudflare/skills` marketplace) is installed at the *user* level on the dev box per
+  Cloudflare's agent-setup prompt — owner chose that over a checked-in `.claude/settings.json`.
+  Fresh machine: `claude plugin marketplace add cloudflare/skills` +
+  `claude plugin install cloudflare@cloudflare`.
+
+### 2026-07-07 — Scan API ships test-first: bearer token + IP rate limit; store:true while testing
+
+- **Chose:** The deployed worker is explicitly the *test* environment
+  (`myfridge-scan-api-test`), protected in layers ordered rate-limit → auth → validation:
+  a per-IP rate limit (10/min, Workers rate-limiting binding, checked first so tokens can't be
+  brute-forced faster), a static bearer token (`SCAN_API_TOKEN` secret, timing-safe comparison),
+  strict input validation (POST + `image/jpeg` + ≤8 MB only), sanitized error bodies (upstream
+  OpenAI errors are logged, never echoed), and structured JSON logs with no image/key material.
+  `STORE_RESPONSES=true` at OpenAI — owner's call so failed test scans are inspectable in the
+  OpenAI dashboard — and the OpenAI key should be a dedicated test-project key with a budget
+  cap. Deploys go through Cloudflare Workers Builds (the platform-recommended git
+  integration; no Cloudflare token stored in GitHub), CI only gates PRs. Production later is
+  a separate Wrangler environment/URL: `store:false`, App Attest assertions, per-device
+  quotas.
+- **Why:** A static token in a client binary is extractable in principle, so it can't be the
+  production story — but for a pre-release test endpoint the realistic blast radius is our
+  test-project OpenAI budget, which the rate limit plus budget cap bound. App Attest is the
+  durable answer and slots in behind the same endpoint without contract changes.
+- **Rejected:** No auth at all (URL obscurity is not a control; a scraped URL = free OpenAI
+  proxy); shipping App Attest now (needs app-side work and an attestation-verification flow —
+  wrong sequencing while the endpoint serves only the owner); Cloudflare WAF/zone rate rules
+  (need a custom domain; the workers.dev binding-based limit covers the test env); mTLS/signed
+  URLs (operational overkill for a single-client hobby API).
