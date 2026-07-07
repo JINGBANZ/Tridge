@@ -16,6 +16,11 @@
   spec**: screen mocks, design tokens, all screens/interactions, SwiftData schema, the OpenAI
   API contract with the verbatim receipt prompt, project layout, acceptance criteria, and build
   order. Open in a browser for visuals; the text and mock CSS are the normative spec.
+- [../design/backend-design.html](../design/backend-design.html) — the **backend design doc**
+  for the receipt-scan API (`server/`, Cloudflare Worker): architecture, request-protection
+  layers, API contract, test-vs-production posture, migration plan, and the hosting research
+  that picked Workers. Deployment state lives in [status.md](./status.md); the *why* lives in
+  [decisions.md](./decisions.md) → *2026-07-07* entries.
 
 ## Decisions
 
