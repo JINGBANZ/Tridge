@@ -52,9 +52,6 @@ the owner's request.
   `APPETIZE_API_TOKEN` secret). `.github/workflows/appetize-cleanup.yml` deletes a PR's preview
   app when the PR closes.
 - `AGENTS.md` / `CLAUDE.md` — agent instructions; shared-rules block syncs from JINGBANZ/rules.
-- `.claude/settings.json` — pins Cloudflare's official Claude Code plugin (`cloudflare@cloudflare`,
-  marketplace `cloudflare/skills`): platform skills + Cloudflare MCP servers for coding agents,
-  ahead of the `server/` Worker build (see the decision log, *2026-07-07*).
 - `.github/workflows/sync-shared-rules.yml` — weekly shared-rules sync (stub → JINGBANZ/workflows).
 - `.github/workflows/claude.yml`, `.github/workflows/claude-code-review.yml` — @claude mentions and
   automatic PR review (need the `CLAUDE_CODE_OAUTH_TOKEN` secret via `/install-github-app`).

@@ -218,7 +218,11 @@
   Vercel Functions (hard 4.5 MB body cap vs 1–5 MB photos); Lambda behind API Gateway (29 s
   integration timeout); Render free tier (15-min idle spin-down, ~1 min wake breaks the scan
   UX); Railway ($5/mo minimum, no sustained free tier); Fly.io (no free tier for new orgs).
-- **Agent tooling:** `.claude/settings.json` pins Cloudflare's official Claude Code plugin
-  (`cloudflare@cloudflare` from the `cloudflare/skills` marketplace) so coding agents get the
-  platform skills (workers, wrangler, durable-objects, …) and Cloudflare's remote MCP servers
-  (docs, api, bindings, builds, observability) on repo trust, rather than per-user setup.
+- **Agent tooling:** Cloudflare's official Claude Code plugin (`cloudflare@cloudflare` from the
+  `cloudflare/skills` marketplace) is installed at the *user* level on the dev box — per
+  Cloudflare's agent-setup prompt (`developers.cloudflare.com/agent-setup/prompt.md`) — giving
+  coding agents the platform skills (workers, wrangler, durable-objects, …) and Cloudflare's
+  remote MCP servers (docs, api, bindings, builds, observability). Owner chose user-level over
+  a checked-in `.claude/settings.json` pin, keeping the repo free of agent-tooling config; a
+  fresh machine re-runs `claude plugin marketplace add cloudflare/skills` +
+  `claude plugin install cloudflare@cloudflare`.
