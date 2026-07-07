@@ -81,4 +81,20 @@ final class LLMResponseParsingTests: XCTestCase {
         XCTAssertThrowsError(try ReceiptResponseParser.parse("{ \"items\": [ truncated"))
         XCTAssertThrowsError(try ReceiptResponseParser.parse(""))
     }
+
+    func testSchemaConformingReplyRoundTripsThroughParser() throws {
+        // A maximal reply that obeys the server's wire schema (nulls included)
+        // must decode. The schema itself now lives in server/; this asserts the
+        // app's parser still accepts a conforming reply end to end.
+        let reply = """
+        { "items": [{ "id": "milk", "name": "Whole Milk", "receipt_text": null,
+                      "quantity": 1, "shelf_life_days": 7 },
+                    { "id": "unknown", "name": "Unknown item", "receipt_text": "TJ 94823 MISC",
+                      "quantity": 1, "shelf_life_days": 3 }] }
+        """
+        let receipt = try ReceiptResponseParser.parse(reply)
+        XCTAssertEqual(receipt.items.count, 2)
+        XCTAssertNil(receipt.items[0].receiptText)
+        XCTAssertEqual(receipt.items[1].id, .unknown)
+    }
 }

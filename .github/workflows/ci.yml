@@ -157,7 +157,7 @@ jobs:
 
           **https://appetize.io/app/${KEY}** — updated for ${SHA}.
 
-          Sessions start from a clean device: paste your OpenAI key in Settings (gear) first, then scan — or tap the scan button for \"Try sample receipt\"."
+          Sessions start from a clean device — no setup needed: tap the scan button for \"Try sample receipt\", or \"Seed the App\" to fill the fridge instantly. (Live scanning needs a build compiled with SCAN_API_TOKEN.)"
           cid=$(gh api "repos/${{ github.repository }}/issues/${PR}/comments" --paginate \
             --jq "[.[] | select(.body | startswith(\"${marker}\"))][0].id // empty")
           if [ -n "$cid" ]; then
