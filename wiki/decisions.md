@@ -238,6 +238,35 @@
   Cloudflare's agent-setup prompt — owner chose that over a checked-in `.claude/settings.json`.
   Fresh machine: `claude plugin marketplace add cloudflare/skills` +
   `claude plugin install cloudflare@cloudflare`.
+- **Superseded by:** *2026-07-07 — App scans through the worker; BYOK removed* for the migration
+  mechanics (the proxy is now the only scan path; the app-side prompt/schema copies and the parity
+  test are gone). The hosting choice and server architecture stand.
+
+### 2026-07-07 — App scans through the worker; BYOK removed, bearer token baked into the build
+
+- **Chose:** Complete the proxy migration in one step instead of the staged debug-toggle-then-flip
+  plan. The app's only scan path is now `ProxyLLMService`, which POSTs the receipt JPEG to the
+  deployed worker; the direct-OpenAI client, the Settings API-key field, `KeychainStore`, the
+  duplicated `ReceiptSchema`/prompt, and `ServerContractParityTests` are all deleted — the receipt
+  contract lives only in `server/`. The app authenticates to the worker with the `SCAN_API_TOKEN`
+  bearer token, injected at build time via a gitignored `Secrets.xcconfig` → `Info.plist`
+  (`ScanAPIToken`, read by `ScanAPIConfig`) and never committed; a build without it fails scanning
+  with a clear message rather than a silent 401. The receipt smoke test now drives the live worker
+  through `ProxyLLMService` (`SCAN_API_TOKEN` from env/`.env`, `BACKEND_URL` to retarget), keeping
+  the receipt-quality safety net.
+- **Why:** Owner's call to remove the user-supplied key entirely — a consumer app can't ask for an
+  OpenAI key, and the worker already holds it. Two distinct "keys" resolve differently: the OpenAI
+  key stays a worker secret; the *bearer token* that identifies the app must reach the worker, so
+  it ships in the binary. That token is extractable in principle, but its blast radius is our
+  budget-capped test project bounded by the worker's per-IP rate limit — the same posture the
+  test-env decision already accepted. App Attest replaces the shared token in the production
+  environment (still pending), behind the same endpoint with no app-contract change.
+- **Rejected:** The staged debug-toggle + BYOK-fallback path from the migration plan (owner wanted
+  the key gone now, and keeping a second scan path is dead weight); a build-time key with the token
+  hardcoded in the committed project (violates the no-secrets-in-repo rule); dropping the worker's
+  bearer check so the app needs no token (leaves the billed OpenAI proxy open to anyone who scrapes
+  the URL, guarded only by the IP rate limit); shipping App Attest now (needs a paid Apple account
+  and an attestation-verification layer — correct as the production step, wrong to block this on).
 
 ### 2026-07-07 — Scan API ships test-first: bearer token + IP rate limit; store:true while testing
 

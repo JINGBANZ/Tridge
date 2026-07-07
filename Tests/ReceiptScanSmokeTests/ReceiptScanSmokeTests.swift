@@ -2,23 +2,24 @@ import XCTest
 @testable import FridgeCore
 
 /// Live end-to-end check of the receipt-scanning contract: every fixture image
-/// goes through the real OpenAI structured-outputs call and the parsed
-/// inventory must satisfy its expected.json. Guards against model/prompt/schema
-/// regressions without deploying the app.
+/// goes through the deployed scan-API worker (real OpenAI structured-outputs
+/// call, server-side) and the parsed inventory must satisfy its expected.json.
+/// Guards against model/prompt/schema regressions without deploying the app.
 ///
-/// Needs an OpenAI key — from the OPENAI_API_KEY environment variable or the
-/// gitignored `.env` at the repo root (each fixture costs a fraction of a
-/// cent); skips cleanly otherwise, so plain `swift test` stays green.
+/// Needs the worker bearer token — from the SCAN_API_TOKEN environment variable
+/// or the gitignored `.env` at the repo root (each fixture costs a fraction of a
+/// cent); skips cleanly otherwise, so plain `swift test` stays green. Override
+/// the target with BACKEND_URL.
 final class ReceiptScanSmokeTests: XCTestCase {
     func testFixtureReceiptsParseToExpectedInventory() async throws {
-        guard let apiKey = EnvFile.openAIKey() else {
-            throw XCTSkip("No OPENAI_API_KEY (env or .env) — skipping live receipt smoke test. Copy env.sample → .env to set one up.")
+        guard let token = EnvFile.scanAPIToken() else {
+            throw XCTSkip("No SCAN_API_TOKEN (env or .env) — skipping live receipt smoke test. Copy env.sample → .env to set one up.")
         }
         let fixtures = try ReceiptFixture.loadAll()
         try XCTSkipIf(fixtures.isEmpty,
                       "No fixtures found — add <name>/{receipt.jpg, expected.json} under Tests/ReceiptScanSmokeTests/Fixtures/.")
 
-        let service = OpenAIService(apiKey: apiKey, storeResponses: true)
+        let service = ProxyLLMService(baseURL: EnvFile.scanAPIBaseURL(), token: token)
         for fixture in fixtures {
             let receipt = try await service.parseReceipt(jpegData: fixture.imageData)
             let problems = fixture.expectation.mismatches(in: receipt)

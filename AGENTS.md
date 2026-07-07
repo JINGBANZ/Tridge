@@ -57,19 +57,20 @@ Mark breaking changes with `!` (`feat!:`) or a `BREAKING CHANGE:` footer. One lo
 Tridge is a native iOS app: photograph a grocery receipt, an LLM parses
 it into a fridge inventory with guessed expiration dates, and the home screen shows each item as an
 image on a minimal background, turning amber → red as expiry nears. Stack: iOS 17+, SwiftUI,
-SwiftData, no third-party packages. The LLM call is moving behind `server/` — a Cloudflare
-Worker (TypeScript) that holds the OpenAI key; the app's direct-call BYOK path remains during
-the migration. The complete build spec is `design/fridge-design.html`; start there
-(via @wiki/index.md).
+SwiftData, no third-party packages. The LLM call lives behind `server/` — a Cloudflare
+Worker (TypeScript) that holds the OpenAI key; the app POSTs the receipt JPEG to it
+(`ProxyLLMService`) and carries no OpenAI key of its own. The complete build spec is
+`design/fridge-design.html`; start there (via @wiki/index.md).
 
 ## Setup
 
 - Development happens on a Linux box; Xcode/macOS exists only in CI (GitHub Actions macOS runners).
   Structure pure-logic code (LLM response parsing, urgency rules, date-regex parsing) into targets
   that build and pass under `swift test` on Linux.
-- The OpenAI API key is supplied by the end user at runtime (Settings → Keychain), or held
-  server-side as a Cloudflare Worker secret (`wrangler secret put`, run from a dev machine).
-  No key is ever needed — or allowed — in the repo, CI, or build config.
+- The OpenAI key is held server-side as a Cloudflare Worker secret (`wrangler secret put`, run from
+  a dev machine) — never on the device or in the repo. The app authenticates to the worker with the
+  `SCAN_API_TOKEN` bearer token, injected at build time via a gitignored `Secrets.xcconfig` (copy
+  `Secrets.sample.xcconfig`); no secret ever enters the repo, CI, or committed build config.
 - `server/` (the scan API worker) needs Node 22+; `npm install` inside `server/`.
 
 ## Commands
@@ -105,8 +106,9 @@ the migration. The complete build spec is `design/fridge-design.html`; start the
 
 ## Security & safety
 
-- Never commit an OpenAI API key or any receipt images with personal data. Keys live only in
-  the device Keychain (BYOK path) or in Cloudflare Worker secrets (`server/`).
+- Never commit an OpenAI API key, the worker bearer token, or any receipt images with personal
+  data. The OpenAI key lives only in Cloudflare Worker secrets (`server/`); the app's
+  `SCAN_API_TOKEN` lives only in a gitignored `Secrets.xcconfig`.
 
 ## Gotchas
 

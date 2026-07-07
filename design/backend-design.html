@@ -203,7 +203,7 @@
   <div class="flow">
     <div class="node">
       <b>iOS app</b>
-      <span>JPEG ≤ 1568 px · BYOK path still active; <code>ProxyLLMService</code> swap is next</span>
+      <span>JPEG ≤ 1568 px · <code>ProxyLLMService</code> is the only scan path (no OpenAI key on device); bearer token baked in at build time</span>
     </div>
     <div class="arrow"><b>→</b>POST /v1/receipt-scan<br>image/jpeg + bearer token</div>
     <div class="node hl">
@@ -247,12 +247,12 @@
       </ul>
     </div>
     <div class="col">
-      <h3>App (unchanged this PR)</h3>
+      <h3>App</h3>
       <ul class="filetree">
-        <li><code>LLMService</code> protocol — the swap seam (one construction site)</li>
+        <li><code>LLMService</code> protocol → <code>ProxyLLMService</code> — the one scan path (single construction site in <code>ScanFlowModel</code>)</li>
+        <li><code>ScanAPIConfig</code> — worker URL + build-injected bearer token (<code>Secrets.xcconfig</code>)</li>
         <li><code>ReceiptResponseParser</code>, DTOs, urgency — stay in FridgeCore</li>
-        <li><b>New:</b> <code>ServerContractParityTests</code> — <code>swift test</code> fails if the worker's prompt/schema drift from the app's</li>
-        <li>BYOK Settings/Keychain path — retires after the proxy swap</li>
+        <li>No OpenAI key, Keychain, or Settings key field — the prompt/schema live only server-side</li>
       </ul>
     </div>
   </div>
@@ -310,17 +310,9 @@ Content-Type: image/jpeg                     # raw body, ≤ 8 MB
       <b>Stand up the Worker (test env) — deployed &amp; verified, PR #15</b>
       <p>Live at <code>tridge-scan-api-test.forrestzjb.workers.dev</code> with both secrets set and the fixture-receipt scan passing end-to-end. Ongoing deploys: connect the repo to <b>Workers Builds</b> (dashboard → worker → Settings → Builds; root directory <code>server</code>, branch <code>main</code>, watch paths <code>server/**</code>) — the one remaining dashboard step. CI gates PRs with the server suite.</p>
     </li>
-    <li>
-      <b>Add <code>ProxyLLMService</code> behind a debug toggle</b>
-      <p>Posts the JPEG to the worker, feeds the response through the existing parser; BYOK stays as fallback during validation; smoke tests gain a <code>BACKEND_URL</code> variant.</p>
-    </li>
-    <li>
-      <b>Flip the default</b>
-      <p>Proxy becomes the scan path at the single construction site (<code>ScanFlowModel</code>). Watch Workers Logs + OpenAI spend.</p>
-    </li>
-    <li>
-      <b>Remove BYOK</b>
-      <p>Delete the Settings key field, <code>KeychainStore</code>, and the app's direct OpenAI path — the parity tests retire with it (the contract then lives only server-side).</p>
+    <li class="done">
+      <b>App switched to <code>ProxyLLMService</code>; BYOK removed</b>
+      <p>Done in one step rather than staged. <code>ScanFlowModel</code> now builds a <code>ProxyLLMService</code> (via <code>ScanAPIConfig</code>) as its only scan path. Deleted: the Settings key field, <code>KeychainStore</code>, the direct-OpenAI client, the app-side prompt/schema copies, and the parity test — the contract lives only server-side. The app authenticates with the <code>SCAN_API_TOKEN</code> bearer token, injected at build time via a gitignored <code>Secrets.xcconfig</code> → <code>Info.plist</code>, never committed. The receipt smoke test drives the live worker through <code>ProxyLLMService</code> (token from env/<code>.env</code>, <code>BACKEND_URL</code> to retarget). See the decision log → <i>2026-07-07 — App scans through the worker</i>.</p>
     </li>
     <li>
       <b>Production environment</b>

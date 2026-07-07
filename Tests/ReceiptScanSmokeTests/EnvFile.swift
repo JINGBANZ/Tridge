@@ -1,14 +1,26 @@
 import Foundation
 
-/// Resolves the OpenAI key for the live smoke tests: the OPENAI_API_KEY
-/// environment variable wins, else the gitignored `.env` at the repo root
-/// (copy `env.sample` and fill it in).
+/// Resolves the scan-API config for the live smoke tests from the environment,
+/// falling back to the gitignored `.env` at the repo root (copy `env.sample`
+/// and fill it in).
 enum EnvFile {
-    static func openAIKey() -> String? {
-        if let key = ProcessInfo.processInfo.environment["OPENAI_API_KEY"], !key.isEmpty {
-            return key
+    /// Bearer token for the scan-API worker (same value as its `SCAN_API_TOKEN`
+    /// secret). No token → the smoke test skips.
+    static func scanAPIToken() -> String? {
+        envOrDotenv("SCAN_API_TOKEN")
+    }
+
+    /// Worker base URL — override with `BACKEND_URL`, else the test worker.
+    static func scanAPIBaseURL() -> URL {
+        let raw = envOrDotenv("BACKEND_URL") ?? "https://tridge-scan-api-test.forrestzjb.workers.dev"
+        return URL(string: raw)!
+    }
+
+    private static func envOrDotenv(_ name: String) -> String? {
+        if let value = ProcessInfo.processInfo.environment[name], !value.isEmpty {
+            return value
         }
-        return value(of: "OPENAI_API_KEY", in: repoRoot().appendingPathComponent(".env"))
+        return value(of: name, in: repoRoot().appendingPathComponent(".env"))
     }
 
     /// Tests/ReceiptScanSmokeTests/EnvFile.swift → repo root.

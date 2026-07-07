@@ -42,6 +42,12 @@ jobs:
       - uses: actions/checkout@v4
       - name: Full logic test suite
         run: swift test
+      # The bearer token the app uses to reach the scan-API worker, injected
+      # into the build via Secrets.xcconfig (gitignored). Empty when the
+      # SCAN_API_TOKEN secret isn't set — the build still succeeds; scanning
+      # then reports "not set up" rather than 401-ing. GitHub masks the value.
+      - name: Write Secrets.xcconfig
+        run: echo "SCAN_API_TOKEN = ${{ secrets.SCAN_API_TOKEN }}" > Secrets.xcconfig
       # Debug on purpose: keeps the DEBUG-only "Try sample receipt" path in test builds.
       - name: Build for iOS Simulator
         run: >

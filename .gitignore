@@ -13,6 +13,9 @@ Tests/ReceiptScanSmokeTests/Fixtures/private/
 # Local secrets (copy env.sample → .env)
 .env
 
+# App build secret (copy Secrets.sample.xcconfig → Secrets.xcconfig)
+Secrets.xcconfig
+
 # Worker (server/)
 server/node_modules/
 server/.wrangler/

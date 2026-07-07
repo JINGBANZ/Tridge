@@ -7,7 +7,6 @@ import PhotosUI
 final class ScanFlowModel {
     enum Phase: Equatable {
         case idle
-        case needsKey      // no API key: route to Settings with an explainer
         case camera
         case photoPicker   // photo-library import: the camera-free scan path
         case processing
@@ -46,10 +45,6 @@ final class ScanFlowModel {
     private var pendingImage: UIImage?
 
     func startScan(from source: Source = .automatic) {
-        guard KeychainStore.apiKey != nil else {
-            phase = .needsKey
-            return
-        }
         switch source {
         case .camera:
             phase = .camera
@@ -119,12 +114,14 @@ final class ScanFlowModel {
     }
 
     private func process(_ image: UIImage) {
-        guard let apiKey = KeychainStore.apiKey else {
-            phase = .needsKey
+        guard let service = ScanAPIConfig.service else {
+            // Only happens in a build with no bearer token (Secrets.xcconfig
+            // missing) — surface it instead of silently 401-ing on the worker.
+            AppLog.scan.error("No scan API token in this build — cannot scan")
+            phase = .failed("Scanning isn't set up in this build.")
             return
         }
         phase = .processing
-        let service: LLMService = OpenAIService(apiKey: apiKey)
         Task {
             do {
                 guard let jpeg = image.receiptJPEGData() else { throw LLMError.unparseable }
