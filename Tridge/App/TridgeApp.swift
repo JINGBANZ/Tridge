@@ -2,7 +2,7 @@ import SwiftUI
 import SwiftData
 
 @main
-struct WhatsInMyFridgeApp: App {
+struct TridgeApp: App {
     var body: some Scene {
         WindowGroup {
             HomeView()

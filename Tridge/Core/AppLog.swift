@@ -41,7 +41,7 @@ public struct LogChannel: Sendable {
 }
 
 public enum AppLog {
-    public static let subsystem = "com.jingbanz.WhatsInMyFridge"
+    public static let subsystem = "com.tridge"
 
     public static let scan = LogChannel("scan")
     public static let llm = LogChannel("llm")
@@ -56,7 +56,7 @@ public enum AppLog {
     public static func recentDiagnostics(lastMinutes: Int = 60) -> String {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
         var lines = [
-            "WhatsInMyFridge diagnostics",
+            "Tridge diagnostics",
             "App \(version) · \(ProcessInfo.processInfo.operatingSystemVersionString)",
             "Captured \(Date().formatted(date: .abbreviated, time: .standard))",
             "",

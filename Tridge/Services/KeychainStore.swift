@@ -5,7 +5,7 @@ import Security
 /// hardware, in UserDefaults on simulators (see below) — never in the repo,
 /// logs, or a backend.
 enum KeychainStore {
-    private static let service = "com.whatsinmyfridge.credentials"
+    private static let service = "com.tridge.credentials"
     private static let account = "openai-api-key"
 
     #if targetEnvironment(simulator)

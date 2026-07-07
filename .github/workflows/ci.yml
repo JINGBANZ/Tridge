@@ -46,8 +46,8 @@ jobs:
       - name: Build for iOS Simulator
         run: >
           xcodebuild
-          -project WhatsInMyFridge.xcodeproj
-          -scheme WhatsInMyFridge
+          -project Tridge.xcodeproj
+          -scheme Tridge
           -sdk iphonesimulator
           -configuration Debug
           -derivedDataPath build
@@ -57,12 +57,12 @@ jobs:
       - name: Zip simulator app (Appetize.io upload format)
         run: |
           cd build/Build/Products/Debug-iphonesimulator
-          zip -r -y "$GITHUB_WORKSPACE/WhatsInMyFridge-sim.zip" WhatsInMyFridge.app
+          zip -r -y "$GITHUB_WORKSPACE/Tridge-sim.zip" Tridge.app
       - name: Upload simulator app
         uses: actions/upload-artifact@v4
         with:
-          name: WhatsInMyFridge-simulator
-          path: WhatsInMyFridge-sim.zip
+          name: Tridge-simulator
+          path: Tridge-sim.zip
 
   # No-ops until the owner creates a free Appetize.io account and adds the
   # APPETIZE_API_TOKEN repo secret (a distribution credential — NOT the OpenAI key,
@@ -83,7 +83,7 @@ jobs:
       - uses: actions/download-artifact@v4
         if: env.APPETIZE_API_TOKEN != ''
         with:
-          name: WhatsInMyFridge-simulator
+          name: Tridge-simulator
       - name: Upload to Appetize
         if: env.APPETIZE_API_TOKEN != ''
         env:
@@ -93,7 +93,7 @@ jobs:
           url="https://api.appetize.io/v1/apps"
           [ -n "$PUBLIC_KEY" ] && url="$url/$PUBLIC_KEY"
           curl --fail-with-body -sS -u "${APPETIZE_API_TOKEN}:" "$url" \
-            -F "file=@WhatsInMyFridge-sim.zip" \
+            -F "file=@Tridge-sim.zip" \
             -F "platform=ios" \
             -o response.json
           echo "Appetize app URL: $(python3 -c 'import json;print(json.load(open("response.json")).get("appURL",""))')"
@@ -117,7 +117,7 @@ jobs:
       - uses: actions/download-artifact@v4
         if: env.APPETIZE_API_TOKEN != ''
         with:
-          name: WhatsInMyFridge-simulator
+          name: Tridge-simulator
       - name: Upload PR build to Appetize
         if: env.APPETIZE_API_TOKEN != ''
         id: upload
@@ -132,7 +132,7 @@ jobs:
           print(next((a["publicKey"] for a in apps if a.get("note") == os.environ["NOTE"]), ""))')
           url="https://api.appetize.io/v1/apps${key:+/$key}"
           curl --fail-with-body -sS -u "${APPETIZE_API_TOKEN}:" "$url" \
-            -F "file=@WhatsInMyFridge-sim.zip" \
+            -F "file=@Tridge-sim.zip" \
             -F "platform=ios" \
             -F "note=${NOTE}" \
             -o response.json

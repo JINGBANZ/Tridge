@@ -22,7 +22,7 @@ enum NotificationService {
             components.hour = hour
             guard let fireDate = calendar.date(from: components), fireDate > Date() else { return }
             let content = UNMutableNotificationContent()
-            content.title = "What's In My Fridge"
+            content.title = "Tridge"
             content.body = body
             content.sound = .default
             let trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: false)

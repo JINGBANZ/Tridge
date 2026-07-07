@@ -1,6 +1,6 @@
 // The OpenAI half of the receipt-scan contract. During the BYOK→proxy
 // migration this deliberately mirrors the app's OpenAIService
-// (WhatsInMyFridge/Services/LLMService.swift): same prompt, model, schema,
+// (Tridge/Services/LLMService.swift): same prompt, model, schema,
 // and reply extraction. Tests/FridgeCoreTests/ServerContractParityTests.swift
 // pins the two copies together — a change on either side fails `swift test`
 // until the other side matches.
