@@ -13,6 +13,10 @@ Tests/ReceiptScanSmokeTests/Fixtures/private/
 # Local secrets (copy env.sample → .env)
 .env
 
+# App build secret — the scan-API bearer token, bundled as a resource
+# (CI writes it from the SCAN_API_TOKEN secret; create it locally to scan)
+Tridge/Resources/ScanAPIToken.txt
+
 # Worker (server/)
 server/node_modules/
 server/.wrangler/

@@ -1,8 +1,9 @@
 import Foundation
 
 /// The curated item vocabulary. The LLM must return one of these ids (enforced
-/// by ReceiptSchema), and each id maps to prebuilt art — emoji in v1, swappable
-/// for custom images under the same keys.
+/// server-side by the scan API's JSON schema, `server/src/receipt-schema.json`),
+/// and each id maps to prebuilt art — emoji in v1, swappable for custom images
+/// under the same keys.
 ///
 /// Scalability is handled in tiers: specific ids first, then the generic
 /// buckets at the end (`fruit`, `vegetable`, …) for anything the list doesn't

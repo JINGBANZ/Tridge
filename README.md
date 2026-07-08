@@ -12,16 +12,19 @@ browser. Agents: start with [`AGENTS.md`](AGENTS.md), then [`wiki/index.md`](wik
 ## Building & testing
 
 - Logic tests (any platform, incl. Linux): `swift test`
-- Live receipt-scan smoke tests (real OpenAI call against fixture receipts,
-  local-only — the key is never in the repo or CI): copy `env.sample` to `.env`,
-  fill in your key, then `swift test --filter ReceiptScanSmokeTests`. See
+- Live receipt-scan smoke tests (fixture receipts through the deployed scan-API
+  worker, local-only — no secret in the repo or CI): copy `env.sample` to `.env`,
+  fill in `SCAN_API_TOKEN`, then `swift test --filter ReceiptScanSmokeTests`. See
   [`Tests/ReceiptScanSmokeTests/Fixtures/README.md`](Tests/ReceiptScanSmokeTests/Fixtures/README.md)
   for how to add your own receipt images + expected inventory.
-- iOS app (macOS + Xcode 16): open `Tridge.xcodeproj`, or
+- iOS app (macOS + Xcode 16): drop the worker `SCAN_API_TOKEN` into
+  `Tridge/Resources/ScanAPIToken.txt` (gitignored — `printf '%s' "$TOKEN" > Tridge/Resources/ScanAPIToken.txt`),
+  then open `Tridge.xcodeproj`, or
   `xcodebuild -scheme Tridge -destination 'generic/platform=iOS Simulator' build`
-- Runtime setup: paste your OpenAI API key in Settings (gear icon) — it is
-  stored only on the device: in the Keychain on real hardware, in local
-  defaults on simulators (unsigned simulator builds have no Keychain access).
+- Runtime: no user setup — scanning goes through the scan-API worker, which holds the
+  OpenAI key. The app carries only the worker bearer token, bundled from
+  `Tridge/Resources/ScanAPIToken.txt` at build time (a build without it reports
+  "Scanning isn't set up" instead of scanning).
 
 ## Installing a test build (no Mac needed)
 
@@ -36,7 +39,7 @@ No Apple account, no hardware. The camera doesn't exist here: the scan
 button's menu offers "Choose from library" instead, and "Try sample receipt"
 covers the full scan → review → inventory flow. To just see the app working
 with zero setup, tap the scan button → **Seed the App**: it fills the fridge
-with preset items across every urgency tier — no API key, no LLM call.
+with preset items across every urgency tier — no scan, no LLM call.
 
 1. Download the `Tridge-simulator` artifact and unzip it once (GitHub
    wraps artifacts in an outer zip) to get `Tridge-sim.zip`.
@@ -52,11 +55,11 @@ Pull requests get their own separate preview app: CI comments the link on the
 PR and updates it on every push, so changes are viewable before they reach
 `main` (the preview app is deleted when the PR closes).
 
-Heads-up on cloud-simulator sessions: every session starts from a wiped
-device, so the OpenAI key must be re-pasted (Settings → key → Done) each
-session before scanning — all scan inputs, including "Try sample receipt",
-route to Settings until a key is stored ("Type to add" and "Seed the App"
-work without one).
+Scanning works with no per-session setup: the app authenticates to the worker
+with a bearer token compiled into the build, so "Try sample receipt", photo
+import, "Type to add", and "Seed the App" all work on a freshly wiped device —
+provided the published build was compiled with a `SCAN_API_TOKEN` (CI injects it
+from the repo secret; otherwise scans report "Scanning isn't set up").
 
 Real receipt camera and date-label OCR need a physical iPhone — that
 distribution path (SideStore sideloading) is planned separately.

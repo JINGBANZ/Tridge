@@ -10,44 +10,47 @@
 v1 merged and CI green (Linux `swift test` + macOS build). CI now also publishes an installable
 test build on every run: a zipped Debug simulator app for Appetize.io browser testing. Install
 instructions are in `README.md` → "Installing a test build". The `APPETIZE_API_TOKEN` repo secret
-is set, so the auto-publish job uploads each `main` push to Appetize. The backend migration has
-started: `server/` (the receipt-scan API worker, test environment) is built and tested but not
-yet deployed; the app still uses the BYOK direct-OpenAI path.
+is set, so the auto-publish job uploads each `main` push to Appetize. The backend migration is
+done for the scan path: the app now scans through the deployed `server/` worker
+(`ProxyLLMService`) and carries no OpenAI key — BYOK is fully removed. The worker still runs its
+test-env posture (static bearer token, `STORE_RESPONSES=true`).
 
 ## Next action
 
-Deploy the scan API test environment per `server/README.md`: one-time bootstrap (worker
-secrets + first `wrangler deploy`), then connect the repo to Cloudflare Workers Builds
-(dashboard → worker → Settings → Builds; root directory `server`, watch paths `server/**`)
-so `main` pushes auto-deploy. Then wire the app: a proxy-backed `LLMService` conformance
-behind a debug toggle. Still open: the browser-testable acceptance checklist on
-Appetize; the on-device path (real camera + date-label OCR via SideStore) is PR #9, on hold at
-the owner's request.
+Stand up the **production** Wrangler environment (`store:false`, Apple App Attest instead of the
+shared bearer token, per-device quotas, isolated prod OpenAI key) — see the decision log,
+*2026-07-07* entries, and `design/backend-design.html` → Migration plan. Also connect the repo to
+Cloudflare Workers Builds (dashboard → worker → Settings → Builds; root directory `server`, watch
+paths `server/**`) so `main` pushes auto-deploy. Still open: the browser-testable acceptance
+checklist on Appetize; the on-device path (real camera + date-label OCR via SideStore) is PR #9,
+on hold at the owner's request.
 
 ## Built
 
 - `design/fridge-design.html` — the complete v2 design & build spec (mocks, tokens, screens,
   schema, LLM contract, acceptance criteria).
 - `Package.swift` + `Tridge/Core/` — Linux-testable FridgeCore: LLM receipt-JSON parsing
-  (`ReceiptParsing.swift`), the enforced response schema (`ReceiptSchema.swift`), the curated
-  `ItemID` vocabulary + shared enums (`Types.swift`), urgency rules (`Urgency.swift`), date-label
-  regex (`DateLabelParser.swift`).
-- `Tests/FridgeCoreTests/` — parsing (incl. fenced/prose-wrapped output), schema-contract, urgency
+  (`ReceiptParsing.swift`), the curated `ItemID` vocabulary + shared enums (`Types.swift`), urgency
+  rules (`Urgency.swift`), date-label regex (`DateLabelParser.swift`). The scan-API client
+  (`../Services/ProxyLLMService.swift`) lives here too so the smoke test can drive it on Linux.
+- `Tests/FridgeCoreTests/` — parsing (incl. fenced/prose-wrapped output), urgency
   thresholds, date-regex tests; all pass via `swift test`.
-- `Tests/ReceiptScanSmokeTests/` — live LLM regression harness: fixture receipt images +
-  fuzzy `expected.json` inventories (see its `Fixtures/README.md`); local-only — key comes
-  from the environment or a gitignored `.env` (copy `env.sample`), skips without one, and is
-  never run in CI. Ships three synthetic fixtures (clean, faded-thermal, crooked low-res
-  photo); gitignored `Fixtures/private/` for personal receipts.
+- `Tests/ReceiptScanSmokeTests/` — live regression harness: fixture receipt images +
+  fuzzy `expected.json` inventories (see its `Fixtures/README.md`), sent through the deployed
+  worker via `ProxyLLMService`; local-only — the bearer token comes from the environment or a
+  gitignored `.env` (copy `env.sample`, `SCAN_API_TOKEN`; override the target with `BACKEND_URL`),
+  skips without one, and is never run in CI. Ships three synthetic fixtures (clean, faded-thermal,
+  crooked low-res photo); gitignored `Fixtures/private/` for personal receipts.
 - `Tridge/` — the app: `App/` (entry, `AppTheme.swift` design tokens, preview seed),
   a single-tap add menu on the scan button (camera scan where a document camera exists ·
   photo-library import · "Type to add" manual entry via `Views/Home/ManualAddSheet.swift`, which
-  needs no API key; debug builds add `Resources/SampleReceipt.jpg` and a "Seed the App" action
-  that inserts the preset `PreviewData` inventory with no key or LLM call), `Core/AppLog.swift` +
+  needs no scan at all; debug builds add `Resources/SampleReceipt.jpg` and a "Seed the App" action
+  that inserts the preset `PreviewData` inventory with no LLM call), `Core/AppLog.swift` +
   Settings → Copy diagnostics as the tester feedback loop,
   `Models/` (`FridgeItem.swift` SwiftData model, `Artwork.swift` artKey lookup), `Services/`
-  (`LLMService.swift` OpenAI structured-outputs client, `ReceiptScanner.swift` VisionKit camera, `DateLabelScanner.swift`
-  Vision OCR, `NotificationService.swift`, `KeychainStore.swift`, `Haptics.swift`), `Views/`
+  (`LLMService.swift` protocol + errors, `ProxyLLMService.swift` scan-API client, `ScanAPIConfig.swift`
+  worker URL + build-injected bearer token, `ReceiptScanner.swift` VisionKit camera, `DateLabelScanner.swift`
+  Vision OCR, `NotificationService.swift`, `Haptics.swift`), `Views/`
   (Home grid + drag-to-consume, scan flow + review sheet, item detail + art picker, settings).
 - `Tridge.xcodeproj` — hand-written project (synchronized folder group) + shared scheme;
   see the decision log for why it's hand-authored.
@@ -66,17 +69,17 @@ the owner's request.
   `POST /v1/receipt-scan` (raw JPEG in, `ParsedReceipt` JSON out) that holds the OpenAI key as
   a worker secret; per-IP rate limit → bearer token (timing-safe) → strict input validation;
   test-env posture (`STORE_RESPONSES=true`, static token — see the decision log, *2026-07-07*).
-  Vitest + tsc suite (`npm run typecheck && npm test`);
-  `Tests/FridgeCoreTests/ServerContractParityTests.swift` pins its prompt/schema copies to the
-  app's. CI gates PRs with the server suite; deploys go through Cloudflare Workers Builds
-  (git integration), not CI. Setup/API: `server/README.md`.
+  It is the single home of the receipt prompt + JSON schema now that the app calls it instead of
+  OpenAI directly. Vitest + tsc suite (`npm run typecheck && npm test`); CI gates PRs with the
+  server suite; deploys go through Cloudflare Workers Builds (git integration), not CI.
+  Setup/API: `server/README.md`.
 - `wiki/` — this design-docs set.
 
 ## Not yet built
 
-- App-side proxy swap: a `ProxyLLMService` conformance pointing at `server/`'s endpoint (debug
-  toggle first, BYOK retirement after validation), then the production Wrangler environment
-  (`store:false`, App Attest, per-device quotas) — see the decision log, *2026-07-07* entries.
+- Production Wrangler environment for the scan API (`store:false`, App Attest replacing the shared
+  bearer token, per-device quotas, isolated prod OpenAI key) — see the decision log, *2026-07-07*
+  entries.
 - On-device distribution (unsigned-ipa CI artifact + SideStore install docs) — planned as its own
   PR; needed for the camera/OCR items of the acceptance checklist.
 - Verification of the spec's acceptance checklist on a test build (Appetize covers the

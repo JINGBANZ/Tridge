@@ -18,7 +18,6 @@ struct HomeView: View {
     @State private var scanFlow = ScanFlowModel()
     @State private var selectedItem: FridgeItem?
     @State private var showSettings = false
-    @State private var settingsKeyExplainer = false
     @State private var showManualAdd = false
     @State private var pickedPhoto: PhotosPickerItem?
 
@@ -56,8 +55,8 @@ struct HomeView: View {
         .sheet(item: $selectedItem) { item in
             ItemDetailSheet(item: item)
         }
-        .sheet(isPresented: $showSettings, onDismiss: { settingsKeyExplainer = false }) {
-            SettingsSheet(showKeyExplainer: settingsKeyExplainer)
+        .sheet(isPresented: $showSettings) {
+            SettingsSheet()
         }
         .sheet(isPresented: reviewBinding) {
             ReviewSheet(model: scanFlow)
@@ -81,13 +80,6 @@ struct HomeView: View {
         }, message: {
             Text("\(failureMessage)\n\nDetails were logged — Settings → Copy diagnostics.")
         })
-        .onChange(of: scanFlow.phase) { _, phase in
-            if phase == .needsKey {
-                settingsKeyExplainer = true
-                showSettings = true
-                scanFlow.reset()
-            }
-        }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { updateBadge() }
         }
@@ -112,7 +104,6 @@ struct HomeView: View {
                     .font(AppTheme.countFont)
                     .foregroundStyle(AppTheme.mutedInk)
                 Button {
-                    settingsKeyExplainer = false
                     showSettings = true
                 } label: {
                     Image(systemName: "gearshape")
