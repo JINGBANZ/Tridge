@@ -249,9 +249,12 @@
   deployed worker; the direct-OpenAI client, the Settings API-key field, `KeychainStore`, the
   duplicated `ReceiptSchema`/prompt, and `ServerContractParityTests` are all deleted — the receipt
   contract lives only in `server/`. The app authenticates to the worker with the `SCAN_API_TOKEN`
-  bearer token, injected at build time via a gitignored `Secrets.xcconfig` → `Info.plist`
-  (`ScanAPIToken`, read by `ScanAPIConfig`) and never committed; a build without it fails scanning
-  with a clear message rather than a silent 401. The receipt smoke test now drives the live worker
+  bearer token, bundled at build time as the gitignored resource `Tridge/Resources/ScanAPIToken.txt`
+  (read by `ScanAPIConfig`) and never committed; a build without it fails scanning with a clear
+  message rather than a silent 401. A bundled resource is used instead of an `Info.plist` value
+  because Xcode's generated `Info.plist` silently drops custom `INFOPLIST_KEY_*` keys (only Apple's
+  own are honored), so the token never reached the app that way — verified by inspecting the built
+  `.app`. The receipt smoke test now drives the live worker
   through `ProxyLLMService` (`SCAN_API_TOKEN` from env/`.env`, `BACKEND_URL` to retarget), keeping
   the receipt-quality safety net.
 - **Why:** Owner's call to remove the user-supplied key entirely — a consumer app can't ask for an

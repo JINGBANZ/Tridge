@@ -17,12 +17,14 @@ browser. Agents: start with [`AGENTS.md`](AGENTS.md), then [`wiki/index.md`](wik
   fill in `SCAN_API_TOKEN`, then `swift test --filter ReceiptScanSmokeTests`. See
   [`Tests/ReceiptScanSmokeTests/Fixtures/README.md`](Tests/ReceiptScanSmokeTests/Fixtures/README.md)
   for how to add your own receipt images + expected inventory.
-- iOS app (macOS + Xcode 16): `cp Secrets.sample.xcconfig Secrets.xcconfig` and fill in
-  the worker `SCAN_API_TOKEN`, then open `Tridge.xcodeproj`, or
+- iOS app (macOS + Xcode 16): drop the worker `SCAN_API_TOKEN` into
+  `Tridge/Resources/ScanAPIToken.txt` (gitignored — `printf '%s' "$TOKEN" > Tridge/Resources/ScanAPIToken.txt`),
+  then open `Tridge.xcodeproj`, or
   `xcodebuild -scheme Tridge -destination 'generic/platform=iOS Simulator' build`
 - Runtime: no user setup — scanning goes through the scan-API worker, which holds the
-  OpenAI key. The app carries only the worker bearer token, baked in from `Secrets.xcconfig`
-  at build time (a build without it reports "Scanning isn't set up" instead of scanning).
+  OpenAI key. The app carries only the worker bearer token, bundled from
+  `Tridge/Resources/ScanAPIToken.txt` at build time (a build without it reports
+  "Scanning isn't set up" instead of scanning).
 
 ## Installing a test build (no Mac needed)
 

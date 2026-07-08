@@ -115,7 +115,7 @@ final class ScanFlowModel {
 
     private func process(_ image: UIImage) {
         guard let service = ScanAPIConfig.service else {
-            // Only happens in a build with no bearer token (Secrets.xcconfig
+            // Only happens in a build with no bearer token (ScanAPIToken.txt
             // missing) — surface it instead of silently 401-ing on the worker.
             AppLog.scan.error("No scan API token in this build — cannot scan")
             phase = .failed("Scanning isn't set up in this build.")

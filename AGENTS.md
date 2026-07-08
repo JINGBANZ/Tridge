@@ -69,8 +69,9 @@ Worker (TypeScript) that holds the OpenAI key; the app POSTs the receipt JPEG to
   that build and pass under `swift test` on Linux.
 - The OpenAI key is held server-side as a Cloudflare Worker secret (`wrangler secret put`, run from
   a dev machine) — never on the device or in the repo. The app authenticates to the worker with the
-  `SCAN_API_TOKEN` bearer token, injected at build time via a gitignored `Secrets.xcconfig` (copy
-  `Secrets.sample.xcconfig`); no secret ever enters the repo, CI, or committed build config.
+  `SCAN_API_TOKEN` bearer token, bundled at build time as the gitignored resource
+  `Tridge/Resources/ScanAPIToken.txt` (CI writes it from the secret; create it locally to scan);
+  no secret ever enters the repo, CI, or committed build config.
 - `server/` (the scan API worker) needs Node 22+; `npm install` inside `server/`.
 
 ## Commands
@@ -108,7 +109,7 @@ Worker (TypeScript) that holds the OpenAI key; the app POSTs the receipt JPEG to
 
 - Never commit an OpenAI API key, the worker bearer token, or any receipt images with personal
   data. The OpenAI key lives only in Cloudflare Worker secrets (`server/`); the app's
-  `SCAN_API_TOKEN` lives only in a gitignored `Secrets.xcconfig`.
+  `SCAN_API_TOKEN` lives only in the gitignored resource `Tridge/Resources/ScanAPIToken.txt`.
 
 ## Gotchas
 
