@@ -64,11 +64,17 @@ camera/OCR acceptance items via a TestFlight build.
   app when the PR closes.
 - `.github/workflows/testflight.yml` + `fastlane/` (`Fastfile`, `Appfile`) + `Gemfile` — the
   manual TestFlight release lane: `workflow_dispatch` builds a signed Release IPA (cloud-managed
-  signing via an App Store Connect API key — no certs in the repo) and uploads it via fastlane's
-  `upload_to_testflight`. Needs the `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_KEY_P8`, `APPLE_TEAM_ID`
-  repo secrets (setup in `README.md` → "On your iPhone (TestFlight)"). Build number is the GitHub
-  run number; `ITSAppUsesNonExemptEncryption=NO` is set in the project so builds skip the manual
-  export-compliance prompt.
+  signing — no certs in the repo) and uploads it via fastlane's `upload_to_testflight`. Signing
+  hands the App Store Connect API key to `xcodebuild` itself via `-authenticationKey*` (gym does
+  not forward it), so the workflow decodes the `.p8` to a file first; the key must have the
+  **Admin** role because creating a distribution certificate is Admin-only. Needs the `ASC_KEY_ID`,
+  `ASC_ISSUER_ID`, `ASC_KEY_P8`, `APPLE_TEAM_ID` repo secrets (setup in `README.md` → "On your
+  iPhone (TestFlight)"). Build number is the GitHub run number; `ITSAppUsesNonExemptEncryption=NO`
+  is set so builds skip the export-compliance prompt.
+- `Tridge/Assets.xcassets/AppIcon` (1024² placeholder — replace with real art) and
+  `Tridge/PrivacyInfo.xcprivacy` (declares the app's `UserDefaults`/`@AppStorage` required-reason
+  API, `CA92.1`) — both required for App Store Connect upload validation (a missing icon hard-fails
+  the upload; the privacy manifest is a required-reason compliance gap).
 - `AGENTS.md` / `CLAUDE.md` — agent instructions; shared-rules block syncs from JINGBANZ/rules.
 - `.github/workflows/sync-shared-rules.yml` — weekly shared-rules sync (stub → JINGBANZ/workflows).
 - `.github/workflows/claude.yml`, `.github/workflows/claude-code-review.yml` — @claude mentions and

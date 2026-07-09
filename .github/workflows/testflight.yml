@@ -36,11 +36,24 @@ jobs:
         with:
           bundler-cache: true
 
+      # Decode the App Store Connect API key (.p8) to a file so xcodebuild can use
+      # it for cloud-managed signing (-authenticationKeyPath). openssl is used for
+      # a base64 decode that tolerates both wrapped and single-line secrets.
+      - name: Decode App Store Connect API key
+        env:
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/asc"
+          printf '%s' "$ASC_KEY_P8" | openssl base64 -A -d > "$RUNNER_TEMP/asc/AuthKey.p8"
+          echo "ASC_KEY_PATH=$RUNNER_TEMP/asc/AuthKey.p8" >> "$GITHUB_ENV"
+
       # The bearer token the app uses to reach the scan-API worker, written into
       # the bundled resource ScanAPIToken.txt (gitignored). Empty when the secret
       # isn't set — the build still succeeds; scanning then reports "not set up".
       - name: Write scan-API token resource
-        run: printf '%s' "${{ secrets.SCAN_API_TOKEN }}" > Tridge/Resources/ScanAPIToken.txt
+        env:
+          SCAN_API_TOKEN: ${{ secrets.SCAN_API_TOKEN }}
+        run: printf '%s' "$SCAN_API_TOKEN" > Tridge/Resources/ScanAPIToken.txt
 
       - name: Build & upload to TestFlight
         env:

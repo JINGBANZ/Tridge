@@ -321,9 +321,12 @@
   IPA on the macOS runner and fastlane's `upload_to_testflight` ships it, authenticating with an
   App Store Connect **API key** (JWT — no interactive 2FA, so it works headless). Signing is
   cloud-managed (`-allowProvisioningUpdates` + the API key), so no certificates or profiles live in
-  the repo and there is no fastlane `match` cert repo. The owner enrolls in the $99/yr Apple
-  Developer Program and adds four repo secrets (`ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_KEY_P8`,
-  `APPLE_TEAM_ID`). `ITSAppUsesNonExemptEncryption=NO` is set in the project so builds don't stall
+  the repo and there is no fastlane `match` cert repo. Two non-obvious requirements make this work:
+  gym does *not* forward the API key to the archive `xcodebuild`, so the key is passed explicitly
+  via `-authenticationKey*` (the CI decodes the `.p8` to a file first); and the key must have the
+  **Admin** role, because creating a distribution certificate is Admin-only (App Manager/Developer
+  cannot). The owner enrolls in the $99/yr Apple Developer Program and adds four repo secrets
+  (`ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_KEY_P8`, `APPLE_TEAM_ID`). `ITSAppUsesNonExemptEncryption=NO` is set in the project so builds don't stall
   on the export-compliance prompt. The `main`-push Appetize auto-publish is removed; the per-PR
   Appetize browser preview stays for UI review.
 - **Why:** Getting the app onto the owner's phone with a working camera + date-OCR needs a genuine

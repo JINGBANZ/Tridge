@@ -42,9 +42,11 @@ paid **Apple Developer Program** membership ($99/yr).
    already taken, pick another and change `PRODUCT_BUNDLE_IDENTIFIER` in
    `Tridge.xcodeproj` and `app_identifier` in `fastlane/Appfile` to match.)
 3. Create an **App Store Connect API key**: App Store Connect → **Users and
-   Access** → **Integrations** → **App Store Connect API** → **+**, role **App
-   Manager**. Note the **Issuer ID** and **Key ID**, and download the
-   `AuthKey_XXXX.p8` (downloadable only once).
+   Access** → **Integrations** → **App Store Connect API** → **+**, role
+   **Admin**. (Admin is required, not App Manager — cloud-managed signing has to
+   create a *distribution* certificate, which only Admin can do. The same key
+   also uploads the build.) Note the **Issuer ID** and **Key ID**, and download
+   the `AuthKey_XXXX.p8` (downloadable only once).
 4. Add four **repository secrets** (GitHub → repo **Settings** → **Secrets and
    variables** → **Actions**):
    - `ASC_KEY_ID` — the API Key ID
