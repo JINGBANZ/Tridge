@@ -64,11 +64,14 @@ public enum AppLog {
         do {
             let store = try OSLogStore(scope: .currentProcessIdentifier)
             let position = store.position(date: Date().addingTimeInterval(-Double(lastMinutes) * 60))
+            // Filter in the store, not in Swift: without a predicate getEntries
+            // decodes every subsystem's entries for the process — the expensive
+            // work behind the copy-diagnostics stall.
+            let predicate = NSPredicate(format: "subsystem == %@", subsystem)
             let formatter = DateFormatter()
             formatter.dateFormat = "HH:mm:ss.SSS"
-            let entries = try store.getEntries(at: position)
+            let entries = try store.getEntries(at: position, matching: predicate)
                 .compactMap { $0 as? OSLogEntryLog }
-                .filter { $0.subsystem == subsystem }
                 .map { "\(formatter.string(from: $0.date)) [\($0.category)] \($0.composedMessage)" }
             lines += entries.isEmpty ? ["(no app log entries this session)"] : entries
         } catch {

@@ -95,7 +95,7 @@ struct HomeView: View {
 
     private var header: some View {
         HStack {
-            Text("Fridge")
+            Text("Tridge")
                 .font(AppTheme.titleFont)
                 .foregroundStyle(AppTheme.ink)
             Spacer()
@@ -292,6 +292,10 @@ struct HomeView: View {
                                    startPoint: .top, endPoint: .bottom),
                     in: Circle())
                 .overlay(Circle().strokeBorder(.white.opacity(0.35), lineWidth: 1))
+                // Confine the tap target and the menu's highlight platter to the
+                // circle — without this the platter fills the square label frame
+                // and shows as a rounded square behind the round button on tap.
+                .contentShape(Circle())
                 .shadow(color: AppTheme.brandGreen.opacity(0.45), radius: 10, y: 8)
         }
         .accessibilityLabel("Add items")
