@@ -1,10 +1,15 @@
-// Test environment of the receipt-scan API. The future production deployment
-// gets its own environment (separate URL, secrets, STORE_RESPONSES=false,
-// App Attest verification) — see wiki/decisions.md → 2026-07-07 entries.
+// Two deployments share this config and one codebase:
+//   • default (no --env)  → tridge-scan-api-test   — `wrangler deploy`
+//   • env.prod            → tridge-scan-api         — `wrangler deploy --env prod`
+// The test env keeps STORE_RESPONSES=true and a static bearer token (local
+// smoke harness) alongside App Attest; production is App Attest only with
+// store:false. Named environments do NOT inherit vars/kv_namespaces/ratelimits,
+// so prod redefines them in full.
 //
-// Secrets (never here; set per environment with `wrangler secret put`):
-//   OPENAI_API_KEY  — dedicated OpenAI *test* project key with a budget cap
-//   SCAN_API_TOKEN  — app bearer token; generate: openssl rand -base64 32
+// Secrets (never here; set per env with `wrangler secret put [--env prod]`):
+//   OPENAI_API_KEY  — dedicated OpenAI project key with a budget cap (separate key per env)
+//   APPLE_TEAM_ID   — Apple Developer team id for com.tridge.app (App Attest)
+//   SCAN_API_TOKEN  — test env only; app bearer token for the smoke harness (openssl rand -base64 32)
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "tridge-scan-api-test",
@@ -18,9 +23,21 @@
   },
   "vars": {
     // "true" only in the test environment: lets failed scans be inspected in
-    // OpenAI's dashboard. Production must set "false" — receipts are personal data.
-    "STORE_RESPONSES": "true"
+    // OpenAI's dashboard. Production sets "false" — receipts are personal data.
+    "STORE_RESPONSES": "true",
+    "APPLE_BUNDLE_ID": "com.tridge.app",
+    // Accept development-environment attestations (Xcode-signed dev builds on a
+    // real device). Production sets "false" so only TestFlight/App Store
+    // (production-environment) attestations pass.
+    "APP_ATTEST_ALLOW_DEV": "true",
+    "DEVICE_DAILY_QUOTA": "50"
   },
+  // Per-device App Attest registry (public key + sign counter) and per-device
+  // quota counters. Create with: wrangler kv namespace create DEVICE_KV
+  // then paste the id below (a separate namespace for prod, see env.prod).
+  "kv_namespaces": [
+    { "binding": "DEVICE_KV", "id": "REPLACE_WITH_TEST_DEVICE_KV_ID" }
+  ],
   // 10 scans/min per client IP — generous for a human scanning receipts,
   // tight for abuse. Counted per Cloudflare location (eventually consistent).
   "ratelimits": [
@@ -29,5 +46,32 @@
       "namespace_id": "1001",
       "simple": { "limit": 10, "period": 60 }
     }
-  ]
+  ],
+  "env": {
+    "prod": {
+      "name": "tridge-scan-api",
+      "workers_dev": true,
+      "observability": {
+        "enabled": true,
+        "head_sampling_rate": 1
+      },
+      "vars": {
+        "STORE_RESPONSES": "false",
+        "APPLE_BUNDLE_ID": "com.tridge.app",
+        "APP_ATTEST_ALLOW_DEV": "false",
+        "DEVICE_DAILY_QUOTA": "30"
+      },
+      "kv_namespaces": [
+        { "binding": "DEVICE_KV", "id": "REPLACE_WITH_PROD_DEVICE_KV_ID" }
+      ],
+      // Distinct namespace_id so the prod counter is independent of test.
+      "ratelimits": [
+        {
+          "name": "SCAN_RATE_LIMIT",
+          "namespace_id": "2001",
+          "simple": { "limit": 10, "period": 60 }
+        }
+      ]
+    }
+  }
 }

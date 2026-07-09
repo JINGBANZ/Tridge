@@ -3,27 +3,63 @@ import Foundation
 import FoundationNetworking // URLSession on Linux, for the smoke-test target
 #endif
 
+/// Supplies the auth headers that prove a scan request comes from Tridge. The
+/// production app signs each request with Apple App Attest (`AppAttestAuthorizer`,
+/// iOS-only); the Linux smoke test uses a static bearer token
+/// (`BearerTokenAuthorizer`). Kept a protocol so `ProxyLLMService` — which is
+/// shared between the app and the Linux test target — carries no App Attest code.
+protocol ScanRequestAuthorizer: Sendable {
+    /// Headers to attach to a scan POST for this exact image. May perform I/O
+    /// (App Attest registers the device and signs the image on first use).
+    func authorizationHeaders(forImage imageData: Data) async throws -> [String: String]
+}
+
+/// Static bearer-token auth. The token never ships in the app; it authenticates
+/// only the local receipt smoke-test harness against the test worker.
+struct BearerTokenAuthorizer: ScanRequestAuthorizer {
+    let token: String
+    func authorizationHeaders(forImage imageData: Data) async throws -> [String: String] {
+        ["Authorization": "Bearer \(token)"]
+    }
+}
+
 /// Receipt photo → structured inventory via the Tridge scan API — a Cloudflare
 /// Worker that holds the OpenAI key so the app never has to. The app POSTs the
-/// raw JPEG with a bearer token; the worker runs the same schema-constrained
-/// model call and returns the `ParsedReceipt` JSON this client hands straight to
-/// `ReceiptResponseParser`. The worker already retries an unparseable model
-/// reply once (see `server/src/index.ts`), so this client does not retry.
+/// raw JPEG with an authorizer's headers; the worker runs the same
+/// schema-constrained model call and returns the `ParsedReceipt` JSON this
+/// client hands straight to `ReceiptResponseParser`. The worker already retries
+/// an unparseable model reply once (see `server/src/index.ts`), so this client
+/// does not retry.
 struct ProxyLLMService: LLMService {
     var baseURL: URL
-    /// Bearer token proving the caller is Tridge; injected at build time, never
-    /// user-supplied. See `ScanAPIConfig`.
-    var token: String
+    /// Proves the caller is Tridge — App Attest in the app, bearer token in the
+    /// smoke test. See `ScanRequestAuthorizer`.
+    var authorizer: any ScanRequestAuthorizer
     var session: URLSession = .shared
+
+    /// Convenience for the smoke-test harness: authenticate with a bearer token.
+    init(baseURL: URL, token: String, session: URLSession = .shared) {
+        self.init(baseURL: baseURL, authorizer: BearerTokenAuthorizer(token: token), session: session)
+    }
+
+    init(baseURL: URL, authorizer: any ScanRequestAuthorizer, session: URLSession = .shared) {
+        self.baseURL = baseURL
+        self.authorizer = authorizer
+        self.session = session
+    }
 
     private var endpoint: URL { baseURL.appendingPathComponent("v1/receipt-scan") }
 
     func parseReceipt(jpegData: Data) async throws -> ParsedReceipt {
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("image/jpeg", forHTTPHeaderField: "Content-Type")
         request.httpBody = jpegData
+
+        // Attach auth last: App Attest signs over the exact image bytes.
+        for (field, value) in try await authorizer.authorizationHeaders(forImage: jpegData) {
+            request.setValue(value, forHTTPHeaderField: field)
+        }
 
         let (data, response): (Data, URLResponse)
         do {

@@ -54,13 +54,8 @@ jobs:
           printf '%s' "$ASC_KEY_P8" | openssl base64 -A -d > "$RUNNER_TEMP/asc/AuthKey.p8"
           echo "ASC_KEY_PATH=$RUNNER_TEMP/asc/AuthKey.p8" >> "$GITHUB_ENV"
 
-      # The bearer token the app uses to reach the scan-API worker, written into
-      # the bundled resource ScanAPIToken.txt (gitignored). Empty when the secret
-      # isn't set — the build still succeeds; scanning then reports "not set up".
-      - name: Write scan-API token resource
-        env:
-          SCAN_API_TOKEN: ${{ secrets.SCAN_API_TOKEN }}
-        run: printf '%s' "$SCAN_API_TOKEN" > Tridge/Resources/ScanAPIToken.txt
+      # No scan-API secret to write: the app authenticates to the worker with
+      # Apple App Attest, whose keys are generated on-device at runtime.
 
       - name: Build & upload to TestFlight
         env:

@@ -1,7 +1,14 @@
-// The receipt-scan API: POST /v1/receipt-scan with a raw image/jpeg body and
-// the app bearer token; responds with the ParsedReceipt JSON the app's
-// ReceiptResponseParser already accepts. Protection layers (test env):
-// per-IP rate limit → bearer token (timing-safe) → content-type → size cap.
+// The receipt-scan API: POST /v1/receipt-scan with a raw image/jpeg body;
+// responds with the ParsedReceipt JSON the app's ReceiptResponseParser accepts.
+// Protection layers, in order: per-IP rate limit → client auth → input
+// validation → sanitized errors → structured logs.
+//
+// Client auth has two postures behind the same endpoint:
+//   • App Attest (production) — per-scan assertion + per-device quota. Active
+//     wherever the DEVICE_KV binding and app identity are configured.
+//   • Static bearer token (test env / local smoke harness) — used only when a
+//     request presents no App Attest headers and SCAN_API_TOKEN is set.
+// Production sets no SCAN_API_TOKEN, so it is App Attest only.
 import {
   buildOpenAIRequest,
   extractJSONText,
@@ -9,8 +16,18 @@ import {
   OPENAI_ENDPOINT,
   RefusalError,
 } from "./contract";
+import {
+  appAttestEnabled,
+  issueAttestChallenge,
+  registerDevice,
+  verifyScanAssertion,
+  withinDeviceQuota,
+} from "./appattest";
+import { base64FromBytes, errorMessage, jsonError, jsonResponse, log } from "./util";
 
 const SCAN_PATH = "/v1/receipt-scan";
+const ATTEST_CHALLENGE_PATH = "/v1/attest/challenge";
+const ATTEST_PATH = "/v1/attest";
 // The app compresses receipts to ≲1 MB (max edge 1568 px); 8 MB is headroom,
 // not a target. Also enforced before buffering via Content-Length.
 const MAX_BODY_BYTES = 8 * 1024 * 1024;
@@ -18,30 +35,36 @@ const MAX_BODY_BYTES = 8 * 1024 * 1024;
 export default {
   async fetch(request, env): Promise<Response> {
     try {
-      return await handleScan(request, env);
+      return await route(request, env);
     } catch (error) {
       // Explicit catch-all: never leak stacks or upstream bodies to callers.
-      log("unhandled_error", { message: error instanceof Error ? error.message : String(error) });
+      log("unhandled_error", { message: errorMessage(error) });
       return jsonError(500, "Internal error. Please try again.");
     }
   },
 } satisfies ExportedHandler<Env>;
 
-async function handleScan(request: Request, env: Env): Promise<Response> {
-  const url = new URL(request.url);
-  if (url.pathname !== SCAN_PATH) return jsonError(404, "Not found.");
+async function route(request: Request, env: Env): Promise<Response> {
+  const path = new URL(request.url).pathname;
   if (request.method !== "POST") return jsonError(405, "Use POST.");
 
-  // Rate limit first (keyed by client IP) so a leaked or brute-forced token
-  // can't be hammered faster than the limit either.
+  if (path === SCAN_PATH) return handleScan(request, env);
+  if (appAttestEnabled(env)) {
+    if (path === ATTEST_CHALLENGE_PATH) return issueAttestChallenge(env);
+    if (path === ATTEST_PATH) return registerDevice(request, env);
+  }
+  return jsonError(404, "Not found.");
+}
+
+async function handleScan(request: Request, env: Env): Promise<Response> {
+  // Rate limit first (keyed by client IP) so leaked credentials or a
+  // registered device can't be hammered faster than the limit either.
   const clientIP = request.headers.get("cf-connecting-ip") ?? "unknown";
   const { success } = await env.SCAN_RATE_LIMIT.limit({ key: clientIP });
   if (!success) {
     log("rate_limited", {});
     return jsonError(429, "Too many scans. Wait a minute and try again.", { "retry-after": "60" });
   }
-
-  if (!(await authorized(request, env))) return jsonError(401, "Missing or invalid app token.");
 
   const contentType = request.headers.get("content-type") ?? "";
   if (!contentType.toLowerCase().startsWith("image/jpeg")) {
@@ -53,7 +76,15 @@ async function handleScan(request: Request, env: Env): Promise<Response> {
   if (imageBytes.byteLength === 0) return jsonError(400, "Empty body — send the receipt JPEG.");
   if (imageBytes.byteLength > MAX_BODY_BYTES) return jsonError(413, "Receipt image must be 8 MB or less.");
 
-  const requestBody = buildOpenAIRequest(base64Encode(imageBytes), env.STORE_RESPONSES === "true");
+  // Auth binds to the image bytes (App Attest signs over them), so it runs
+  // after the body is buffered but before any billable OpenAI work.
+  const auth = await authenticate(request, env, imageBytes);
+  if (!auth.ok) return auth.response;
+  if (auth.keyId && !(await withinDeviceQuota(env, auth.keyId))) {
+    return jsonError(429, "Daily scan limit reached for this device.", { "retry-after": "3600" });
+  }
+
+  const requestBody = buildOpenAIRequest(base64FromBytes(imageBytes), env.STORE_RESPONSES === "true");
 
   // Mirrors the app's OpenAIService: upstream HTTP errors fail immediately;
   // an unparseable reply gets exactly one retry.
@@ -64,6 +95,25 @@ async function handleScan(request: Request, env: Env): Promise<Response> {
   if (second.kind === "ok") return jsonResponse(second.receipt);
   if (second.kind === "http_error") return jsonError(502, "The parsing service is unavailable. Please try again.");
   return jsonError(422, "Couldn't make sense of that receipt. Try scanning it again.");
+}
+
+type AuthResult = { ok: true; keyId?: string } | { ok: false; response: Response };
+
+/**
+ * App Attest when the request carries attestation headers and it's configured;
+ * otherwise the static bearer token if one is set. `keyId` is present only on
+ * the App Attest path (it keys the per-device quota).
+ */
+async function authenticate(request: Request, env: Env, imageBytes: Uint8Array): Promise<AuthResult> {
+  if (appAttestEnabled(env) && request.headers.has("x-attest-key-id")) {
+    const result = await verifyScanAssertion(request, env, imageBytes);
+    return result.ok ? { ok: true, keyId: result.keyId } : { ok: false, response: result.response };
+  }
+  if (env.SCAN_API_TOKEN) {
+    if (await tokenAuthorized(request, env.SCAN_API_TOKEN)) return { ok: true };
+    return { ok: false, response: jsonError(401, "Missing or invalid app token.") };
+  }
+  return { ok: false, response: jsonError(401, "Missing App Attest credentials.") };
 }
 
 type ScanResult =
@@ -80,7 +130,7 @@ async function requestReceipt(apiKey: string, body: unknown): Promise<ScanResult
       body: JSON.stringify(body),
     });
   } catch (error) {
-    log("openai_network_error", { message: error instanceof Error ? error.message : String(error) });
+    log("openai_network_error", { message: errorMessage(error) });
     return { kind: "http_error", status: 0 };
   }
   if (!response.ok) {
@@ -109,11 +159,11 @@ async function requestReceipt(apiKey: string, body: unknown): Promise<ScanResult
   }
 }
 
-async function authorized(request: Request, env: Env): Promise<boolean> {
+async function tokenAuthorized(request: Request, expected: string): Promise<boolean> {
   const header = request.headers.get("authorization") ?? "";
   const token = header.startsWith("Bearer ") ? header.slice("Bearer ".length) : "";
-  if (token === "" || !env.SCAN_API_TOKEN) return false;
-  return timingSafeEqualStrings(token, env.SCAN_API_TOKEN);
+  if (token === "") return false;
+  return timingSafeEqualStrings(token, expected);
 }
 
 /** Constant-time comparison via fixed-length digests (no length leak). */
@@ -133,31 +183,4 @@ async function timingSafeEqualStrings(a: string, b: string): Promise<boolean> {
   let difference = 0;
   for (let i = 0; i < bytesA.length; i++) difference |= bytesA[i] ^ bytesB[i];
   return difference === 0;
-}
-
-function base64Encode(bytes: Uint8Array): string {
-  let binary = "";
-  const chunkSize = 0x8000; // avoid per-call argument limits on large images
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
-  }
-  return btoa(binary);
-}
-
-function jsonResponse(body: unknown): Response {
-  return new Response(JSON.stringify(body), {
-    headers: { "content-type": "application/json" },
-  });
-}
-
-function jsonError(status: number, message: string, extraHeaders: Record<string, string> = {}): Response {
-  return new Response(JSON.stringify({ error: message }), {
-    status,
-    headers: { "content-type": "application/json", ...extraHeaders },
-  });
-}
-
-/** Structured JSON logs — queryable in Workers Logs; never includes images or keys. */
-function log(event: string, fields: Record<string, unknown>): void {
-  console.log(JSON.stringify({ event, ...fields }));
 }
