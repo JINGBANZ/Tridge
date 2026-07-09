@@ -1,13 +1,13 @@
 import SwiftUI
 import UIKit
 
-/// Notification hour, default storage, and the copy-diagnostics feedback loop.
+/// Notification hour and the copy-diagnostics feedback loop.
 struct SettingsSheet: View {
     @Environment(\.dismiss) private var dismiss
     @AppStorage("notificationHour") private var notificationHour = 9
-    @AppStorage("defaultStorage") private var defaultStorageRaw = StorageLocation.fridge.rawValue
 
     @State private var copiedDiagnostics = false
+    @State private var collectingDiagnostics = false
 
     var body: some View {
         NavigationStack {
@@ -20,22 +20,11 @@ struct SettingsSheet: View {
                     }
                 }
 
-                Section("Defaults") {
-                    Picker("New items go to", selection: $defaultStorageRaw) {
-                        ForEach(StorageLocation.allCases, id: \.rawValue) { location in
-                            Text(location.label).tag(location.rawValue)
-                        }
-                    }
-                }
-
                 Section {
-                    Button {
-                        UIPasteboard.general.string = AppLog.recentDiagnostics()
-                        copiedDiagnostics = true
-                    } label: {
-                        Label(copiedDiagnostics ? "Copied to clipboard" : "Copy diagnostics",
-                              systemImage: copiedDiagnostics ? "checkmark" : "doc.on.doc")
+                    Button(action: copyDiagnostics) {
+                        Label(diagnosticsLabel, systemImage: diagnosticsIcon)
                     }
+                    .disabled(collectingDiagnostics)
                 } header: {
                     Text("Diagnostics")
                 } footer: {
@@ -49,6 +38,35 @@ struct SettingsSheet: View {
                     Button("Done") { dismiss() }
                 }
             }
+        }
+    }
+
+    private var diagnosticsLabel: String {
+        if collectingDiagnostics { return "Collecting…" }
+        return copiedDiagnostics ? "Copied to clipboard" : "Copy diagnostics"
+    }
+
+    private var diagnosticsIcon: String {
+        if collectingDiagnostics { return "hourglass" }
+        return copiedDiagnostics ? "checkmark" : "doc.on.doc"
+    }
+
+    /// Reading the log store walks and decodes the whole session archive —
+    /// seconds of work that freezes (and watchdog-kills) the app if done on the
+    /// main thread. Collect on a detached task, then update the UI on the main
+    /// actor. `Task {}` alone would inherit this view's main-actor isolation and
+    /// still block, so the work must be explicitly detached.
+    private func copyDiagnostics() {
+        guard !collectingDiagnostics else { return }
+        collectingDiagnostics = true
+        copiedDiagnostics = false
+        Task {
+            let report = await Task.detached(priority: .userInitiated) {
+                AppLog.recentDiagnostics()
+            }.value
+            UIPasteboard.general.string = report
+            collectingDiagnostics = false
+            copiedDiagnostics = true
         }
     }
 
