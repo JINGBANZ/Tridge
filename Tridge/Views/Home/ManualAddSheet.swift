@@ -88,7 +88,9 @@ struct ManualAddSheet: View {
     }
 }
 
+#if DEBUG
 #Preview {
     ManualAddSheet()
         .modelContainer(PreviewData.container)
 }
+#endif
