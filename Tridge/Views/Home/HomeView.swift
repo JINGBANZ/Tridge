@@ -357,7 +357,9 @@ private struct PopIn: ViewModifier {
     }
 }
 
+#if DEBUG
 #Preview {
     HomeView()
         .modelContainer(PreviewData.container)
 }
+#endif

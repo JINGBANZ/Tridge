@@ -70,7 +70,11 @@ camera/OCR acceptance items via a TestFlight build.
   **Admin** role because creating a distribution certificate is Admin-only. Needs the `ASC_KEY_ID`,
   `ASC_ISSUER_ID`, `ASC_KEY_P8`, `APPLE_TEAM_ID` repo secrets (setup in `README.md` → "On your
   iPhone (TestFlight)"). Build number is the GitHub run number; `ITSAppUsesNonExemptEncryption=NO`
-  is set so builds skip the export-compliance prompt.
+  is set so builds skip the export-compliance prompt. Runs on `macos-26` (Xcode 26 / iOS 26 SDK —
+  Apple's current upload minimum; `macos-15`/Xcode 16 is rejected). One more account prerequisite
+  beyond the Admin key: the team needs **one registered device**, or automatic signing can't mint
+  the archive's provisioning profile. Verified end-to-end — a build uploaded to TestFlight on
+  2026-07-09.
 - `Tridge/Assets.xcassets/AppIcon` (1024² placeholder — replace with real art) and
   `Tridge/PrivacyInfo.xcprivacy` (declares the app's `UserDefaults`/`@AppStorage` required-reason
   API, `CA92.1`) — both required for App Store Connect upload validation (a missing icon hard-fails

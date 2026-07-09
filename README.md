@@ -56,6 +56,12 @@ paid **Apple Developer Program** membership ($99/yr).
 
    (Live scanning also needs the existing `SCAN_API_TOKEN` secret; without it the
    build still ships but scans report "Scanning isn't set up".)
+5. Register at least **one device**: developer.apple.com → **Certificates,
+   Identifiers & Profiles** → **Devices** → **+**, paste your iPhone's UDID.
+   Cloud-managed signing needs a device on the team to mint the archive's
+   provisioning profile, or the build fails with "your team has no devices". Get
+   the UDID from a Mac's **Finder** (connect iPhone → click the info line under
+   the device name until it shows the UDID) or, on Linux/Windows, `idevice_id -l`.
 
 **Each release:** GitHub → **Actions** → **TestFlight** → **Run workflow**. It
 builds a signed Release IPA (signing is cloud-managed via the API key — no certs
