@@ -13,7 +13,7 @@ import receiptSchema from "../src/receipt-schema.json";
 describe("buildOpenAIRequest", () => {
   const request = buildOpenAIRequest("SGVsbG8=", true) as Record<string, any>;
 
-  it("mirrors the app's OpenAIService request", () => {
+  it("builds the OpenAI Responses API request", () => {
     expect(request.model).toBe(MODEL);
     expect(request.max_output_tokens).toBe(4000);
     expect(request.reasoning).toEqual({ effort: "low" });
