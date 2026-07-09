@@ -7,6 +7,13 @@ xcuserdata/
 DerivedData/
 *.xcuserstate
 
+# Build output / fastlane (release lane writes the IPA + reports here)
+build/
+*.ipa
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/test_output/
+
 # Local-only receipt fixtures (may contain personal data)
 Tests/ReceiptScanSmokeTests/Fixtures/private/
 

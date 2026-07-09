@@ -83,6 +83,7 @@ Worker (TypeScript) that holds the OpenAI key; the app POSTs the receipt JPEG to
 | Build    | `xcodebuild -scheme Tridge -destination 'generic/platform=iOS Simulator' build` (CI/macOS only) |
 | Server test | `cd server && npm run typecheck && npm test` (Vitest + tsc; Node 22+) |
 | Server deploy | `cd server && npm run deploy` (or CI, on `main`, once `CLOUDFLARE_API_TOKEN` is set) |
+| TestFlight | GitHub → Actions → **TestFlight** → Run workflow (`bundle exec fastlane ios beta`; macOS/CI; needs the App Store Connect secrets — see `README.md`) |
 | **Gate** | `swift test` + server typecheck/test on Linux; on macOS/CI, build + full test suite |
 
 > Keep this table true — update it whenever the canonical commands change.

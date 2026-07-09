@@ -1,0 +1,52 @@
+name: TestFlight
+
+# Manual release: trigger from the Actions tab → "TestFlight" → "Run workflow".
+# Kept off push/PR on purpose — every run creates a real TestFlight build, so it
+# should be a deliberate act, not automatic. (Add a `push: tags: ['v*']` trigger
+# later if you want tag-driven releases.)
+on:
+  workflow_dispatch:
+
+jobs:
+  testflight:
+    name: build + upload to TestFlight
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      # Fail early with actionable guidance if the release secrets are missing,
+      # rather than deep inside a fastlane stack trace.
+      - name: Check release secrets
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          missing=""
+          for v in ASC_KEY_ID ASC_ISSUER_ID ASC_KEY_P8 APPLE_TEAM_ID; do
+            [ -z "${!v}" ] && missing="$missing $v"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Missing repo secret(s):$missing — see README → 'On your iPhone (TestFlight)'."
+            exit 1
+          fi
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          bundler-cache: true
+
+      # The bearer token the app uses to reach the scan-API worker, written into
+      # the bundled resource ScanAPIToken.txt (gitignored). Empty when the secret
+      # isn't set — the build still succeeds; scanning then reports "not set up".
+      - name: Write scan-API token resource
+        run: printf '%s' "${{ secrets.SCAN_API_TOKEN }}" > Tridge/Resources/ScanAPIToken.txt
+
+      - name: Build & upload to TestFlight
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          BUILD_NUMBER: ${{ github.run_number }}
+        run: bundle exec fastlane ios beta

@@ -26,43 +26,58 @@ browser. Agents: start with [`AGENTS.md`](AGENTS.md), then [`wiki/index.md`](wik
   `Tridge/Resources/ScanAPIToken.txt` at build time (a build without it reports
   "Scanning isn't set up" instead of scanning).
 
-## Installing a test build (no Mac needed)
+## Trying the app
 
-Every CI run publishes the `Tridge-simulator` build artifact (GitHub →
-**Actions** → latest run → **Artifacts**): a zipped simulator app for running
-in the browser on [Appetize.io](https://appetize.io). It's a Debug build, so
-the scan-menu extras ("Try sample receipt", "Seed the App") are included.
+### On your iPhone (TestFlight) — real device, real camera
 
-### Browser simulator via Appetize.io
+This is the path for actual on-device use, including the receipt camera and
+date-label OCR. CI does the macOS build; you never need a Mac. It requires a
+paid **Apple Developer Program** membership ($99/yr).
 
-No Apple account, no hardware. The camera doesn't exist here: the scan
-button's menu offers "Choose from library" instead, and "Try sample receipt"
-covers the full scan → review → inventory flow. To just see the app working
-with zero setup, tap the scan button → **Seed the App**: it fills the fridge
-with preset items across every urgency tier — no scan, no LLM call.
+**One-time setup:**
 
-1. Download the `Tridge-simulator` artifact and unzip it once (GitHub
-   wraps artifacts in an outer zip) to get `Tridge-sim.zip`.
+1. Enroll in the [Apple Developer Program](https://developer.apple.com/programs/).
+2. In [App Store Connect](https://appstoreconnect.apple.com) → **Apps** → **+** →
+   **New App**, create an app with bundle id `com.tridge.app`. (If that id is
+   already taken, pick another and change `PRODUCT_BUNDLE_IDENTIFIER` in
+   `Tridge.xcodeproj` and `app_identifier` in `fastlane/Appfile` to match.)
+3. Create an **App Store Connect API key**: App Store Connect → **Users and
+   Access** → **Integrations** → **App Store Connect API** → **+**, role **App
+   Manager**. Note the **Issuer ID** and **Key ID**, and download the
+   `AuthKey_XXXX.p8` (downloadable only once).
+4. Add four **repository secrets** (GitHub → repo **Settings** → **Secrets and
+   variables** → **Actions**):
+   - `ASC_KEY_ID` — the API Key ID
+   - `ASC_ISSUER_ID` — the Issuer ID
+   - `ASC_KEY_P8` — the base64 of the `.p8` file: `base64 -i AuthKey_XXXX.p8`
+   - `APPLE_TEAM_ID` — your 10-character Team ID (developer.apple.com → **Membership**)
+
+   (Live scanning also needs the existing `SCAN_API_TOKEN` secret; without it the
+   build still ships but scans report "Scanning isn't set up".)
+
+**Each release:** GitHub → **Actions** → **TestFlight** → **Run workflow**. It
+builds a signed Release IPA (signing is cloud-managed via the API key — no certs
+in the repo) and uploads it. A few minutes later the build appears in TestFlight;
+install the **TestFlight** app on your iPhone and accept the invite to run it.
+
+### Browser preview (Appetize) — quick UI check, no camera
+
+For a zero-setup look at the UI with no Apple account or hardware, every CI run
+publishes the `Tridge-simulator` artifact (GitHub → **Actions** → latest run →
+**Artifacts**): a zipped Debug simulator app for [Appetize.io](https://appetize.io).
+There's no camera here — the scan menu offers "Choose from library" and "Try
+sample receipt" instead, and "Seed the App" fills the fridge with no scan at all.
+
+1. Download the `Tridge-simulator` artifact and unzip it once (GitHub wraps
+   artifacts in an outer zip) to get `Tridge-sim.zip`.
 2. Sign up free at [appetize.io](https://appetize.io), **Upload** →
-   `Tridge-sim.zip` (the zipped `.app`, not the ipa), platform iOS.
-3. Open the generated app page and press play. Free tier: 100 streaming
-   minutes/month, one session at a time, ~2-minute inactivity timeout —
-   enough for solo smoke tests.
+   `Tridge-sim.zip` (the zipped `.app`, not an ipa), platform iOS, and press play.
 
-If the `APPETIZE_API_TOKEN` repo secret is configured, CI uploads each push
-to Appetize automatically — then you just reopen your existing Appetize link.
-Pull requests get their own separate preview app: CI comments the link on the
-PR and updates it on every push, so changes are viewable before they reach
-`main` (the preview app is deleted when the PR closes).
-
-Scanning works with no per-session setup: the app authenticates to the worker
-with a bearer token compiled into the build, so "Try sample receipt", photo
-import, "Type to add", and "Seed the App" all work on a freshly wiped device —
-provided the published build was compiled with a `SCAN_API_TOKEN` (CI injects it
-from the repo secret; otherwise scans report "Scanning isn't set up").
-
-Real receipt camera and date-label OCR need a physical iPhone — that
-distribution path (SideStore sideloading) is planned separately.
+If the `APPETIZE_API_TOKEN` repo secret is set, **pull requests** get their own
+Appetize preview automatically: CI comments the link on the PR and updates it on
+every push (the preview app is deleted when the PR closes) — handy for reviewing
+UI changes before merge. Scanning works here too, since the worker bearer token
+is compiled into the build from `SCAN_API_TOKEN`.
 
 ### With a Mac (Xcode 16+)
 
