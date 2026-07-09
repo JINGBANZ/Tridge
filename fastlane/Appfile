@@ -1,0 +1,7 @@
+# The app's bundle identifier — must match PRODUCT_BUNDLE_IDENTIFIER in
+# Tridge.xcodeproj and the App Store Connect app record.
+app_identifier("com.tridge.app")
+
+# No apple_id / team_id here: the release lane authenticates with an App Store
+# Connect API key and reads the team id from the APPLE_TEAM_ID env var (set in
+# CI from a repo secret) — so no account identifiers live in the repo.

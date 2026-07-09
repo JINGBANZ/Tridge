@@ -1,0 +1,66 @@
+default_platform(:ios)
+
+# Single lane: build a signed Release IPA and ship it to TestFlight. Everything
+# is driven from CI env vars (see .github/workflows/testflight.yml) so no Apple
+# account credentials or signing certificates live in the repo.
+#
+# Signing is cloud-managed: `-allowProvisioningUpdates` lets xcodebuild create/
+# download the distribution certificate and App Store provisioning profile on the
+# fly — no fastlane match, no committed cert repo. gym does NOT forward the App
+# Store Connect API key to the archive step, so the key is handed to xcodebuild
+# explicitly via the `-authenticationKey*` flags (the .p8 is written to a file by
+# CI and its path arrives as ASC_KEY_PATH). The API key must have the **Admin**
+# role — creating a distribution certificate is Admin-only.
+platform :ios do
+  desc "Build a Release IPA and upload it to TestFlight (App Store Connect API key auth)."
+  lane :beta do
+    key_id = ENV.fetch("ASC_KEY_ID")
+    issuer_id = ENV.fetch("ASC_ISSUER_ID")
+
+    # Used by upload_to_testflight (pilot) — a separate concern from the archive
+    # signing above, and here gym/pilot *do* accept the key object.
+    api_key = app_store_connect_api_key(
+      key_id: key_id,
+      issuer_id: issuer_id,
+      key_content: ENV.fetch("ASC_KEY_P8"),
+      is_key_content_base64: true,
+      in_house: false,
+    )
+
+    team_id = ENV.fetch("APPLE_TEAM_ID")
+    key_path = ENV.fetch("ASC_KEY_PATH") # decoded .p8 on disk, for xcodebuild signing
+    # Monotonically increasing build number — TestFlight rejects a build whose
+    # number isn't higher than the last for this (bundle id, marketing version).
+    # GITHUB_RUN_NUMBER only ever increases, so it needs no state in the repo.
+    build_number = ENV.fetch("BUILD_NUMBER")
+
+    build_app(
+      project: "Tridge.xcodeproj",
+      scheme: "Tridge",
+      configuration: "Release",
+      xcargs: [
+        "-allowProvisioningUpdates",
+        "-authenticationKeyID #{key_id}",
+        "-authenticationKeyIssuerID #{issuer_id}",
+        "-authenticationKeyPath #{key_path}",
+        "CURRENT_PROJECT_VERSION=#{build_number}",
+        "DEVELOPMENT_TEAM=#{team_id}",
+      ].join(" "),
+      export_options: {
+        method: "app-store",
+        teamID: team_id,
+        signingStyle: "automatic",
+      },
+      output_directory: "build",
+      output_name: "Tridge.ipa",
+    )
+
+    upload_to_testflight(
+      api_key: api_key,
+      # Return as soon as the upload lands; Apple's server-side processing then
+      # runs asynchronously and the build appears in TestFlight a few minutes later.
+      skip_waiting_for_build_processing: true,
+      distribute_external: false,
+    )
+  end
+end

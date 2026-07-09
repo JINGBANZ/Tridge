@@ -179,6 +179,9 @@
   Tricentis); real-device clouds (BrowserStack/LambdaTest — camera image injection is attractive
   but paid; revisit if camera bugs need cloud reproduction). On-device distribution for the real
   camera/OCR (SideStore) is deliberately split into its own follow-up PR.
+- **Superseded by:** *2026-07-09 — TestFlight for on-device testing; SideStore rejected* for the
+  on-device / real-camera path (now TestFlight, not SideStore) and the `main`-push Appetize
+  auto-publish (removed); the per-PR Appetize browser preview stands.
 
 ### 2026-07-06 — Simulator builds store the API key in UserDefaults, not the Keychain
 
@@ -310,3 +313,34 @@
 - **Rejected:** Keeping `WhatsInMyFridge` as an internal-only name (leaves a permanent mismatch
   between the shipped product and the codebase); deferring the bundle-id/Keychain-service change to
   avoid orphaning keys (no benefit pre-release, and a later change would then break real users).
+
+### 2026-07-09 — TestFlight for on-device testing; SideStore rejected
+
+- **Chose:** Real-device distribution is **TestFlight**, driven from CI. A manual
+  `workflow_dispatch` GitHub Action (`.github/workflows/testflight.yml`) builds a signed Release
+  IPA on the macOS runner and fastlane's `upload_to_testflight` ships it, authenticating with an
+  App Store Connect **API key** (JWT — no interactive 2FA, so it works headless). Signing is
+  cloud-managed (`-allowProvisioningUpdates` + the API key), so no certificates or profiles live in
+  the repo and there is no fastlane `match` cert repo. Two non-obvious requirements make this work:
+  gym does *not* forward the API key to the archive `xcodebuild`, so the key is passed explicitly
+  via `-authenticationKey*` (the CI decodes the `.p8` to a file first); and the key must have the
+  **Admin** role, because creating a distribution certificate is Admin-only (App Manager/Developer
+  cannot). The owner enrolls in the $99/yr Apple Developer Program and adds four repo secrets
+  (`ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_KEY_P8`, `APPLE_TEAM_ID`). `ITSAppUsesNonExemptEncryption=NO` is set in the project so builds don't stall
+  on the export-compliance prompt. The `main`-push Appetize auto-publish is removed; the per-PR
+  Appetize browser preview stays for UI review.
+- **Why:** Getting the app onto the owner's phone with a working camera + date-OCR needs a genuine
+  native install; a 2026 research sweep confirmed the only real options are TestFlight or
+  free-Apple-ID sideloading (SideStore/Sideloader). SideStore is free but high-friction to *live
+  with*: 7-day certificate expiry with a flaky auto-refresh, a self-hosted anisette server, and a
+  3-app cap. The $99/yr buys out all of that — 90-day builds, no re-signing, trivial multi-device.
+  The macOS build machine (the usual no-Mac blocker) is already solved by CI, so TestFlight is
+  mostly a fastlane lane. It also unblocks App Attest, which can't run on the simulator.
+- **Rejected:** SideStore/Sideloader (free, no Mac, real camera — but the 7-day refresh, anisette
+  server, and app cap are ongoing babysitting for a single user); TrollStore (dead on iOS 17.0.1+ —
+  the CoreTrust bug is patched); AltStore PAL (EU/Japan/Brazil-only, and a distribution channel, not
+  a dev-loading tool); browser device clouds (Appetize/BrowserStack run simulators/emulators with
+  only camera *image injection* — no real lens); fastlane `match` (a separate cert repo is needless
+  overhead when cloud-managed signing via the API key covers a solo developer).
+- **Supersedes:** the on-device/SideStore and `main`-push auto-publish parts of *2026-07-05 —
+  Browser test builds via Appetize.io, not TestFlight*.
