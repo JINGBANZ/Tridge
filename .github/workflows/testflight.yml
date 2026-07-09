@@ -34,6 +34,10 @@ jobs:
 
       - uses: ruby/setup-ruby@v1
         with:
+          # Pinned explicitly: setup-ruby errors without a version when the repo
+          # has no .ruby-version/.tool-versions file. 3.3 is a current fastlane-
+          # supported Ruby with prebuilt macOS binaries.
+          ruby-version: "3.3"
           bundler-cache: true
 
       # Decode the App Store Connect API key (.p8) to a file so xcodebuild can use
