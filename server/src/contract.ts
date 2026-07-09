@@ -1,9 +1,7 @@
-// The OpenAI half of the receipt-scan contract. During the BYOK→proxy
-// migration this deliberately mirrors the app's OpenAIService
-// (Tridge/Services/LLMService.swift): same prompt, model, schema,
-// and reply extraction. Tests/FridgeCoreTests/ServerContractParityTests.swift
-// pins the two copies together — a change on either side fails `swift test`
-// until the other side matches.
+// The OpenAI half of the receipt-scan contract: prompt, model, schema, request
+// body, and reply extraction. This worker is the sole holder of the OpenAI key
+// and the receipt prompt — the app POSTs a receipt JPEG to it
+// (Tridge/Services/ProxyLLMService.swift) and never talks to OpenAI directly.
 import receiptSchema from "./receipt-schema.json";
 
 export const OPENAI_ENDPOINT = "https://api.openai.com/v1/responses";
@@ -11,12 +9,16 @@ export const MODEL = "gpt-5-mini";
 export const SCHEMA_NAME = "parsed_receipt";
 
 // Content rules only — the response shape and the allowed "id" values are
-// enforced by receipt-schema.json. Verbatim copy of OpenAIService.prompt
-// (the parity test does a literal substring match against this file).
-export const PROMPT = `This is a grocery store receipt. Extract every FOOD and BEVERAGE item.
+// enforced by receipt-schema.json.
+export const PROMPT = `This is a grocery store receipt. Extract the FOOD and BEVERAGE items that
+belong in a fridge or freezer.
 Rules:
 - Expand abbreviations into clean, human-friendly names ("WHL MLK 1GAL" → "Whole Milk").
 - Skip non-food lines: tax, totals, coupons, bags, household goods, loyalty points.
+- Skip food and drink that is NOT normally refrigerated or frozen — shelf-stable
+  pantry goods kept at room temperature (canned goods, dry pasta and rice, chips
+  and crackers, cookies, bottled water, soda, coffee, tea, unopened condiments).
+  Only include items a person would actually store in the fridge or freezer.
 - If one line has a quantity multiplier, set quantity accordingly.
 - Estimate each item's typical shelf life in days from purchase, assuming it
   is stored appropriately at home (refrigerated promptly where applicable).

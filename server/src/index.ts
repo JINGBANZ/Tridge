@@ -55,8 +55,8 @@ async function handleScan(request: Request, env: Env): Promise<Response> {
 
   const requestBody = buildOpenAIRequest(base64Encode(imageBytes), env.STORE_RESPONSES === "true");
 
-  // Mirrors the app's OpenAIService: upstream HTTP errors fail immediately;
-  // an unparseable reply gets exactly one retry.
+  // Upstream HTTP errors fail immediately; an unparseable reply gets exactly
+  // one retry.
   const first = await requestReceipt(env.OPENAI_API_KEY, requestBody);
   if (first.kind === "ok") return jsonResponse(first.receipt);
   if (first.kind === "http_error") return jsonError(502, "The parsing service is unavailable. Please try again.");
