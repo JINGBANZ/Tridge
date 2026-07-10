@@ -161,6 +161,9 @@
 - **Rejected:** Staying on Chat Completions (fine for a single-turn call, but leaves us off the
   recommended path for no benefit); leaving `store` at its default (silent server-side retention
   of receipt images).
+- **Superseded by:** *2026-07-10 — Scan API auth is Apple App Attest* for the `store` value — the
+  scan worker now sends `store:true` uniformly (owner's simplification). The Responses API + enforced
+  schema choices stand.
 
 ### 2026-07-05 — Browser test builds via Appetize.io, not TestFlight
 
@@ -273,10 +276,10 @@
   bearer check so the app needs no token (leaves the billed OpenAI proxy open to anyone who scrapes
   the URL, guarded only by the IP rate limit); shipping App Attest now (needs a paid Apple account
   and an attestation-verification layer — correct as the production step, wrong to block this on).
-- **Superseded by:** *2026-07-09 — Production scan API: Apple App Attest, per-device quotas,
-  isolated key* for the app-side bearer token — the app now ships no token and authenticates with
-  App Attest; the worker keeps the token only as a fallback for the local smoke harness. The
-  proxy-only scan path and the server-only receipt contract stand.
+- **Superseded by:** *2026-07-10 — Scan API auth is Apple App Attest* for the app-side bearer token —
+  the app now ships no token and authenticates with App Attest; the worker keeps the token only as a
+  fallback for the local smoke harness. The proxy-only scan path and the server-only receipt contract
+  stand.
 
 ### 2026-07-07 — Scan API ships test-first: bearer token + IP rate limit; store:true while testing
 
@@ -301,8 +304,8 @@
   wrong sequencing while the endpoint serves only the owner); Cloudflare WAF/zone rate rules
   (need a custom domain; the workers.dev binding-based limit covers the test env); mTLS/signed
   URLs (operational overkill for a single-client hobby API).
-- **Superseded by:** *2026-07-09 — Production scan API: Apple App Attest, per-device quotas,
-  isolated key* for the production posture (now implemented). The test-env rationale stands.
+- **Superseded by:** *2026-07-10 — Scan API auth is Apple App Attest* for the production posture (App
+  Attest, per-device quotas, `store:true` uniformly). The layered test-env rationale stands.
 
 ### 2026-07-07 — Product renamed to Tridge
 
@@ -351,38 +354,48 @@
 - **Supersedes:** the on-device/SideStore and `main`-push auto-publish parts of *2026-07-05 —
   Browser test builds via Appetize.io, not TestFlight*.
 
-### 2026-07-09 — Production scan API: Apple App Attest, per-device quotas, isolated key
+### 2026-07-10 — Scan API auth is Apple App Attest; production-grade on one worker, prod split deferred
 
-- **Chose:** Stand up the production scan-worker posture behind the same endpoint. Client auth is
-  **Apple App Attest**, verified server-side with the audited `node-app-attest` library (CBOR +
-  X.509 chain to Apple's App Attest root); the app (`AppAttestAuthorizer`) registers a Secure
-  Enclave key once per install (`POST /v1/attest/challenge` → `POST /v1/attest`) and signs every
-  scan's image bytes, sent as `X-Attest-Key-Id` + `X-Attest-Assertion`. Device public keys, a
-  monotonic sign counter (replay protection), and per-device daily quotas live in a Cloudflare **KV**
-  namespace (`DEVICE_KV`). One `wrangler.jsonc` codebase yields two deployments: **test**
-  (`tridge-scan-api-test`, `store:true`, accepts development + production attestations, plus the
-  static bearer token as a fallback for the local smoke harness) and **production**
-  (`tridge-scan-api`, `--env prod`, `store:false`, production attestations only, tighter quota, a
-  separate budget-capped OpenAI key). The app's `ScanAPIConfig.baseURL` is build-config-driven:
-  Debug → test worker, Release (TestFlight/App Store) → production. The app ships no static token,
-  and the `SCAN_API_TOKEN` CI plumbing / bundled resource is removed. Supersedes the production-plan
-  and app-token parts of the two *2026-07-07* scan-API entries.
-- **Why:** A static token in a shipped binary is extractable; now that TestFlight distributes real
-  signed builds (App Attest can't run on the Simulator), App Attest is unblocked and is the durable
-  fix — it proves each scan comes from a genuine, unmodified Tridge install without any client
-  secret. Binding the assertion to the image bytes plus a strictly increasing sign counter makes a
-  captured assertion un-replayable without a per-scan server round trip. `store:false` in prod keeps
-  receipts (personal data) off OpenAI's servers. Verified: server suite green on Linux (App Attest
-  verification runs against known-good vectors), the worker bundles for the Workers runtime, and
-  `swift test` stays green (App Attest code is app-target-only, outside FridgeCore).
-- **Rejected:** Hand-rolled CBOR/X.509 verification (the owner chose a maintained library — hand-
-  rolled crypto is error-prone and unverifiable from the Linux dev box); **Durable Objects** for the
-  device registry (strongly-consistent counters are the textbook home for a sign counter, but KV's
-  near-zero ops fit a solo app and the per-IP rate limit backstops the eventual-consistency window);
-  a **server-issued per-scan challenge** (an extra round trip per scan — the image-bound payload +
-  sign-counter check already prevent replay); dropping the bearer token entirely from the worker
-  (the Linux smoke harness can't produce App Attest assertions, so the test env keeps it).
-- **Owner-only follow-up (no code):** create the two `DEVICE_KV` namespaces and paste their ids into
-  `server/wrangler.jsonc`; set per-env secrets (`OPENAI_API_KEY`, `APPLE_TEAM_ID`, test-env
-  `SCAN_API_TOKEN`); connect Cloudflare Workers Builds per worker; verify a TestFlight build scans
-  end-to-end against production. See `wiki/status.md` → Next action and `server/README.md` → Deploy.
+- **Chose:** Replace the app's static bearer token with **Apple App Attest**, verified server-side
+  with the audited `node-app-attest` library (CBOR + X.509 chain to Apple's App Attest root). The app
+  (`AppAttestAuthorizer`) registers a Secure Enclave key once per install
+  (`POST /v1/attest/challenge` → `POST /v1/attest`) and signs every scan's image bytes, sent as
+  `X-Attest-Key-Id` + `X-Attest-Assertion`. Device public keys, a monotonic sign counter (replay
+  protection), and per-device daily quotas live in a Cloudflare **KV** namespace (`DEVICE_KV`). The
+  worker keeps the static token *only* as a fallback for the local smoke harness (a worker secret,
+  never in the app). The app ships no token, and the `SCAN_API_TOKEN` CI plumbing / bundled resource
+  is removed. Supersedes the production-plan and app-token parts of the two *2026-07-07* scan-API
+  entries.
+- **Deployment shape:** **one worker** (`tridge-scan-api-test`) serves every build today — it accepts
+  both development (Xcode-signed) and production (TestFlight/App Store) attestations
+  (`APP_ATTEST_ALLOW_DEV=true`), and `ScanAPIConfig.baseURL` is a single URL so Release/TestFlight
+  builds reach it. Its behavior is *already* the production posture, so a dedicated production worker
+  (separate URL, isolated budget-capped OpenAI key, `APP_ATTEST_ALLOW_DEV=false`) is **deferred** and
+  drops in additively when wanted — the config/code are env-driven (see `server/README.md` → "Adding
+  a production worker later"). Owner's call: build the isolated prod worker later, not now, but keep
+  today's worker consistent so nothing about its behavior has to change then.
+- **`store:true` everywhere:** dropped the `STORE_RESPONSES` flag; every scan is retained at OpenAI
+  (dashboard-inspectable). Owner's call to simplify. Trade-off accepted: receipt images/text sit in
+  OpenAI's 30-day retention rather than being sent with `store:false`. Reverses the `store:false`
+  half of *2026-07-05 — Responses API replaces Chat Completions*.
+- **Why (App Attest):** a static token in a shipped binary is extractable; TestFlight now distributes
+  real signed builds (App Attest can't run on the Simulator), so App Attest is unblocked and is the
+  durable fix — it proves each scan comes from a genuine, unmodified Tridge install with no client
+  secret. Binding the assertion to the image bytes plus a strictly-increasing sign counter makes a
+  captured assertion un-replayable without a per-scan server round trip. Verified: server suite green
+  on Linux (App Attest verification runs against known-good vectors), the worker bundles for the
+  Workers runtime, and `swift test` stays green (App Attest code is app-target-only, outside
+  FridgeCore).
+- **Rejected:** Hand-rolled CBOR/X.509 verification (owner kept the maintained library — hand-rolled
+  crypto is error-prone and unverifiable from the Linux dev box; `node-app-attest` is the top of a
+  small niche field and is a thin wrapper over mature `pkijs`/`asn1js`/`cbor` with Apple's root
+  pinned); **Durable Objects** for the device registry (strongly-consistent counters are the textbook
+  home for a sign counter, but KV's near-zero ops fit a solo app and the per-IP rate limit backstops
+  the eventual-consistency window); a **server-issued per-scan challenge** (an extra round trip — the
+  image-bound payload + sign-counter check already prevent replay); building the **isolated prod
+  worker now** (deferred — one consistent worker is simpler pre-launch and the split is additive);
+  dropping the bearer token entirely (the Linux smoke harness can't produce assertions).
+- **Owner-only follow-up (no code):** create the `DEVICE_KV` namespace and paste its id into
+  `server/wrangler.jsonc`; set secrets (`OPENAI_API_KEY`, `APPLE_TEAM_ID`, `SCAN_API_TOKEN`); connect
+  Cloudflare Workers Builds; verify a TestFlight build scans end-to-end. See `wiki/status.md` → Next
+  action and `server/README.md` → Deploy.

@@ -25,8 +25,8 @@ browser. Agents: start with [`AGENTS.md`](AGENTS.md), then [`wiki/index.md`](wik
   OpenAI key. The app proves it's a genuine Tridge install with Apple App Attest and
   ships no token. App Attest runs only on real hardware, so the Simulator can't
   live-scan (use "Try sample receipt" / "Seed the App" / manual add there, or a
-  TestFlight build to scan for real). Debug builds hit the test worker; Release
-  builds (TestFlight/App Store) hit production.
+  TestFlight build to scan for real). One worker serves every build today; a
+  dedicated production worker can be added later (`server/README.md`).
 
 ## Trying the app
 
@@ -57,8 +57,8 @@ paid **Apple Developer Program** membership ($99/yr).
    - `APPLE_TEAM_ID` — your 10-character Team ID (developer.apple.com → **Membership**)
 
    (No scan secret ships in the app — it authenticates with Apple App Attest.
-   Live scanning does need the production scan worker deployed; the same
-   `APPLE_TEAM_ID` above is also the worker's App Attest team-id secret. See
+   Live scanning does need the scan worker deployed; the same `APPLE_TEAM_ID`
+   above is also the worker's App Attest team-id secret. See
    [`server/README.md`](server/README.md).)
 5. Register at least **one device**: developer.apple.com → **Certificates,
    Identifiers & Profiles** → **Devices** → **+**, paste your iPhone's UDID.

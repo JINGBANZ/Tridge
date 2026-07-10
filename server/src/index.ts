@@ -84,7 +84,7 @@ async function handleScan(request: Request, env: Env): Promise<Response> {
     return jsonError(429, "Daily scan limit reached for this device.", { "retry-after": "3600" });
   }
 
-  const requestBody = buildOpenAIRequest(base64FromBytes(imageBytes), env.STORE_RESPONSES === "true");
+  const requestBody = buildOpenAIRequest(base64FromBytes(imageBytes));
 
   // Mirrors the app's OpenAIService: upstream HTTP errors fail immediately;
   // an unparseable reply gets exactly one retry.

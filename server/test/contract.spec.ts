@@ -11,7 +11,7 @@ import {
 import receiptSchema from "../src/receipt-schema.json";
 
 describe("buildOpenAIRequest", () => {
-  const request = buildOpenAIRequest("SGVsbG8=", true) as Record<string, any>;
+  const request = buildOpenAIRequest("SGVsbG8=") as Record<string, any>;
 
   it("mirrors the app's OpenAIService request", () => {
     expect(request.model).toBe(MODEL);
@@ -32,9 +32,8 @@ describe("buildOpenAIRequest", () => {
     expect(content[1]).toEqual({ type: "input_text", text: PROMPT });
   });
 
-  it("passes the store flag through", () => {
+  it("always retains the request at OpenAI (store:true)", () => {
     expect(request.store).toBe(true);
-    expect((buildOpenAIRequest("x", false) as Record<string, any>).store).toBe(false);
   });
 });
 

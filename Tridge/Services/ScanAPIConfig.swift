@@ -1,18 +1,12 @@
 import Foundation
 
-/// Where the app finds the receipt-scan worker. The URL is build-config-driven:
-/// Debug builds (including on-device Xcode runs) hit the test worker; Release
-/// builds — which is what TestFlight and the App Store ship — hit production.
-/// Both are authenticated with Apple App Attest (`AppAttestAuthorizer`); the app
-/// carries no static token. See wiki/decisions.md → 2026-07-09.
+/// Where the app finds the receipt-scan worker. One worker serves every build
+/// today (Xcode-dev and TestFlight alike), authenticated with Apple App Attest
+/// (`AppAttestAuthorizer`); the app carries no static token. See
+/// wiki/decisions.md → 2026-07-10. When a dedicated production worker is added,
+/// make this build-config-driven — `#if DEBUG` test URL, `#else` prod URL.
 enum ScanAPIConfig {
-    static let baseURL: URL = {
-        #if DEBUG
-        URL(string: "https://tridge-scan-api-test.forrestzjb.workers.dev")!
-        #else
-        URL(string: "https://tridge-scan-api.forrestzjb.workers.dev")!
-        #endif
-    }()
+    static let baseURL = URL(string: "https://tridge-scan-api-test.forrestzjb.workers.dev")!
 
     /// A scan client that authenticates with App Attest. Attestation is lazy, so
     /// this is cheap to build per scan; on unsupported hardware (the Simulator)

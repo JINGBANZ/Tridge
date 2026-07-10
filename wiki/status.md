@@ -14,26 +14,29 @@ artifact and as a per-PR **Appetize** browser preview for zero-setup UI review. 
 instructions are in `README.md` → "Trying the app". The app scans through the `server/` worker
 (`ProxyLLMService`) and carries no OpenAI key — BYOK is fully removed. Client auth is **Apple App
 Attest**: the app signs each scan with an on-device Secure Enclave key and ships no static token.
-The worker supports two deployments from one codebase — a test env (`store:true`, App Attest +
-a bearer token for the local smoke harness) and a production env (`store:false`, App Attest only,
-per-device quotas). Debug app builds target the test worker; Release builds target production.
+**One worker** (`tridge-scan-api-test`) serves every build (Xcode-dev + TestFlight), with `store:true`
+and the full production posture (per-device quotas, sanitized errors); it also accepts a static
+bearer token solely for the local smoke harness. A dedicated production worker (separate URL +
+isolated OpenAI key) is deferred — the code is env-driven so it drops in additively later
+(`server/README.md` → "Adding a production worker later").
 
 ## Next action
 
-The production posture is implemented and tested in the repo; what remains is owner-only
-provisioning (no code):
+The scan worker's production posture is implemented and tested in the repo; what remains is
+owner-only provisioning (no code):
 
-1. Create the two `DEVICE_KV` namespaces and paste their ids into `server/wrangler.jsonc`
-   (`wrangler kv namespace create DEVICE_KV [--env prod]`).
-2. Set the worker secrets per environment: `OPENAI_API_KEY` (a separate budget-capped key each),
-   `APPLE_TEAM_ID`, and `SCAN_API_TOKEN` (test env only). See `server/README.md` → Deploy.
-3. Connect **Cloudflare Workers Builds** for each worker (dashboard → worker → Settings → Builds;
-   root `server`, watch paths `server/**`; prod deploy command `npx wrangler deploy --env prod`).
-4. Verify end-to-end: a **TestFlight** (Release) build scans against the prod worker on a real
-   iPhone — App Attest can't run on the Simulator.
+1. Create the `DEVICE_KV` namespace and paste its id into `server/wrangler.jsonc`
+   (`wrangler kv namespace create DEVICE_KV`).
+2. Set the worker secrets: `OPENAI_API_KEY` (budget-capped), `APPLE_TEAM_ID`, and `SCAN_API_TOKEN`.
+   See `server/README.md` → Deploy.
+3. Connect **Cloudflare Workers Builds** (dashboard → worker → Settings → Builds; root `server`,
+   watch paths `server/**`).
+4. Verify end-to-end: a **TestFlight** (Release) build scans against the worker on a real iPhone —
+   App Attest can't run on the Simulator.
 
 Still open beyond that: the browser-testable acceptance checklist on Appetize; the on-device
-camera/OCR acceptance items via a TestFlight build.
+camera/OCR acceptance items via a TestFlight build; and, when wanted, the dedicated production
+worker + isolated key.
 
 ## Built
 
@@ -98,19 +101,21 @@ camera/OCR acceptance items via a TestFlight build.
   Client auth is Apple App Attest (`src/appattest.ts`: attestation registration via
   `/v1/attest/challenge` + `/v1/attest`, per-scan assertion, per-device quota — device keys/counters
   in the `DEVICE_KV` namespace, crypto via the `node-app-attest` library) with a static bearer token
-  as a fallback for the local smoke harness. One codebase, two `wrangler.jsonc` deployments: test
-  (`store:true`, dev+prod attestations) and production (`--env prod`, `store:false`, prod
-  attestations only). It is the single home of the receipt prompt + JSON schema. Vitest + tsc suite
-  (`npm run typecheck && npm test`, incl. App Attest verification against known-good vectors); CI
-  gates PRs; deploys go through Cloudflare Workers Builds (git integration), not CI.
-  Setup/API: `server/README.md`.
+  as a fallback for the local smoke harness. `store:true` uniformly. One worker deploys today
+  (`tridge-scan-api-test`, serving both Xcode-dev and TestFlight builds); the config is env-driven so
+  a dedicated prod worker + isolated key is additive later. It is the single home of the receipt
+  prompt + JSON schema. Vitest + tsc suite (`npm run typecheck && npm test`, incl. App Attest
+  verification against known-good vectors); CI gates PRs; deploys go through Cloudflare Workers
+  Builds (git integration), not CI. Setup/API: `server/README.md`.
 - `wiki/` — this design-docs set.
 
 ## Not yet built
 
-- Owner-only provisioning to bring the production worker live: create the `DEVICE_KV` namespaces,
-  set the per-env secrets (`OPENAI_API_KEY`, `APPLE_TEAM_ID`, test-env `SCAN_API_TOKEN`), connect
-  Cloudflare Workers Builds for each worker. See "Next action" and `server/README.md` → Deploy.
+- Owner-only provisioning to bring the scan worker live: create the `DEVICE_KV` namespace, set the
+  secrets (`OPENAI_API_KEY`, `APPLE_TEAM_ID`, `SCAN_API_TOKEN`), connect Cloudflare Workers Builds.
+  See "Next action" and `server/README.md` → Deploy.
+- A dedicated production worker + isolated budget-capped key (separate URL) — deferred; the code is
+  ready for it (`server/README.md` → "Adding a production worker later").
 - Verification of the spec's acceptance checklist on a test build: Appetize covers the
-  simulator-safe items; the camera/OCR items and a live App Attest scan against the prod worker
-  need a TestFlight build on a physical iPhone.
+  simulator-safe items; the camera/OCR items and a live App Attest scan need a TestFlight build on a
+  physical iPhone.

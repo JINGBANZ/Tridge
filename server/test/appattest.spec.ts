@@ -34,7 +34,6 @@ function makeEnv(kv: KVNamespace, overrides: Record<string, unknown> = {}): Env 
     APPLE_BUNDLE_ID: fixtures.bundleIdentifier,
     APP_ATTEST_ALLOW_DEV: "true",
     DEVICE_DAILY_QUOTA: "50",
-    STORE_RESPONSES: "false",
     DEVICE_KV: kv,
     SCAN_RATE_LIMIT: { limit: vi.fn(async () => ({ success: true })) },
     ...overrides,
@@ -195,13 +194,13 @@ describe("scan handler with App Attest", () => {
     await kv.put(`device:phone`, JSON.stringify({ publicKey: assertion.publicKey, signCount: 0, environment: "development" }));
   });
 
-  it("scans end-to-end and sends store:false (production posture)", async () => {
+  it("scans end-to-end via App Attest", async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify(openAIReply)));
     vi.stubGlobal("fetch", fetchMock);
     const response = await worker.fetch(scanRequest("phone") as Parameters<typeof worker.fetch>[0], makeEnv(kv));
     expect(response.status).toBe(200);
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    expect(JSON.parse(init.body as string).store).toBe(false);
+    expect(JSON.parse(init.body as string).store).toBe(true);
   });
 
   it("401s a scan with no attestation and no token configured", async () => {

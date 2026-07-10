@@ -18,7 +18,6 @@ function makeEnv(overrides: Partial<Env> = {}): Env {
   return {
     OPENAI_API_KEY: "sk-test",
     SCAN_API_TOKEN: TOKEN,
-    STORE_RESPONSES: "true",
     SCAN_RATE_LIMIT: { limit: vi.fn(async () => ({ success: true })) },
     ...overrides,
   } as Env;
@@ -88,7 +87,7 @@ describe("request validation", () => {
 });
 
 describe("scan proxying", () => {
-  it("returns the parsed receipt and forwards our key + store flag", async () => {
+  it("returns the parsed receipt and forwards our key + store:true", async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify(openAIReply(RECEIPT_JSON))));
     vi.stubGlobal("fetch", fetchMock);
 
@@ -103,15 +102,6 @@ describe("scan proxying", () => {
     const sent = JSON.parse(init.body as string);
     expect(sent.store).toBe(true);
     expect(sent.input[0].content[0].image_url).toMatch(/^data:image\/jpeg;base64,/);
-  });
-
-  it("sends store:false when STORE_RESPONSES is unset (production posture)", async () => {
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify(openAIReply(RECEIPT_JSON))));
-    vi.stubGlobal("fetch", fetchMock);
-
-    await run(makeRequest(), makeEnv({ STORE_RESPONSES: undefined }));
-    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    expect(JSON.parse(init.body as string).store).toBe(false);
   });
 
   it("retries once on an unparseable reply, then succeeds", async () => {
