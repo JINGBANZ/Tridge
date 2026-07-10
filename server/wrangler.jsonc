@@ -30,10 +30,10 @@
     "DEVICE_DAILY_QUOTA": "50"
   },
   // Per-device App Attest registry (public key + sign counter) and per-device
-  // quota counters. Create with: wrangler kv namespace create DEVICE_KV
-  // then paste the id below.
+  // quota counters. Created with `wrangler kv namespace create DEVICE_KV`; the
+  // id is account-scoped and non-secret, so it lives in config.
   "kv_namespaces": [
-    { "binding": "DEVICE_KV", "id": "REPLACE_WITH_DEVICE_KV_ID" }
+    { "binding": "DEVICE_KV", "id": "3b653b7cf9684f4486c6cfa2c3aba208" }
   ],
   // 10 scans/min per client IP — generous for a human scanning receipts,
   // tight for abuse. Counted per Cloudflare location (eventually consistent).

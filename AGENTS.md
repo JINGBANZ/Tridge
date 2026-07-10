@@ -109,8 +109,9 @@ Worker (TypeScript) that holds the OpenAI key; the app POSTs the receipt JPEG to
 ## Security & safety
 
 - Never commit an OpenAI API key, the worker bearer token, the Apple team id, or any receipt images
-  with personal data. The OpenAI key, `APPLE_TEAM_ID`, and the test-env `SCAN_API_TOKEN` live only in
-  Cloudflare Worker secrets (`server/`). The app ships no auth secret — it uses Apple App Attest.
+  with personal data. The OpenAI key and `SCAN_API_TOKEN` live only in Cloudflare Worker secrets
+  (`server/`); `APPLE_TEAM_ID` lives in both Cloudflare Worker secrets (App Attest) and GitHub repo
+  secrets (TestFlight CI). The app ships no auth secret — it uses Apple App Attest.
 
 ## Gotchas
 
