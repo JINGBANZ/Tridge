@@ -8,10 +8,9 @@ import Foundation
 enum ScanAPIConfig {
     static let baseURL = URL(string: "https://tridge-scan-api-test.forrestzjb.workers.dev")!
 
-    /// A scan client that authenticates with App Attest. Attestation is lazy, so
-    /// this is cheap to build per scan; on unsupported hardware (the Simulator)
-    /// the first request throws `LLMError.attestationUnavailable`.
-    static var service: ProxyLLMService {
-        ProxyLLMService(baseURL: baseURL, authorizer: AppAttestAuthorizer(baseURL: baseURL))
-    }
+    /// A scan client that authenticates with App Attest. One shared instance, so
+    /// the authorizer's actor serializes registration across concurrent scans;
+    /// attestation is lazy, and on unsupported hardware (the Simulator) the first
+    /// request throws `LLMError.attestationUnavailable`.
+    static let service = ProxyLLMService(baseURL: baseURL, authorizer: AppAttestAuthorizer(baseURL: baseURL))
 }

@@ -12,6 +12,16 @@ protocol ScanRequestAuthorizer: Sendable {
     /// Headers to attach to a scan POST for this exact image. May perform I/O
     /// (App Attest registers the device and signs the image on first use).
     func authorizationHeaders(forImage imageData: Data) async throws -> [String: String]
+
+    /// Called after the worker rejects a request with 401. Drop any cached
+    /// registration and return `true` if a retry is worth attempting — App
+    /// Attest re-registers, recovering when the worker has lost this device's
+    /// record (its KV entry expired or the namespace was reset). Default: no-op.
+    func invalidate() async -> Bool
+}
+
+extension ScanRequestAuthorizer {
+    func invalidate() async -> Bool { false }
 }
 
 /// Static bearer-token auth. The token never ships in the app; it authenticates
@@ -51,17 +61,51 @@ struct ProxyLLMService: LLMService {
     private var endpoint: URL { baseURL.appendingPathComponent("v1/receipt-scan") }
 
     func parseReceipt(jpegData: Data) async throws -> ParsedReceipt {
+        var reauthenticated = false
+        while true {
+            let (data, http) = try await send(jpegData: jpegData)
+            if (200..<300).contains(http.statusCode) {
+                let text = String(decoding: data, as: UTF8.self)
+                guard let receipt = try? ReceiptResponseParser.parse(text) else {
+                    AppLog.llm.error("Scan API reply didn't parse (\(data.count) bytes: \"\(text.prefix(200))\")")
+                    throw LLMError.unparseable
+                }
+                AppLog.llm.info("Parsed \(receipt.items.count) items")
+                return receipt
+            }
+            // The worker's error body is a safe `{"error":"…"}` message (never
+            // keys or images), so it's fine to log for diagnostics.
+            let body = String(decoding: data.prefix(400), as: UTF8.self)
+            AppLog.llm.error("Scan API HTTP \(http.statusCode): \(body)")
+            // A 401 can mean the worker no longer recognizes this device (its
+            // registration expired or was reset). Let the authorizer re-establish
+            // it once and retry before surfacing the failure.
+            if http.statusCode == 401, !reauthenticated, await authorizer.invalidate() {
+                reauthenticated = true
+                continue
+            }
+            switch http.statusCode {
+            case 429: throw LLMError.rateLimited
+            case 422: throw LLMError.unparseable // worker already retried once
+            default: throw LLMError.apiFailure(status: http.statusCode)
+            }
+        }
+    }
+
+    /// Builds and sends one authenticated scan request. Auth headers are
+    /// attached last because App Attest signs over the exact image bytes;
+    /// rebuilding here means a retry re-signs (and, if needed, re-registers).
+    private func send(jpegData: Data) async throws -> (Data, HTTPURLResponse) {
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
         request.setValue("image/jpeg", forHTTPHeaderField: "Content-Type")
         request.httpBody = jpegData
-
-        // Attach auth last: App Attest signs over the exact image bytes.
         for (field, value) in try await authorizer.authorizationHeaders(forImage: jpegData) {
             request.setValue(value, forHTTPHeaderField: field)
         }
 
-        let (data, response): (Data, URLResponse)
+        let data: Data
+        let response: URLResponse
         do {
             (data, response) = try await perform(request)
         } catch {
@@ -72,24 +116,7 @@ struct ProxyLLMService: LLMService {
             AppLog.llm.error("Non-HTTP response from scan API")
             throw LLMError.network(underlying: nil)
         }
-        guard (200..<300).contains(http.statusCode) else {
-            // The worker's error body is a safe `{"error":"…"}` message (never
-            // keys or images), so it's fine to log for diagnostics.
-            let body = String(decoding: data.prefix(400), as: UTF8.self)
-            AppLog.llm.error("Scan API HTTP \(http.statusCode): \(body)")
-            switch http.statusCode {
-            case 429: throw LLMError.rateLimited
-            case 422: throw LLMError.unparseable // worker already retried once
-            default: throw LLMError.apiFailure(status: http.statusCode)
-            }
-        }
-        let text = String(decoding: data, as: UTF8.self)
-        guard let receipt = try? ReceiptResponseParser.parse(text) else {
-            AppLog.llm.error("Scan API reply didn't parse (\(data.count) bytes: \"\(text.prefix(200))\")")
-            throw LLMError.unparseable
-        }
-        AppLog.llm.info("Parsed \(receipt.items.count) items")
-        return receipt
+        return (data, http)
     }
 
     /// Completion-handler bridge: Linux's FoundationNetworking has no async

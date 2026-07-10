@@ -45,6 +45,17 @@ export default {
 } satisfies ExportedHandler<Env>;
 
 async function route(request: Request, env: Env): Promise<Response> {
+  // Rate limit first, for every route — the unauthenticated attest endpoints
+  // (KV writes + X.509/ECDSA verification) must be throttled too, not just the
+  // scan path. Keyed by client IP, checked before auth so credentials can't be
+  // brute-forced faster than the limit either.
+  const clientIP = request.headers.get("cf-connecting-ip") ?? "unknown";
+  const { success } = await env.SCAN_RATE_LIMIT.limit({ key: clientIP });
+  if (!success) {
+    log("rate_limited", {});
+    return jsonError(429, "Too many requests. Wait a minute and try again.", { "retry-after": "60" });
+  }
+
   const path = new URL(request.url).pathname;
   if (request.method !== "POST") return jsonError(405, "Use POST.");
 
@@ -57,15 +68,6 @@ async function route(request: Request, env: Env): Promise<Response> {
 }
 
 async function handleScan(request: Request, env: Env): Promise<Response> {
-  // Rate limit first (keyed by client IP) so leaked credentials or a
-  // registered device can't be hammered faster than the limit either.
-  const clientIP = request.headers.get("cf-connecting-ip") ?? "unknown";
-  const { success } = await env.SCAN_RATE_LIMIT.limit({ key: clientIP });
-  if (!success) {
-    log("rate_limited", {});
-    return jsonError(429, "Too many scans. Wait a minute and try again.", { "retry-after": "60" });
-  }
-
   const contentType = request.headers.get("content-type") ?? "";
   if (!contentType.toLowerCase().startsWith("image/jpeg")) {
     return jsonError(415, "Send the receipt as a raw image/jpeg body.");

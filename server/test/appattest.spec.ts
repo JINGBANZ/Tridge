@@ -220,6 +220,18 @@ describe("scan handler with App Attest", () => {
     expect(response.status).toBe(429);
   });
 
+  it("rate-limits the attest endpoints too (not just the scan path)", async () => {
+    const limiter = { limit: vi.fn(async () => ({ success: false })) };
+    const env = makeEnv(kv, { SCAN_RATE_LIMIT: limiter });
+    const request = new Request("https://scan.example/v1/attest/challenge", {
+      method: "POST",
+      headers: { "cf-connecting-ip": "203.0.113.5" },
+    });
+    const response = await worker.fetch(request as Parameters<typeof worker.fetch>[0], env);
+    expect(response.status).toBe(429);
+    expect(limiter.limit).toHaveBeenCalled();
+  });
+
   it("404s the attest endpoints when App Attest is not configured", async () => {
     const tokenEnv = { OPENAI_API_KEY: "sk", SCAN_API_TOKEN: "t", SCAN_RATE_LIMIT: { limit: vi.fn(async () => ({ success: true })) } } as unknown as Env;
     const response = await worker.fetch(

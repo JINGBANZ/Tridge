@@ -63,7 +63,7 @@ worker + isolated key.
   `Models/` (`FridgeItem.swift` SwiftData model, `Artwork.swift` artKey lookup), `Services/`
   (`LLMService.swift` protocol + errors, `ProxyLLMService.swift` scan-API client with a pluggable
   `ScanRequestAuthorizer`, `AppAttestAuthorizer.swift` on-device App Attest, `ScanAPIConfig.swift`
-  build-config worker URL — test worker for Debug, prod for Release, `ReceiptScanner.swift` VisionKit
+  single worker URL (build-config Debug/Release split deferred until a prod worker exists), `ReceiptScanner.swift` VisionKit
   camera, `DateLabelScanner.swift` Vision OCR, `NotificationService.swift`, `Haptics.swift`), `Views/`
   (Home grid + drag-to-consume, scan flow + review sheet, item detail + art picker, settings).
 - `Tridge.xcodeproj` — hand-written project (synchronized folder group) + shared scheme;

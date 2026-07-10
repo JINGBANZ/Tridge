@@ -13,7 +13,9 @@ import DeviceCheck
 /// The `keyId` is persisted in `UserDefaults`; App Attest is unavailable on the
 /// Simulator, where `authorizationHeaders` throws `LLMError.attestationUnavailable`.
 ///
-/// An `actor` so concurrent scans can't race the one-time registration.
+/// An `actor` to satisfy `ScanRequestAuthorizer`'s `Sendable` requirement;
+/// because `ScanAPIConfig` shares one instance, it also serializes registration
+/// so two concurrent scans can't double-attest.
 actor AppAttestAuthorizer: ScanRequestAuthorizer {
     private let baseURL: URL
     private let session: URLSession
@@ -73,6 +75,15 @@ actor AppAttestAuthorizer: ScanRequestAuthorizer {
         let keyID = try await generateKey()
         defaults.set(keyID, forKey: keyIDDefaultsKey)
         return keyID
+    }
+
+    /// The worker rejected a scan (401) — most often because it no longer has
+    /// this device's record (its KV entry expired or the namespace was reset).
+    /// Drop the local registration so the retry re-attests; always worth one try.
+    func invalidate() -> Bool {
+        AppLog.scan.error("Scan rejected (401); clearing App Attest registration to re-attest")
+        forget()
+        return true
     }
 
     private func forget() {
