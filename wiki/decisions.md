@@ -500,6 +500,8 @@
   auto-focusing the field on reveal (presenting the keyboard mid-drag fights
   `scrollDismissesKeyboard` — the same drag instantly dismisses it — which made the reveal stutter
   and left a focused-field race that swallowed the auto-hide crossing, freezing the bar shown).
+- **Superseded by:** *2026-07-11 — Search reveals with a transform, not an animated scroll inset*
+  for the `safeAreaInset` reveal mechanism; every other part of this entry stands.
 
 ### 2026-07-11 — One shared item form; the date-label OCR scan is removed
 
@@ -547,3 +549,26 @@
 - **Supersedes:** the surviving per-PR Appetize browser preview from *2026-07-05 — Browser test
   builds via Appetize.io, not TestFlight* and *2026-07-09 — TestFlight for on-device testing;
   SideStore rejected*.
+
+### 2026-07-11 — Search reveals with a transform, not an animated scroll inset
+
+- **Chose:** The pull-down search field is always mounted in a `ZStack` over the grid
+  (`HomeView.gridArea`), parked one field-height above the top and clipped behind the header when
+  hidden. Revealing it animates only `.offset`/`.opacity` — the grid slides down by the field's
+  measured height (`onGeometryChange`) while the field slides into the gap. No layout changes: the
+  grid `ScrollView` carries no changing inset, so its `LazyVGrid` is never re-laid-out by the
+  reveal. The overscroll-threshold reveal / scroll-in hide state machine, the no-focus-on-reveal
+  rule, and the `Equatable`-gated `GridSlot` all stand unchanged.
+- **Why:** Putting the field in the grid's `safeAreaInset` (the prior entry) made showing/hiding it
+  animate `contentInsets.top`, which forces SwiftUI to re-lay-out the whole `LazyVGrid` every
+  animation frame. On a busy main thread that per-frame relayout stutters and, worse, drops the
+  pull gesture that should reveal the field — the "laggy, then the bar won't show up at all" the
+  owner reported on device (and worse in the Simulator). Simulator instrumentation confirmed the
+  boolean reveal/hide logic never drifts, isolating the cost to the inset relayout; `.offset` is a
+  GPU transform that skips layout entirely.
+- **Rejected:** Dropping the reveal animation (an abrupt pop, and it didn't fix the wedge in
+  testing); moving the field back to an outer-`VStack` sibling (re-frames the scroll view on every
+  reveal — the viewport-resize jank `safeAreaInset` was chosen to avoid); the system `.searchable`
+  drawer (already rejected in the entry above — changes the custom header into a nav bar).
+- **Supersedes:** the `safeAreaInset(edge: .top)` reveal mechanism in *2026-07-11 — Home search is
+  a custom pinned field*; every other part of that entry stands.

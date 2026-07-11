@@ -33,6 +33,9 @@ struct HomeView: View {
     @State private var searchText = ""
     @State private var searchShown = false
     @State private var scrolledIntoList = false
+    // Measured once the field lays out; drives the reveal transform. The default
+    // is only used for the frames before the first layout pass reports back.
+    @State private var searchFieldHeight: CGFloat = 44
     @FocusState private var searchFocused: Bool
     @State private var animatedItemIDs: Set<UUID> = []
 
@@ -50,8 +53,8 @@ struct HomeView: View {
     // No NavigationStack: nothing navigates, and a system search drawer is
     // scroll-linked — it resizes the bar area every frame while the grid
     // scrolls, re-laying-out the whole screen. The header is a plain pinned
-    // view above the ScrollView; the search field lives in the grid's top
-    // safe-area inset so revealing it never re-frames the scroll view.
+    // view above the ScrollView; the search field is revealed with a pure
+    // transform (see `gridArea`) so revealing it never re-lays-out the grid.
     var body: some View {
         ZStack {
             AppTheme.ChillBackground()
@@ -69,7 +72,7 @@ struct HomeView: View {
                     if filteredItems.isEmpty {
                         noMatchView
                     } else {
-                        grid
+                        gridArea
                     }
                 }
             }
@@ -295,9 +298,8 @@ struct HomeView: View {
     }
 
     /// Reveal never focuses the field: presenting the keyboard mid-drag fights
-    /// `scrollDismissesKeyboard` (the same drag dismisses it again) and its
-    /// inset churn is what made the reveal stutter. The user taps to type,
-    /// as in the system pull-down search.
+    /// `scrollDismissesKeyboard` (the same drag dismisses it again). The user
+    /// taps to type, as in the system pull-down search.
     private func setSearchShown(_ shown: Bool) {
         withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
             searchShown = shown
@@ -329,6 +331,35 @@ struct HomeView: View {
         }
     }
 
+    /// The grid with the pull-down search band overlaid on top.
+    ///
+    /// Revealing search must not re-lay-out the grid. Earlier revisions put the
+    /// field in the scroll view's `safeAreaInset`, so showing it animated
+    /// `contentInsets.top`, forcing SwiftUI to re-lay-out the whole `LazyVGrid`
+    /// every animation frame — that per-frame relayout is what made the reveal
+    /// stutter and, on a busy main thread, drop the pull that should have shown
+    /// the field ("it won't show up"). Here the field is always present but
+    /// translated up behind the header (and non-interactive) when hidden;
+    /// revealing it slides the grid down by the field's height with a plain
+    /// `.offset` — a GPU transform that touches no layout. `.clipped()` hides
+    /// the parked field behind the header.
+    private var gridArea: some View {
+        ZStack(alignment: .top) {
+            grid
+                .offset(y: searchShown ? searchFieldHeight : 0)
+            searchField
+                .frame(maxWidth: .infinity)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
+                    if height > 0 { searchFieldHeight = height }
+                }
+                .offset(y: searchShown ? 0 : -searchFieldHeight)
+                .opacity(searchShown ? 1 : 0)
+                .allowsHitTesting(searchShown)
+                .accessibilityHidden(!searchShown)
+        }
+        .clipped()
+    }
+
     private var grid: some View {
         ScrollView {
             LazyVGrid(
@@ -345,17 +376,6 @@ struct HomeView: View {
         }
         .scrollIndicators(.hidden)
         .scrollDismissesKeyboard(.immediately)
-        // The field sits in the scroll view's safe-area inset, not the outer
-        // VStack: revealing it grows the top content inset instead of
-        // re-framing the scroll view, so an in-flight drag never sees its
-        // viewport resize. The offset-vs-inset sums below stay stable across
-        // the inset change — the rest position is always offset == -inset.
-        .safeAreaInset(edge: .top, spacing: 0) {
-            if searchShown {
-                searchField
-                    .transition(.move(edge: .top).combined(with: .opacity))
-            }
-        }
         // Both observers map the offset to a Bool, so the action only runs on
         // threshold crossings — nothing happens per scroll frame. The reveal
         // fires mid-pull (it must feel live); the hide only latches here and
