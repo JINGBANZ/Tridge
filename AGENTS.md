@@ -126,3 +126,4 @@ Worker (TypeScript) that holds the OpenAI key; the app POSTs the receipt JPEG to
 ## Further context
 
 - **Design source of truth:** @wiki/index.md — specs, architecture, decisions, and current status.
+- If using XcodeBuildMCP, use the installed XcodeBuildMCP skill before calling XcodeBuildMCP tools.
