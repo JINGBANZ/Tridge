@@ -72,31 +72,14 @@ builds a signed Release IPA (signing is cloud-managed via the API key — no cer
 in the repo) and uploads it. A few minutes later the build appears in TestFlight;
 install the **TestFlight** app on your iPhone and accept the invite to run it.
 
-### Browser preview (Appetize) — quick UI check, no camera
-
-For a zero-setup look at the UI with no Apple account or hardware, every CI run
-publishes the `Tridge-simulator` artifact (GitHub → **Actions** → latest run →
-**Artifacts**): a zipped Debug simulator app for [Appetize.io](https://appetize.io).
-There's no camera here — the scan menu offers "Choose from library" and "Try
-sample receipt" instead, and "Seed the App" fills the fridge with no scan at all.
-
-1. Download the `Tridge-simulator` artifact and unzip it once (GitHub wraps
-   artifacts in an outer zip) to get `Tridge-sim.zip`.
-2. Sign up free at [appetize.io](https://appetize.io), **Upload** →
-   `Tridge-sim.zip` (the zipped `.app`, not an ipa), platform iOS, and press play.
-
-If the `APPETIZE_API_TOKEN` repo secret is set, **pull requests** get their own
-Appetize preview automatically: CI comments the link on the PR and updates it on
-every push (the preview app is deleted when the PR closes) — handy for reviewing
-UI changes before merge. Live scanning does **not** work here — Apple App Attest
-requires real hardware — so use "Try sample receipt" / "Seed the App" / manual add.
-
 ### With a Mac (Xcode 16+)
 
 1. Clone the repo, open `Tridge.xcodeproj`.
 2. **Simulator:** pick any iPhone simulator and press Run. No Apple account
-   needed. Same camera fallbacks as Appetize (drag receipt images into the
-   simulator's Photos app to test the picker path).
+   needed. The simulator has no camera, so the scan menu offers "Choose from
+   library" and "Try sample receipt" instead (drag receipt images into the
+   simulator's Photos app to test the picker path), and "Seed the App" fills the
+   fridge with no scan at all.
 3. **Your iPhone (free Apple ID):** in the target's Signing & Capabilities set
    your personal team and a unique bundle id, enable Developer Mode on the phone
    (Settings → Privacy & Security), plug it in and press Run. Free-account
