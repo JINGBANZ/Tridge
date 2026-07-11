@@ -19,14 +19,18 @@ struct FilterSheet: View {
                 VStack(alignment: .leading, spacing: AppTheme.filterGroupSpacing) {
                     group("Storage") {
                         chip("All", isSelected: storage == nil) { storage = nil }
+                            .accessibilityIdentifier("filter.storage.all")
                         ForEach(StorageLocation.allCases, id: \.self) { option in
                             chip(option.label, isSelected: storage == option) { storage = option }
+                                .accessibilityIdentifier("filter.storage.\(option.rawValue)")
                         }
                     }
                     group("Food Category") {
                         chip("All", isSelected: category == nil) { category = nil }
+                            .accessibilityIdentifier("filter.category.all")
                         ForEach(FoodCategory.allCases, id: \.self) { option in
                             chip(option.label, isSelected: category == option) { category = option }
+                                .accessibilityIdentifier("filter.category.\(option.rawValue)")
                         }
                     }
                 }

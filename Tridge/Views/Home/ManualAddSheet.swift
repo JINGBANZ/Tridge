@@ -48,7 +48,8 @@ struct ManualAddSheet: View {
                     if !suggestions.isEmpty {
                         chipsRow
                     }
-                    ItemFieldRows(name: $name,
+                    ItemFieldRows(namespace: "manualAdd",
+                                  name: $name,
                                   quantity: $quantity,
                                   storage: $storage,
                                   expiryDate: expiryBinding)
@@ -63,6 +64,7 @@ struct ManualAddSheet: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Add") { add() }
                         .disabled(trimmedName.isEmpty)
+                        .accessibilityIdentifier("manualAdd.saveButton")
                 }
             }
         }

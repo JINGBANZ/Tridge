@@ -16,6 +16,7 @@ struct ReviewRow: View {
             VStack(alignment: .leading, spacing: AppTheme.reviewRowNameSpacing) {
                 TextField("Name", text: $item.name)
                     .font(.system(size: 13, weight: .semibold))
+                    .accessibilityIdentifier("review.row.name")
                 if let receiptText = item.receiptText {
                     Text(item.needsFix
                          ? "from \"\(receiptText)\" — tap to fix"

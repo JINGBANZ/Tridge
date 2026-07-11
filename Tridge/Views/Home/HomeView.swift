@@ -61,6 +61,7 @@ struct HomeView: View {
                 if items.isEmpty {
                     EmptyStateView()
                         .padding(.bottom, AppTheme.scanButtonClearance)
+                        .accessibilityIdentifier("home.emptyState")
                 } else {
                     if hasActiveFilter {
                         activeFilterBar
@@ -153,9 +154,11 @@ struct HomeView: View {
         HStack(spacing: AppTheme.filterChipSpacing) {
             if let storage = filterStorage {
                 filterTag(storage.label) { filterStorage = nil }
+                    .accessibilityIdentifier("home.filterTag.storage")
             }
             if let category = filterCategory {
                 filterTag(category.label) { filterCategory = nil }
+                    .accessibilityIdentifier("home.filterTag.category")
             }
             Spacer()
         }
@@ -193,6 +196,7 @@ struct HomeView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(.bottom, AppTheme.scanButtonClearance)
         .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("home.noMatch")
     }
 
     // MARK: Header
@@ -208,11 +212,13 @@ struct HomeView: View {
             Text("Tridge")
                 .font(AppTheme.titleFont)
                 .foregroundStyle(AppTheme.ink)
+                .accessibilityIdentifier("home.title")
             Spacer()
             HStack(spacing: 10) {
                 Text("\(unitCount) item\(unitCount == 1 ? "" : "s")")
                     .font(AppTheme.countFont)
                     .foregroundStyle(AppTheme.mutedInk)
+                    .accessibilityIdentifier("home.itemCount")
                 if !items.isEmpty {
                     filterButton
                 }
@@ -224,6 +230,7 @@ struct HomeView: View {
                         .foregroundStyle(AppTheme.mutedInk)
                 }
                 .accessibilityLabel("Settings")
+                .accessibilityIdentifier("home.settingsButton")
             }
         }
         .padding(.horizontal, 20)
@@ -251,6 +258,7 @@ struct HomeView: View {
                 }
         }
         .accessibilityLabel(hasActiveFilter ? "Filter (active)" : "Filter")
+        .accessibilityIdentifier("home.filterButton")
     }
 
     // MARK: Search
@@ -268,6 +276,7 @@ struct HomeView: View {
                 .focused($searchFocused)
                 .submitLabel(.search)
                 .autocorrectionDisabled()
+                .accessibilityIdentifier("home.search.field")
             if !searchText.isEmpty {
                 Button {
                     searchText = ""
@@ -277,6 +286,7 @@ struct HomeView: View {
                         .foregroundStyle(AppTheme.mutedInk)
                 }
                 .accessibilityLabel("Clear search")
+                .accessibilityIdentifier("home.search.clearButton")
             }
         }
         .padding(.horizontal, AppTheme.searchFieldPadding.h)
@@ -486,28 +496,33 @@ struct HomeView: View {
                 } label: {
                     Label("Scan with camera", systemImage: "doc.viewfinder")
                 }
+                .accessibilityIdentifier("home.scanMenu.camera")
             }
             Button {
                 scanFlow.startScan(from: .photoLibrary)
             } label: {
                 Label("Choose from library", systemImage: "photo.on.rectangle")
             }
+            .accessibilityIdentifier("home.scanMenu.library")
             Button {
                 showManualAdd = true
             } label: {
                 Label("Type to add", systemImage: "square.and.pencil")
             }
+            .accessibilityIdentifier("home.scanMenu.manualAdd")
             #if DEBUG
             Button {
                 scanFlow.scanSampleReceipt()
             } label: {
                 Label("Try sample receipt", systemImage: "testtube.2")
             }
+            .accessibilityIdentifier("home.scanMenu.sample")
             Button {
                 PreviewData.seed(into: context)
             } label: {
                 Label("Seed the App", systemImage: "sparkles")
             }
+            .accessibilityIdentifier("home.scanMenu.seed")
             #endif
         } label: {
             Text("🧾")
@@ -525,6 +540,7 @@ struct HomeView: View {
                 .shadow(color: AppTheme.brandGreen.opacity(0.45), radius: 10, y: 8)
         }
         .accessibilityLabel("Add items")
+        .accessibilityIdentifier("home.scanButton")
     }
 
     // MARK: Scan flow plumbing

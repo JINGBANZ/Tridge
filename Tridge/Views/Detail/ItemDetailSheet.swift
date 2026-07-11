@@ -22,7 +22,8 @@ struct ItemDetailSheet: View {
                 }
 
                 Section {
-                    ItemFieldRows(name: nameBinding,
+                    ItemFieldRows(namespace: "itemDetail",
+                                  name: nameBinding,
                                   quantity: $item.quantity,
                                   storage: storageBinding,
                                   expiryDate: expiryBinding)
@@ -33,8 +34,11 @@ struct ItemDetailSheet: View {
 
                 Section {
                     Button("😋  Ate it") { consume(as: .eaten) }
+                        .accessibilityIdentifier("itemDetail.ateButton")
                     Button("🗑️  Tossed it") { consume(as: .tossed) }
+                        .accessibilityIdentifier("itemDetail.tossedButton")
                     Button("Delete", role: .destructive) { deleteItem() }
+                        .accessibilityIdentifier("itemDetail.deleteButton")
                 }
             }
             .navigationTitle(item.name)

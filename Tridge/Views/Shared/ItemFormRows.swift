@@ -42,6 +42,10 @@ struct HeroArtRow: View {
 /// The editable core of an item: Name · Quantity · Storage · Expires, each a
 /// label-left / value-right form row.
 struct ItemFieldRows: View {
+    /// Test-facing id prefix ("<screen>") so the shared rows expose distinct
+    /// identifiers per host sheet — e.g. "manualAdd.nameField" vs
+    /// "itemDetail.nameField".
+    let namespace: String
     @Binding var name: String
     @Binding var quantity: Int
     @Binding var storage: StorageLocation
@@ -51,14 +55,18 @@ struct ItemFieldRows: View {
         LabeledContent("Name") {
             TextField("e.g. Milk", text: $name)
                 .multilineTextAlignment(.trailing)
+                .accessibilityIdentifier("\(namespace).nameField")
         }
         QuantityRow(quantity: $quantity)
+            .accessibilityIdentifier("\(namespace).quantityField")
         Picker("Storage", selection: $storage) {
             ForEach(StorageLocation.allCases, id: \.self) { location in
                 Text(location.label).tag(location)
             }
         }
+        .accessibilityIdentifier("\(namespace).storagePicker")
         DatePicker("Expires", selection: $expiryDate, displayedComponents: .date)
+            .accessibilityIdentifier("\(namespace).expiryPicker")
     }
 }
 
