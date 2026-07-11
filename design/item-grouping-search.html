@@ -235,10 +235,12 @@
   }
   .p-caret { display: inline-block; width: 1.5px; height: 14px; background: var(--accent); animation: caret 1s steps(1) infinite; }
   @keyframes caret { 0%, 55% { opacity: 1; } 56%, 100% { opacity: 0; } }
+  /* Full-bleed borderless band (owner revision): edge-to-edge under the
+     header — no border, no radius; the -14px margins cancel .p-home's padding. */
   .p-search {
-    background: var(--surface-solid); border: 1px solid var(--line); border-radius: 10px;
-    padding: 7px 11px; font-size: 13px; display: flex; align-items: center; gap: 7px;
-    color: var(--muted); margin-bottom: 14px;
+    background: var(--surface-solid); margin: 0 -14px 14px;
+    padding: 8px 14px; font-size: 13px; display: flex; align-items: center; gap: 7px;
+    color: var(--muted);
   }
   .p-search .typed { color: var(--ink); font-weight: 600; }
 

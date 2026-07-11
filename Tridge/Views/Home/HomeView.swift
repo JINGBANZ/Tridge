@@ -32,6 +32,7 @@ struct HomeView: View {
     @State private var pickedPhoto: PhotosPickerItem?
     @State private var searchText = ""
     @State private var searchShown = false
+    @State private var scrolledIntoList = false
     @FocusState private var searchFocused: Bool
     @State private var animatedItemIDs: Set<UUID> = []
 
@@ -48,18 +49,15 @@ struct HomeView: View {
 
     // No NavigationStack: nothing navigates, and a system search drawer is
     // scroll-linked — it resizes the bar area every frame while the grid
-    // scrolls, re-laying-out the whole screen. The header and search field
-    // are plain pinned views above the ScrollView instead.
+    // scrolls, re-laying-out the whole screen. The header is a plain pinned
+    // view above the ScrollView; the search field lives in the grid's top
+    // safe-area inset so revealing it never re-frames the scroll view.
     var body: some View {
         ZStack {
             AppTheme.ChillBackground()
 
             VStack(spacing: 0) {
                 header
-                if searchShown && !items.isEmpty {
-                    searchField
-                        .transition(.move(edge: .top).combined(with: .opacity))
-                }
                 if items.isEmpty {
                     EmptyStateView()
                         .padding(.bottom, AppTheme.scanButtonClearance)
@@ -283,21 +281,29 @@ struct HomeView: View {
         }
         .padding(.horizontal, AppTheme.searchFieldPadding.h)
         .padding(.vertical, AppTheme.searchFieldPadding.v)
-        .background(AppTheme.surfaceSolid,
-                    in: RoundedRectangle(cornerRadius: AppTheme.searchFieldRadius))
-        .overlay(
-            RoundedRectangle(cornerRadius: AppTheme.searchFieldRadius)
-                .strokeBorder(AppTheme.hairline, lineWidth: 1))
-        .padding(.horizontal, AppTheme.searchFieldMargin.h)
-        .padding(.top, AppTheme.searchFieldMargin.top)
+        .background(AppTheme.surfaceSolid)
     }
 
+    /// Reveal never focuses the field: presenting the keyboard mid-drag fights
+    /// `scrollDismissesKeyboard` (the same drag dismisses it again) and its
+    /// inset churn is what made the reveal stutter. The user taps to type,
+    /// as in the system pull-down search.
     private func setSearchShown(_ shown: Bool) {
         withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
             searchShown = shown
         }
-        searchFocused = shown
-        if !shown { searchText = "" }
+        if !shown {
+            searchFocused = false
+            searchText = ""
+        }
+    }
+
+    /// The auto-hide condition, re-checked on every input that can complete it
+    /// (scroll depth, focus, text) — a threshold crossing that happens while
+    /// the field is still focused must not swallow the hide for good.
+    private func hideSearchIfIdle() {
+        guard scrolledIntoList, searchShown, searchText.isEmpty, !searchFocused else { return }
+        setSearchShown(false)
     }
 
     // MARK: Grid
@@ -329,8 +335,22 @@ struct HomeView: View {
         }
         .scrollIndicators(.hidden)
         .scrollDismissesKeyboard(.immediately)
+        // The field sits in the scroll view's safe-area inset, not the outer
+        // VStack: revealing it grows the top content inset instead of
+        // re-framing the scroll view, so an in-flight drag never sees its
+        // viewport resize. The offset-vs-inset sums below stay stable across
+        // the inset change — the rest position is always offset == -inset.
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if searchShown {
+                searchField
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
         // Both observers map the offset to a Bool, so the action only runs on
-        // threshold crossings — nothing happens per scroll frame.
+        // threshold crossings — nothing happens per scroll frame. The reveal
+        // fires mid-pull (it must feel live); the hide only latches here and
+        // acts at a scroll-phase boundary, keeping layout mutations out of an
+        // active drag.
         .onScrollGeometryChange(for: Bool.self) { geometry in
             geometry.contentOffset.y + geometry.contentInsets.top < -Self.searchRevealPull
         } action: { _, isPulledDown in
@@ -339,22 +359,37 @@ struct HomeView: View {
         .onScrollGeometryChange(for: Bool.self) { geometry in
             geometry.contentOffset.y + geometry.contentInsets.top > Self.searchHideDrift
         } action: { _, isInList in
-            if isInList && searchShown && searchText.isEmpty && !searchFocused {
-                setSearchShown(false)
-            }
+            scrolledIntoList = isInList
         }
+        .onScrollPhaseChange { oldPhase, newPhase in
+            if oldPhase == .interacting || newPhase == .idle { hideSearchIfIdle() }
+        }
+        .onChange(of: searchFocused) { hideSearchIfIdle() }
+        .onChange(of: searchText) { hideSearchIfIdle() }
     }
 
     private func slot(for item: FridgeItem, index: Int) -> some View {
-        ItemSprite(item: item)
-            .modifier(PopIn(index: index,
-                            enabled: !reduceMotion
-                                && index < AppTheme.popInItemLimit
-                                && !animatedItemIDs.contains(item.id),
-                            onFinished: { animatedItemIDs.insert(item.id) }))
-            .opacity(slotOpacity(for: item))
-            .onTapGesture { selectedItem = item }
-            .gesture(consumeGesture(for: item))
+        GridSlot(
+            item: item,
+            index: index,
+            popInEnabled: !reduceMotion
+                && index < AppTheme.popInItemLimit
+                && !animatedItemIDs.contains(item.id),
+            opacity: slotOpacity(for: item),
+            onPopInFinished: { animatedItemIDs.insert(item.id) },
+            onTap: { selectedItem = item },
+            onDragChanged: { location in
+                if draggedItem == nil {
+                    draggedItem = item
+                    dragScale = 1.3
+                }
+                dragLocation = location
+            },
+            onDragEnded: { location in
+                if let location { endDrag(at: location) } else { clearDrag() }
+            }
+        )
+        .equatable()
     }
 
     private func slotOpacity(for item: FridgeItem) -> Double {
@@ -363,26 +398,6 @@ struct HomeView: View {
     }
 
     // MARK: Drag to consume
-
-    private func consumeGesture(for item: FridgeItem) -> some Gesture {
-        LongPressGesture(minimumDuration: 0.3)
-            .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .named("fridge")))
-            .onChanged { value in
-                guard case .second(true, let drag?) = value else { return }
-                if draggedItem == nil {
-                    draggedItem = item
-                    dragScale = 1.3
-                }
-                dragLocation = drag.location
-            }
-            .onEnded { value in
-                if case .second(true, let drag?) = value {
-                    endDrag(at: drag.location)
-                } else {
-                    clearDrag()
-                }
-            }
-    }
 
     @ViewBuilder
     private var draggedGhost: some View {
@@ -545,6 +560,55 @@ struct HomeView: View {
 
     private func updateBadge() {
         NotificationService.updateBadge(expiredCount: items.filter(\.isExpired).count)
+    }
+}
+
+/// One grid cell, `Equatable`-gated so the closures it carries (which SwiftUI
+/// can't diff) don't force a re-evaluation of every cell on each `HomeView`
+/// body pass — during a drag, `dragLocation` changes per frame and only the
+/// ghost should re-render, not the whole grid. Item *content* changes still
+/// propagate: the SwiftData model is `@Observable`-backed, so `ItemSprite`
+/// tracks the properties it reads directly, past this gate.
+private struct GridSlot: View, Equatable {
+    let item: FridgeItem
+    let index: Int
+    let popInEnabled: Bool
+    let opacity: Double
+    let onPopInFinished: () -> Void
+    let onTap: () -> Void
+    let onDragChanged: (CGPoint) -> Void
+    /// `nil` means the long-press never matured into a drag — cancel.
+    let onDragEnded: (CGPoint?) -> Void
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.item === rhs.item
+            && lhs.index == rhs.index
+            && lhs.popInEnabled == rhs.popInEnabled
+            && lhs.opacity == rhs.opacity
+    }
+
+    var body: some View {
+        ItemSprite(item: item)
+            .modifier(PopIn(index: index, enabled: popInEnabled, onFinished: onPopInFinished))
+            .opacity(opacity)
+            .onTapGesture(perform: onTap)
+            .gesture(consumeGesture)
+    }
+
+    private var consumeGesture: some Gesture {
+        LongPressGesture(minimumDuration: 0.3)
+            .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .named("fridge")))
+            .onChanged { value in
+                guard case .second(true, let drag?) = value else { return }
+                onDragChanged(drag.location)
+            }
+            .onEnded { value in
+                if case .second(true, let drag?) = value {
+                    onDragEnded(drag.location)
+                } else {
+                    onDragEnded(nil)
+                }
+            }
     }
 }
 

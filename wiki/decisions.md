@@ -470,10 +470,21 @@
 ### 2026-07-11 — Home search is a custom pinned field, not the system `.searchable` drawer
 
 - **Chose:** The home grid's pull-down search (from the grouping entry above) is a hand-rolled
-  field pinned below the Tridge header, revealed by an `onScrollGeometryChange` threshold on the
-  rubber-band overscroll and hidden again once the user scrolls back into the list with an empty,
-  unfocused query. The `NavigationStack` around `HomeView` went with the drawer — nothing on the
-  home screen navigates.
+  field pinned below the Tridge header — a full-bleed borderless band, owner-revised from the
+  §6.2 bordered-box mock — revealed by an `onScrollGeometryChange` threshold on the rubber-band
+  overscroll and hidden again once the user scrolls back into the list with an empty, unfocused
+  query. The field lives in the grid's `safeAreaInset(edge: .top)`, so showing or hiding it
+  changes only the scroll view's content inset, never its frame — an in-flight drag never sees
+  its viewport resize (the frame-stability property UIKit's `hidesSearchBarWhenScrolling` and the
+  iOS 26 `searchToolbarBehavior(.minimize)` pattern share). Revealing never focuses the field
+  (the user taps to type, as in the system pull-down search) and fires live mid-pull; the hide
+  latches its scroll-depth condition and acts only at a scroll-phase boundary
+  (`onScrollPhaseChange`, Apple's documented hide-chrome-on-scroll shape) or when focus/text
+  changes complete the idle condition. The `NavigationStack` around `HomeView` went with the
+  drawer — nothing on the home screen navigates. Grid cells are `Equatable`-gated (`GridSlot`)
+  so their gesture closures don't force whole-grid re-evaluation on every `HomeView` body pass
+  (SwiftUI can't diff closures — Airbnb's documented scroll-hitch fix); SwiftData's
+  `@Observable`-backed models keep per-item updates flowing past the gate.
 - **Why:** The `.searchable(placement: .navigationBarDrawer)` drawer is scroll-linked: UIKit
   resizes the (even hidden) navigation-bar area continuously during grid scrolls, shifting the top
   safe-area inset and re-laying-out the header plus the whole `LazyVGrid` every frame — the home
@@ -482,7 +493,10 @@
   it below. Boolean-mapped scroll observers keep the replacement free of per-frame work.
 - **Rejected:** Keeping `.searchable` with `displayMode: .always` (field permanently visible —
   breaks the single-control home face); a toolbar search button (extra chrome the design reversals
-  forbid); observing raw offsets to drive the reveal (reintroduces per-frame state writes).
+  forbid); observing raw offsets to drive the reveal (reintroduces per-frame state writes);
+  auto-focusing the field on reveal (presenting the keyboard mid-drag fights
+  `scrollDismissesKeyboard` — the same drag instantly dismisses it — which made the reveal stutter
+  and left a focused-field race that swallowed the auto-hide crossing, freezing the bar shown).
 
 ### 2026-07-11 — One shared item form; the date-label OCR scan is removed
 
