@@ -54,8 +54,13 @@ enum AppTheme {
     static let artPointSize: CGFloat = 44
     /// Large art atop the item-detail and manual-add sheets.
     static let heroArtSize: CGFloat = 96
-    /// Review-sheet chips (quantity ×N, expiry date).
+    /// Review-sheet chips (quantity ×N, expiry date, Food Category, Storage).
     static let chipPadding = (h: CGFloat(8), v: CGFloat(3))
+    /// Filter chips (the filter sheet's options and Home's active-filter tags).
+    static let filterChipPadding = (h: CGFloat(12), v: CGFloat(6))
+    static let filterChipSpacing: CGFloat = 6
+    /// The green dot on the header's filter glyph while a filter is active.
+    static let filterDotSize: CGFloat = 6
     static let gridColumns = 4
     static let gridRowGap: CGFloat = 18
     static let gridColumnGap: CGFloat = 6
@@ -71,6 +76,7 @@ enum AppTheme {
     static let pillFont = Font.system(size: 10, weight: .heavy)
     static let countFont = Font.system(size: 12, weight: .semibold).monospacedDigit()
     static let chipFont = Font.system(size: 10.5, weight: .bold)
+    static let filterChipFont = Font.system(size: 13, weight: .semibold)
 
     // MARK: Effects
 

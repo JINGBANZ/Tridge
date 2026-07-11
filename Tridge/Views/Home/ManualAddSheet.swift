@@ -21,6 +21,7 @@ struct ManualAddSheet: View {
     /// inference backs off while the typed name still resolves to this key.
     @State private var artChosenForKey: String?
     @State private var quantity = 1
+    @State private var storage = StorageLocation.fridge
     // A week out — a neutral starting point the user adjusts, unlike scanned
     // items whose expiry the LLM estimates.
     @State private var expiryDate = Calendar.current.date(byAdding: .day, value: 7,
@@ -76,6 +77,12 @@ struct ManualAddSheet: View {
                             .keyboardType(.numberPad)
                             .multilineTextAlignment(.trailing)
                     }
+                    Picker("Storage", selection: $storage) {
+                        ForEach(StorageLocation.allCases, id: \.self) { location in
+                            Text(location.label).tag(location)
+                        }
+                    }
+                    .pickerStyle(.segmented)
                     DatePicker("Expires", selection: expiryBinding, displayedComponents: .date)
                 }
             }
@@ -263,12 +270,11 @@ struct ManualAddSheet: View {
                 scheduleTarget = target
             }
         } else {
-            let storageRaw = UserDefaults.standard.string(forKey: "defaultStorage") ?? ""
             let item = FridgeItem(
                 name: trimmedName,
                 artKey: artKey,
                 quantity: quantity,
-                storage: StorageLocation(rawValue: storageRaw) ?? .fridge,
+                storage: storage,
                 expiryDate: expiryDate,
                 expirySource: .userSet)
             context.insert(item)

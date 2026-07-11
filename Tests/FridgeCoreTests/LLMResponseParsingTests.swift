@@ -56,6 +56,25 @@ final class LLMResponseParsingTests: XCTestCase {
         XCTAssertEqual(item.quantity, 1)
         XCTAssertEqual(item.shelfLifeDays, 7)
         XCTAssertNil(item.receiptText)
+        XCTAssertEqual(item.storage, .fridge)
+    }
+
+    func testStorageDecodes() throws {
+        let json = """
+        { "items": [{ "id": "shrimp", "name": "Shrimp", "quantity": 1,
+                      "shelf_life_days": 45, "storage": "freezer" }] }
+        """
+        XCTAssertEqual(try ReceiptResponseParser.parse(json).items[0].storage, .freezer)
+    }
+
+    func testUnrecognizedStorageFallsBackToFridge() throws {
+        // A storage value outside the enum (schema drift, older server) must
+        // degrade to the fridge default, never fail the item.
+        let json = """
+        { "items": [{ "id": "milk", "name": "Milk", "quantity": 1,
+                      "shelf_life_days": 7, "storage": "cellar" }] }
+        """
+        XCTAssertEqual(try ReceiptResponseParser.parse(json).items[0].storage, .fridge)
     }
 
     func testNullReceiptTextDecodes() throws {
@@ -88,13 +107,14 @@ final class LLMResponseParsingTests: XCTestCase {
         // app's parser still accepts a conforming reply end to end.
         let reply = """
         { "items": [{ "id": "milk", "name": "Whole Milk", "receipt_text": null,
-                      "quantity": 1, "shelf_life_days": 7 },
+                      "quantity": 1, "shelf_life_days": 7, "storage": "fridge" },
                     { "id": "unknown", "name": "Unknown item", "receipt_text": "TJ 94823 MISC",
-                      "quantity": 1, "shelf_life_days": 3 }] }
+                      "quantity": 1, "shelf_life_days": 3, "storage": "freezer" }] }
         """
         let receipt = try ReceiptResponseParser.parse(reply)
         XCTAssertEqual(receipt.items.count, 2)
         XCTAssertNil(receipt.items[0].receiptText)
         XCTAssertEqual(receipt.items[1].id, .unknown)
+        XCTAssertEqual(receipt.items[1].storage, .freezer)
     }
 }

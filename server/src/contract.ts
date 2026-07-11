@@ -23,6 +23,8 @@ Rules:
   and crackers, cookies, bottled water, soda, coffee, tea, unopened condiments).
   Only include items a person would actually store in the fridge or freezer.
 - If one line has a quantity multiplier, set quantity accordingly.
+- For "storage", say where the item belongs once home: "freezer" for items
+  sold frozen or normally kept frozen, "fridge" for everything else.
 - Estimate each item's typical shelf life in days from purchase, assuming it
   is stored appropriately at home (refrigerated promptly where applicable).
 - For "id", pick the closest match from the allowed values. Prefer a specific

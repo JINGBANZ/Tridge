@@ -10,10 +10,11 @@ enum PreviewData {
     /// Inserts the preset items with expiries relative to today, covering
     /// every urgency tier (expired → today → soon → fresh).
     static func seed(into context: ModelContext) {
-        func seed(_ name: String, _ id: ItemID, daysLeft: Int, quantity: Int = 1) {
+        func seed(_ name: String, _ id: ItemID, daysLeft: Int, quantity: Int = 1,
+                  storage: StorageLocation = .fridge) {
             let expiry = Calendar.current.date(byAdding: .day, value: daysLeft, to: Date())!
             context.insert(FridgeItem(
-                name: name, artKey: id.rawValue, quantity: quantity,
+                name: name, artKey: id.rawValue, quantity: quantity, storage: storage,
                 purchaseDate: Date(), expiryDate: expiry))
         }
 
@@ -23,6 +24,7 @@ enum PreviewData {
         seed("Chicken", .chicken, daysLeft: 2)
         seed("Spinach", .spinach, daysLeft: 2)
         seed("Leftovers", .leftovers, daysLeft: 3)
+        seed("Sourdough", .bread, daysLeft: 4, storage: .pantry)
         seed("Greek Yogurt", .yogurt, daysLeft: 5)
         seed("Orange Juice", .juice, daysLeft: 9)
         seed("Eggs", .eggs, daysLeft: 12, quantity: 12)
@@ -30,6 +32,10 @@ enum PreviewData {
         seed("Carrots", .carrot, daysLeft: 18)
         seed("Cheddar", .cheese, daysLeft: 24)
         seed("Butter", .butter, daysLeft: 30)
+        // Freezer/pantry rows keep the filter button exercisable in seeded builds.
+        seed("Shrimp", .shrimp, daysLeft: 45, storage: .freezer)
+        seed("Frozen Peas", .peas, daysLeft: 60, storage: .freezer)
+        seed("Ice Cream", .iceCream, daysLeft: 90, storage: .freezer)
         try? context.save() // hand-made contexts don't autosave
     }
 
