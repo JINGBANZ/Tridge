@@ -27,7 +27,7 @@
     // real device) in addition to production (TestFlight/App Store). A dedicated
     // prod worker later sets this "false" to accept production attestations only.
     "APP_ATTEST_ALLOW_DEV": "true",
-    "DEVICE_DAILY_QUOTA": "50"
+    "DEVICE_DAILY_QUOTA": "10"
   },
   // Per-device App Attest registry (public key + sign counter) and per-device
   // quota counters. Created with `wrangler kv namespace create DEVICE_KV`; the
@@ -35,15 +35,15 @@
   "kv_namespaces": [
     { "binding": "DEVICE_KV", "id": "3b653b7cf9684f4486c6cfa2c3aba208" }
   ],
-  // 3 requests/min per client IP, across every route (scan + attest). Enough
-  // for a human scanning receipts — note a brand-new install spends 3 on its
-  // first scan (challenge + attest + scan), then 1 per scan after. Counted per
-  // Cloudflare location (eventually consistent).
+  // 20 requests/min per client IP, across every route (scan + attest). Generous
+  // for a human scanning receipts (the per-device 10/day quota is the real usage
+  // cap); this mainly bounds burst abuse of the unauthenticated attest endpoints.
+  // Counted per Cloudflare location (eventually consistent).
   "ratelimits": [
     {
       "name": "SCAN_RATE_LIMIT",
       "namespace_id": "1001",
-      "simple": { "limit": 3, "period": 60 }
+      "simple": { "limit": 20, "period": 60 }
     }
   ]
 }

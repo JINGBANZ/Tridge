@@ -70,7 +70,7 @@ The worker is already env-driven, so a dedicated production deployment (separate
 URL, isolated budget-capped OpenAI key, production-only attestations) is additive:
 
 1. Add an `env.prod` block to `wrangler.jsonc` (`name`, its own `vars` with
-   `APP_ATTEST_ALLOW_DEV: "false"` + a tighter `DEVICE_DAILY_QUOTA`, its own
+   `APP_ATTEST_ALLOW_DEV: "false"` + its own `DEVICE_DAILY_QUOTA`, its own
    `kv_namespaces` with a distinct id, and a `ratelimits` entry with a distinct
    `namespace_id`). Named envs don't inherit these, so redefine them in full.
 2. `wrangler kv namespace create DEVICE_KV --env prod` and set the secrets with

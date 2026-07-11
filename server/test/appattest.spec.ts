@@ -25,15 +25,15 @@ function fakeKV(): KVNamespace {
   } as unknown as KVNamespace;
 }
 
-// overrides is a loose record: generated var types are narrow literal unions
-// (e.g. DEVICE_DAILY_QUOTA is "30" | "50"), but tests set arbitrary values.
+// overrides is a loose record: generated var types are narrow string-literal
+// unions from wrangler.jsonc, but tests set arbitrary values.
 function makeEnv(kv: KVNamespace, overrides: Record<string, unknown> = {}): Env {
   return {
     OPENAI_API_KEY: "sk-test",
     APPLE_TEAM_ID: fixtures.teamIdentifier,
     APPLE_BUNDLE_ID: fixtures.bundleIdentifier,
     APP_ATTEST_ALLOW_DEV: "true",
-    DEVICE_DAILY_QUOTA: "50",
+    DEVICE_DAILY_QUOTA: "10",
     DEVICE_KV: kv,
     SCAN_RATE_LIMIT: { limit: vi.fn(async () => ({ success: true })) },
     ...overrides,
@@ -215,7 +215,7 @@ describe("scan handler with App Attest", () => {
 
   it("429s once the device's daily quota is spent", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(openAIReply))));
-    await kv.put(`quota:phone:${new Date().toISOString().slice(0, 10)}`, "50");
+    await kv.put(`quota:phone:${new Date().toISOString().slice(0, 10)}`, "10"); // at the 10/day cap
     const response = await worker.fetch(scanRequest("phone") as Parameters<typeof worker.fetch>[0], makeEnv(kv));
     expect(response.status).toBe(429);
   });

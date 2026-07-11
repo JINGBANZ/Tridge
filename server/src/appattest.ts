@@ -24,7 +24,7 @@ const CHALLENGE_TTL_SECONDS = 5 * 60; // one-time, short-lived; registration is 
 // silently re-attests. ~13 months comfortably spans seasonal usage gaps.
 const DEVICE_TTL_SECONDS = 400 * 24 * 60 * 60;
 const QUOTA_TTL_SECONDS = 2 * 24 * 60 * 60; // outlives one UTC day with margin
-const DEFAULT_DAILY_QUOTA = 50;
+const DEFAULT_DAILY_QUOTA = 10;
 
 interface DeviceRecord {
   /** SPKI PEM of the attested key; verifies every future assertion. */
