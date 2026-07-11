@@ -184,7 +184,8 @@
   camera/OCR (SideStore) is deliberately split into its own follow-up PR.
 - **Superseded by:** *2026-07-09 — TestFlight for on-device testing; SideStore rejected* for the
   on-device / real-camera path (now TestFlight, not SideStore) and the `main`-push Appetize
-  auto-publish (removed); the per-PR Appetize browser preview stands.
+  auto-publish (removed); and *2026-07-11 — Appetize preview dropped* for the per-PR browser
+  preview (removed — UI checks now run in a local Simulator). Nothing here stands.
 
 ### 2026-07-06 — Simulator builds store the API key in UserDefaults, not the Keychain
 
@@ -338,6 +339,8 @@
   (`ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_KEY_P8`, `APPLE_TEAM_ID`). `ITSAppUsesNonExemptEncryption=NO` is set in the project so builds don't stall
   on the export-compliance prompt. The `main`-push Appetize auto-publish is removed; the per-PR
   Appetize browser preview stays for UI review.
+- **Superseded by:** *2026-07-11 — Appetize preview dropped* for the per-PR browser preview
+  (removed — UI review now runs in a local Simulator). The TestFlight lane stands.
 - **Why:** Getting the app onto the owner's phone with a working camera + date-OCR needs a genuine
   native install; a 2026 research sweep confirmed the only real options are TestFlight or
   free-Apple-ID sideloading (SideStore/Sideloader). SideStore is free but high-friction to *live
@@ -509,3 +512,24 @@
   a segmented storage control inside the shared form (inconsistent with the label/value rows
   around it); fixing the quantity field with an optional-Int binding (still misbehaves while
   focused, since SwiftData writebacks reformat the text mid-edit).
+
+### 2026-07-11 — Appetize preview dropped; UI checks run in a local Simulator
+
+- **Chose:** Remove Appetize entirely — the per-PR preview job and the `appetize-cleanup.yml`
+  workflow, plus the CI steps that zipped and uploaded the simulator `.app` (they existed only to
+  feed Appetize). CI's macOS job keeps a compile-only Debug simulator build as a build gate
+  (`CODE_SIGNING_ALLOWED=NO`). No-hardware UI review now means running the app in a local Simulator
+  from Xcode; real-device / camera testing stays on TestFlight. The `APPETIZE_API_TOKEN` secret is
+  no longer used.
+- **Why:** Appetize's free tier (100 min/month, one session) is too small for regular use and the
+  paid upgrade is expensive for a solo project — the cost no longer justifies the zero-setup
+  browser preview. A local Simulator covers the same simulator-safe acceptance items at no cost for
+  anyone with a Mac, and TestFlight already covers the on-device path Appetize never could (real
+  camera, live App Attest).
+- **Rejected:** Upgrading the Appetize plan (recurring cost for a single-user project); keeping the
+  preview job dormant behind the unset secret (dead CI config + doc drift for a tool we won't use);
+  another browser device cloud (BrowserStack/LambdaTest — paid, and still only camera image
+  injection, no real lens).
+- **Supersedes:** the surviving per-PR Appetize browser preview from *2026-07-05 — Browser test
+  builds via Appetize.io, not TestFlight* and *2026-07-09 — TestFlight for on-device testing;
+  SideStore rejected*.

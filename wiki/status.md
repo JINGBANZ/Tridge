@@ -7,10 +7,9 @@
 
 ## Current phase
 
-v1 merged and CI green (Linux `swift test` + macOS build). Two distribution paths exist: a
-manual **TestFlight** release (`.github/workflows/testflight.yml` + `fastlane/`) for real-device
-testing including the camera, and a Debug **simulator** build published as the `Tridge-simulator`
-artifact and as a per-PR **Appetize** browser preview for zero-setup UI review. Install
+v1 merged and CI green (Linux `swift test` + macOS build). Real-device testing (including the
+camera) goes through a manual **TestFlight** release (`.github/workflows/testflight.yml` +
+`fastlane/`); for a no-hardware UI check, run the app in a local **Simulator** from Xcode. Install
 instructions are in `README.md` → "Trying the app". The app scans through the `server/` worker
 (`ProxyLLMService`) and carries no OpenAI key — BYOK is fully removed. Client auth is **Apple App
 Attest**: the app signs each scan with an on-device Secure Enclave key and ships no static token.
@@ -34,9 +33,9 @@ owner-only provisioning (no code):
 4. Verify end-to-end: a **TestFlight** (Release) build scans against the worker on a real iPhone —
    App Attest can't run on the Simulator.
 
-Still open beyond that: the browser-testable acceptance checklist on Appetize; the on-device
-camera acceptance items via a TestFlight build; and, when wanted, the dedicated production
-worker + isolated key.
+Still open beyond that: the acceptance checklist in a local Simulator; the on-device camera
+acceptance items via a TestFlight build; and, when wanted, the dedicated production worker +
+isolated key.
 
 ## Built
 
@@ -82,11 +81,7 @@ worker + isolated key.
 - `Tridge.xcodeproj` — hand-written project (synchronized folder group) + shared scheme;
   see the decision log for why it's hand-authored.
 - `.github/workflows/ci.yml` — Linux `swift test`; server typecheck + Vitest; release-lane syntax;
-  macOS `swift test` + Debug simulator build,
-  published as the `Tridge-simulator` artifact (Appetize.io's upload format) and, on pull
-  requests, as a per-PR Appetize preview app whose link is commented on the PR (no-op without the
-  `APPETIZE_API_TOKEN` secret). `.github/workflows/appetize-cleanup.yml` deletes a PR's preview
-  app when the PR closes.
+  macOS `swift test` + a Debug simulator build (compile-only gate, `CODE_SIGNING_ALLOWED=NO`).
 - `.github/workflows/testflight.yml` + `fastlane/` (`Fastfile`, `Appfile`) + `Gemfile` — the
   manual TestFlight release lane: `workflow_dispatch` builds a signed Release IPA (cloud-managed
   signing — no certs in the repo) and uploads it via fastlane's `upload_to_testflight`; the archive
@@ -130,6 +125,6 @@ worker + isolated key.
   See "Next action" and `server/README.md` → Deploy.
 - A dedicated production worker + isolated budget-capped key (separate URL) — deferred; the code is
   ready for it (`server/README.md` → "Adding a production worker later").
-- Verification of the spec's acceptance checklist on a test build: Appetize covers the
+- Verification of the spec's acceptance checklist on a test build: a local Simulator covers the
   simulator-safe items; the camera items and a live App Attest scan need a TestFlight build on a
   physical iPhone.

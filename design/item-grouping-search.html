@@ -905,7 +905,7 @@ final class FridgeItem {
   <li><code>NameSearchTests</code> — tier ordering (exact &gt; prefix &gt; word-prefix &gt; contains), diacritic-blind queries, recency/frequency tie-breaks, limit.</li>
 </ul>
 <p>UI behavior (silent merge outcome, +1 suggestion, auto art, searchable filter) lands on the
-spec's acceptance-criteria checklist and is exercised on Appetize per the existing flow.</p>
+spec's acceptance-criteria checklist and is exercised in a local Simulator per the existing flow.</p>
 
 <ol>
   <li><strong>Foundation</strong> — <code>NameKey</code> + <code>normalizedName</code> property + <code>#Index</code> + backfill + <code>setName</code> write discipline. Invisible, independently shippable.</li>
