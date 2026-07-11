@@ -32,6 +32,7 @@ struct HomeView: View {
     @State private var pickedPhoto: PhotosPickerItem?
     @State private var searchText = ""
     @State private var searchShown = false
+    @State private var scrolledIntoList = false
     @FocusState private var searchFocused: Bool
     @State private var animatedItemIDs: Set<UUID> = []
 
@@ -283,21 +284,29 @@ struct HomeView: View {
         }
         .padding(.horizontal, AppTheme.searchFieldPadding.h)
         .padding(.vertical, AppTheme.searchFieldPadding.v)
-        .background(AppTheme.surfaceSolid,
-                    in: RoundedRectangle(cornerRadius: AppTheme.searchFieldRadius))
-        .overlay(
-            RoundedRectangle(cornerRadius: AppTheme.searchFieldRadius)
-                .strokeBorder(AppTheme.hairline, lineWidth: 1))
-        .padding(.horizontal, AppTheme.searchFieldMargin.h)
-        .padding(.top, AppTheme.searchFieldMargin.top)
+        .background(AppTheme.surfaceSolid)
     }
 
+    /// Reveal never focuses the field: presenting the keyboard mid-drag fights
+    /// `scrollDismissesKeyboard` (the same drag dismisses it again) and its
+    /// inset churn is what made the reveal stutter. The user taps to type,
+    /// as in the system pull-down search.
     private func setSearchShown(_ shown: Bool) {
         withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
             searchShown = shown
         }
-        searchFocused = shown
-        if !shown { searchText = "" }
+        if !shown {
+            searchFocused = false
+            searchText = ""
+        }
+    }
+
+    /// The auto-hide condition, re-checked on every input that can complete it
+    /// (scroll depth, focus, text) — a threshold crossing that happens while
+    /// the field is still focused must not swallow the hide for good.
+    private func hideSearchIfIdle() {
+        guard scrolledIntoList, searchShown, searchText.isEmpty, !searchFocused else { return }
+        setSearchShown(false)
     }
 
     // MARK: Grid
@@ -339,10 +348,11 @@ struct HomeView: View {
         .onScrollGeometryChange(for: Bool.self) { geometry in
             geometry.contentOffset.y + geometry.contentInsets.top > Self.searchHideDrift
         } action: { _, isInList in
-            if isInList && searchShown && searchText.isEmpty && !searchFocused {
-                setSearchShown(false)
-            }
+            scrolledIntoList = isInList
+            hideSearchIfIdle()
         }
+        .onChange(of: searchFocused) { hideSearchIfIdle() }
+        .onChange(of: searchText) { hideSearchIfIdle() }
     }
 
     private func slot(for item: FridgeItem, index: Int) -> some View {

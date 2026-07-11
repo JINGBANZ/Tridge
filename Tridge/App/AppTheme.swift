@@ -28,8 +28,6 @@ enum AppTheme {
 
     /// Solid field/card surface: #FFFFFF light / #18231D dark.
     static let surfaceSolid = Color(light: 0xFFFFFF, dark: 0x18231D)
-    /// Hairline borders: ink at 14%, both schemes.
-    static let hairline = ink.opacity(0.14)
 
     static func color(for urgency: Urgency) -> Color {
         switch urgency {
@@ -99,11 +97,10 @@ enum AppTheme {
     static let scanButtonClearance: CGFloat = scanButtonSize + 40
     static let dropZoneHeight: CGFloat = 78
     static let dropZoneRadius: CGFloat = 20
-    /// Home search field (item-grouping-search.html §6.2 mock).
-    static let searchFieldRadius: CGFloat = 10
-    static let searchFieldPadding = (h: CGFloat(11), v: CGFloat(7))
+    /// Home search field (item-grouping-search.html §6.2, owner-revised
+    /// 2026-07-11): a full-bleed band under the header, no border or radius.
+    static let searchFieldPadding = (h: CGFloat(20), v: CGFloat(10))
     static let searchFieldIconGap: CGFloat = 7
-    static let searchFieldMargin = (h: CGFloat(20), top: CGFloat(8))
 
     // MARK: Type
 

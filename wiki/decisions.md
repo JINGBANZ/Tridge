@@ -470,10 +470,13 @@
 ### 2026-07-11 — Home search is a custom pinned field, not the system `.searchable` drawer
 
 - **Chose:** The home grid's pull-down search (from the grouping entry above) is a hand-rolled
-  field pinned below the Tridge header, revealed by an `onScrollGeometryChange` threshold on the
-  rubber-band overscroll and hidden again once the user scrolls back into the list with an empty,
-  unfocused query. The `NavigationStack` around `HomeView` went with the drawer — nothing on the
-  home screen navigates.
+  field pinned below the Tridge header — a full-bleed borderless band, owner-revised from the
+  §6.2 bordered-box mock — revealed by an `onScrollGeometryChange` threshold on the rubber-band
+  overscroll and hidden again once the user scrolls back into the list with an empty, unfocused
+  query. Revealing never focuses the field (the user taps to type, as in the system pull-down
+  search), and the auto-hide condition is re-checked whenever scroll depth, focus, or text
+  changes — not only at the moment the scroll threshold is crossed. The `NavigationStack` around
+  `HomeView` went with the drawer — nothing on the home screen navigates.
 - **Why:** The `.searchable(placement: .navigationBarDrawer)` drawer is scroll-linked: UIKit
   resizes the (even hidden) navigation-bar area continuously during grid scrolls, shifting the top
   safe-area inset and re-laying-out the header plus the whole `LazyVGrid` every frame — the home
@@ -482,4 +485,7 @@
   it below. Boolean-mapped scroll observers keep the replacement free of per-frame work.
 - **Rejected:** Keeping `.searchable` with `displayMode: .always` (field permanently visible —
   breaks the single-control home face); a toolbar search button (extra chrome the design reversals
-  forbid); observing raw offsets to drive the reveal (reintroduces per-frame state writes).
+  forbid); observing raw offsets to drive the reveal (reintroduces per-frame state writes);
+  auto-focusing the field on reveal (presenting the keyboard mid-drag fights
+  `scrollDismissesKeyboard` — the same drag instantly dismisses it — which made the reveal stutter
+  and left a focused-field race that swallowed the auto-hide crossing, freezing the bar shown).
