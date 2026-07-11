@@ -22,6 +22,7 @@ struct SettingsSheet: View {
                             Text(hourLabel(hour)).tag(hour)
                         }
                     }
+                    .accessibilityIdentifier("settings.notificationHour")
                 }
 
                 Section {
@@ -40,6 +41,7 @@ struct SettingsSheet: View {
                         Label(diagnosticsLabel, systemImage: diagnosticsIcon)
                     }
                     .disabled(collectingDiagnostics)
+                    .accessibilityIdentifier("settings.copyDiagnostics")
                 } header: {
                     Text("Diagnostics")
                 } footer: {

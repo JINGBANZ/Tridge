@@ -62,6 +62,7 @@ struct DropZoneBar: View {
         }
         .scaleEffect(isHot ? 1.04 : 1)
         .shadow(color: isHot ? AppTheme.brandGreen.opacity(0.25) : .clear, radius: 9, y: 6)
+        .accessibilityIdentifier(zone == .ate ? "home.dropZone.ate" : "home.dropZone.tossed")
         .background {
             GeometryReader { proxy in
                 Color.clear.preference(key: DropZoneFramesKey.self,

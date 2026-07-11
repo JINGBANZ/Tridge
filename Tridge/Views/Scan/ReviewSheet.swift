@@ -38,6 +38,7 @@ struct ReviewSheet: View {
                         .shadow(color: AppTheme.brandGreen.opacity(0.35), radius: 8, y: 6)
                 }
                 .disabled(model.reviewItems.isEmpty)
+                .accessibilityIdentifier("review.confirmButton")
                 .padding(.horizontal, 14)
                 .padding(.bottom, 6)
             }

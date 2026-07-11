@@ -21,6 +21,7 @@ struct ItemSprite: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(item.name), \(accessibilityFreshness(daysLeft: daysLeft))")
+        .accessibilityIdentifier("home.item.\(item.normalizedName)")
     }
 
     private func art(daysLeft: Int) -> some View {
