@@ -38,8 +38,8 @@
           "shelf_life_days": { "type": "integer" },
           "storage": {
             "type": "string",
-            "description": "Where this purchase belongs once home: \"freezer\" for items sold frozen or normally frozen at home, otherwise \"fridge\".",
-            "enum": ["fridge", "freezer"]
+            "description": "Where this purchase belongs once home: \"freezer\" for items sold frozen or normally frozen at home, \"pantry\" for shelf-stable goods kept at room temperature, otherwise \"fridge\".",
+            "enum": ["fridge", "freezer", "pantry"]
           }
         }
       }

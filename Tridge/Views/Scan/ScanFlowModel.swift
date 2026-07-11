@@ -26,8 +26,8 @@ final class ScanFlowModel {
         var receiptText: String?
         var quantity: Int
         var expiryDate: Date
-        /// The LLM's guess (fridge/freezer), editable via the row's chip —
-        /// including to pantry, which scans never produce on their own.
+        /// The LLM's guess (fridge, freezer, or pantry), editable via the
+        /// row's chip.
         var storage: StorageLocation
         /// Set when the user touches the date chip; such dates save as
         /// `.userSet` and are never overwritten by later LLM guesses.

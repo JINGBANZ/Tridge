@@ -46,8 +46,8 @@ describe("receipt-schema.json", () => {
     expect(itemSchema.required).toEqual(["id", "name", "receipt_text", "quantity", "shelf_life_days", "storage"]);
   });
 
-  it("constrains storage to the scan-scope locations (pantry is manual-only)", () => {
-    expect(itemSchema.properties.storage.enum).toEqual(["fridge", "freezer"]);
+  it("constrains storage to the app's three locations", () => {
+    expect(itemSchema.properties.storage.enum).toEqual(["fridge", "freezer", "pantry"]);
   });
 
   it("carries the full 100-id curated vocabulary, unknown last", () => {

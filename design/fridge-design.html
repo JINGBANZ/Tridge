@@ -432,7 +432,7 @@
       <tr><td><code>receiptText</code></td><td>String?</td><td>raw line from receipt ("TJ WHL MLK 1GAL")</td></tr>
       <tr><td><code>artKey</code></td><td>String</td><td>an <code>ItemID</code> rawValue from the curated vocabulary ("milk"); <code>Artwork</code> resolves id → emoji (v1) or a custom image later, unrecognized keys fall back to <code>unknown</code>'s art</td></tr>
       <tr><td><code>quantity</code></td><td>Int</td><td>≥1; consume decrements, removes at 0</td></tr>
-      <tr><td><code>storage</code></td><td>enum</td><td><code>fridge · freezer · pantry</code>; scans save the LLM's fridge/freezer guess, manual adds pick one in the sheet (defaults to fridge) — no app-wide default, editable per item</td></tr>
+      <tr><td><code>storage</code></td><td>enum</td><td><code>fridge · freezer · pantry</code>; scans save the LLM's guess, manual adds pick one in the sheet (defaults to fridge) — no app-wide default, editable per item</td></tr>
       <tr><td><code>purchaseDate</code></td><td>Date</td><td>the day the receipt was scanned (not read from the receipt)</td></tr>
       <tr><td><code>expiryDate</code></td><td>Date</td><td><code>purchaseDate + shelfLifeDays</code> initially</td></tr>
       <tr><td><code>expirySource</code></td><td>enum</td><td><code>llmEstimate · userSet · scannedLabel</code> — never overwrite <code>userSet</code>/<code>scannedLabel</code></td></tr>
@@ -446,7 +446,7 @@
   <section>
     <span class="eyebrow">LLM integration</span>
     <h2>One vision call does receipt → inventory</h2>
-    <p>Direct call to the OpenAI Responses API with model <code>gpt-5-mini</code> (fast, pennies per receipt). The response shape is <b>enforced server-side</b> with a strict Structured Outputs JSON Schema — <code>SCHEMA</code> below, built programmatically in <code>Tridge/Core/ReceiptSchema.swift</code> and test-checked against the Swift DTOs — so replies always match the contract; the prompt carries only the content rules. Per item the LLM returns exactly: <code>id</code> (one of the curated <code>ItemID</code> vocabulary — the schema's enum makes anything else impossible), <code>name</code>, <code>receipt_text</code>, <code>quantity</code>, <code>shelf_life_days</code>, <code>storage</code> (<code>fridge</code> or <code>freezer</code> — scans only extract fridge/freezer food, so pantry is reachable only by hand, via the review sheet's Storage chip, Item Detail, or manual add). No store name, no purchase date (the app stamps the scan day), no emoji (art is resolved from <code>id</code> on-device), no food category (derived on-device from <code>id</code> — see the data model). Unknown-item strategy is tiered: specific id → generic bucket id (<code>fruit</code>, <code>vegetable</code>, <code>meat</code>, …) → <code>unknown</code>, which the review sheet flags amber for fixing; ids added to the vocabulary later decode as <code>unknown</code> on older builds. The user's API key is entered in Settings and stored in Keychain — no backend for v1. Wrap it in an <code>LLMService</code> protocol so a proxy can replace it later.</p>
+    <p>Direct call to the OpenAI Responses API with model <code>gpt-5-mini</code> (fast, pennies per receipt). The response shape is <b>enforced server-side</b> with a strict Structured Outputs JSON Schema — <code>SCHEMA</code> below, built programmatically in <code>Tridge/Core/ReceiptSchema.swift</code> and test-checked against the Swift DTOs — so replies always match the contract; the prompt carries only the content rules. Per item the LLM returns exactly: <code>id</code> (one of the curated <code>ItemID</code> vocabulary — the schema's enum makes anything else impossible), <code>name</code>, <code>receipt_text</code>, <code>quantity</code>, <code>shelf_life_days</code>, <code>storage</code> (<code>fridge</code>, <code>freezer</code>, or <code>pantry</code> — where the purchase belongs at home, editable via the review sheet's Storage chip, Item Detail, or manual add). No store name, no purchase date (the app stamps the scan day), no emoji (art is resolved from <code>id</code> on-device), no food category (derived on-device from <code>id</code> — see the data model). Unknown-item strategy is tiered: specific id → generic bucket id (<code>fruit</code>, <code>vegetable</code>, <code>meat</code>, …) → <code>unknown</code>, which the review sheet flags amber for fixing; ids added to the vocabulary later decode as <code>unknown</code> on older builds. The user's API key is entered in Settings and stored in Keychain — no backend for v1. Wrap it in an <code>LLMService</code> protocol so a proxy can replace it later.</p>
     <pre>POST https://api.openai.com/v1/responses
 headers: Authorization: Bearer &lt;key&gt; · content-type: application/json
 body: { "model": "gpt-5-mini", "max_output_tokens": 4000, "reasoning": { "effort": "low" },
@@ -457,21 +457,18 @@ body: { "model": "gpt-5-mini", "max_output_tokens": 4000, "reasoning": { "effort
           { "type": "input_image", "image_url": "data:image/jpeg;base64,&lt;receipt&gt;" },
           { "type": "input_text", "text": PROMPT }]}] }</pre>
     <p><b>PROMPT</b> (verbatim — content rules only; the JSON shape and allowed <code>id</code> values come from SCHEMA):</p>
-    <pre>This is a grocery store receipt. Extract the FOOD and BEVERAGE items that
-belong in a fridge or freezer.
+    <pre>This is a grocery store receipt. Extract every FOOD and BEVERAGE item.
 Rules:
 - Expand abbreviations into clean, human-friendly names ("WHL MLK 1GAL" → "Whole Milk").
 - "name" is the bare food name and nothing else — strip weights, sizes, counts,
   prices, packaging, and brand or marketing words ("Jalapeño Pepper (0.34 lb)" →
   "Jalapeño Pepper", "Local Eggs (dozen) — 6 dozens" → "Eggs").
 - Skip non-food lines: tax, totals, coupons, bags, household goods, loyalty points.
-- Skip food and drink that is NOT normally refrigerated or frozen — shelf-stable
-  pantry goods kept at room temperature (canned goods, dry pasta and rice, chips
-  and crackers, cookies, bottled water, soda, coffee, tea, unopened condiments).
-  Only include items a person would actually store in the fridge or freezer.
 - If one line has a quantity multiplier, set quantity accordingly.
 - For "storage", say where the item belongs once home: "freezer" for items
-  sold frozen or normally kept frozen, "fridge" for everything else.
+  sold frozen or normally kept frozen, "pantry" for shelf-stable goods kept at
+  room temperature (canned goods, dry pasta and rice, chips and crackers,
+  unopened condiments), "fridge" for everything else.
 - Estimate each item's typical shelf life in days from purchase, assuming it
   is stored appropriately at home (refrigerated promptly where applicable).
 - For "id", pick the closest match from the allowed values. Prefer a specific
@@ -548,7 +545,7 @@ Rules:
       <li>Items render with no background frame — art + shadow directly on the gradient; pills green ≥3d, amber 1–2d, red today/expired; expired art desaturates; app badge equals expired count.</li>
       <li>Home has exactly one control at the bottom: the circular scan button. No tab bar.</li>
       <li>The header's filter glyph opens the Filter sheet (Storage + Food Category chip groups); selections filter the grid live, tint the glyph green with a dot, show as removable tags under the header, and drive the header count. A no-match filter shows the "Nothing matches" ghost; an empty fridge shows no filter UI and clears any active filter.</li>
-      <li>Scanned items land in the LLM's storage guess (fridge or freezer; pantry never comes from a scan); review rows show a display-only Food Category chip and an editable Storage chip; every item's Food Category derives from its art's <code>ItemID</code>.</li>
+      <li>Scanned items land in the LLM's storage guess (fridge, freezer, or pantry); review rows show a display-only Food Category chip and an editable Storage chip; every item's Food Category derives from its art's <code>ItemID</code>.</li>
       <li>Long-press-dragging an item dims the grid and reveals the two drop zones; dropping on "Ate it"/"Tossed" fires a haptic and updates status; ×N quantity decrements before removal; releasing elsewhere cancels.</li>
       <li>Editing a date in Item Detail sets <code>expirySource = userSet</code>, reschedules both notifications, and survives relaunch.</li>
       <li>"Scan date label" reads a printed "BEST BY 07/12/26" via on-device OCR and offers it for confirmation.</li>

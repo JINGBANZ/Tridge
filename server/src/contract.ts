@@ -10,21 +10,18 @@ export const SCHEMA_NAME = "parsed_receipt";
 
 // Content rules only — the response shape and the allowed "id" values are
 // enforced by receipt-schema.json.
-export const PROMPT = `This is a grocery store receipt. Extract the FOOD and BEVERAGE items that
-belong in a fridge or freezer.
+export const PROMPT = `This is a grocery store receipt. Extract every FOOD and BEVERAGE item.
 Rules:
 - Expand abbreviations into clean, human-friendly names ("WHL MLK 1GAL" → "Whole Milk").
 - "name" is the bare food name and nothing else — strip weights, sizes, counts,
   prices, packaging, and brand or marketing words ("Jalapeño Pepper (0.34 lb)" →
   "Jalapeño Pepper", "Local Eggs (dozen) — 6 dozens" → "Eggs").
 - Skip non-food lines: tax, totals, coupons, bags, household goods, loyalty points.
-- Skip food and drink that is NOT normally refrigerated or frozen — shelf-stable
-  pantry goods kept at room temperature (canned goods, dry pasta and rice, chips
-  and crackers, cookies, bottled water, soda, coffee, tea, unopened condiments).
-  Only include items a person would actually store in the fridge or freezer.
 - If one line has a quantity multiplier, set quantity accordingly.
 - For "storage", say where the item belongs once home: "freezer" for items
-  sold frozen or normally kept frozen, "fridge" for everything else.
+  sold frozen or normally kept frozen, "pantry" for shelf-stable goods kept at
+  room temperature (canned goods, dry pasta and rice, chips and crackers,
+  unopened condiments), "fridge" for everything else.
 - Estimate each item's typical shelf life in days from purchase, assuming it
   is stored appropriately at home (refrigerated promptly where applicable).
 - For "id", pick the closest match from the allowed values. Prefer a specific

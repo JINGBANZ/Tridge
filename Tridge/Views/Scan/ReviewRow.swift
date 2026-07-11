@@ -89,8 +89,7 @@ struct ReviewRow: View {
                 set: { item.quantity = min(max($0, 1), 99) })
     }
 
-    /// The LLM's fridge/freezer guess; the menu includes pantry so a scanned
-    /// item can still be sent there by hand.
+    /// The LLM's storage guess; the menu reassigns it before saving.
     private var storageChip: some View {
         Menu {
             Picker("Storage", selection: $item.storage) {

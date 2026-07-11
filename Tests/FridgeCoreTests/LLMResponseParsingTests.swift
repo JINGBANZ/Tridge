@@ -62,9 +62,13 @@ final class LLMResponseParsingTests: XCTestCase {
     func testStorageDecodes() throws {
         let json = """
         { "items": [{ "id": "shrimp", "name": "Shrimp", "quantity": 1,
-                      "shelf_life_days": 45, "storage": "freezer" }] }
+                      "shelf_life_days": 45, "storage": "freezer" },
+                    { "id": "peanut_butter", "name": "Peanut Butter", "quantity": 1,
+                      "shelf_life_days": 180, "storage": "pantry" }] }
         """
-        XCTAssertEqual(try ReceiptResponseParser.parse(json).items[0].storage, .freezer)
+        let receipt = try ReceiptResponseParser.parse(json)
+        XCTAssertEqual(receipt.items[0].storage, .freezer)
+        XCTAssertEqual(receipt.items[1].storage, .pantry)
     }
 
     func testUnrecognizedStorageFallsBackToFridge() throws {

@@ -437,10 +437,10 @@
 
 - **Chose:** Three linked owner decisions, designed via interactive mocks before implementation.
   (1) **Storage becomes item-level and LLM-guessed:** the scan contract gains a required
-  `storage` field (schema-enforced enum `fridge | freezer` — scans still exclude shelf-stable
-  goods per *2026-07-09/#24's* fridge-inventory scope, so `pantry` is reachable only by hand);
-  the Settings "default storage" concept is removed entirely, and manual add gets its own
-  storage picker (defaults Fridge). (2) **Food Category** (Produce · Dairy · Meat · Seafood ·
+  `storage` field (schema-enforced enum `fridge | freezer | pantry`), and scans extract *every*
+  food/beverage line again — shelf-stable goods come back labeled `pantry` (owner call on PR #27
+  review, reversing PR #24's fridge/freezer-only scan scope); the Settings "default storage"
+  concept is removed entirely, and manual add gets its own storage picker (defaults Fridge). (2) **Food Category** (Produce · Dairy · Meat · Seafood ·
   Bakery · Drinks · Snacks · Condiments · Other) is **derived on-device** from the curated
   `ItemID` via an exhaustive switch (`Tridge/Core/Types.swift`), never stored and never sent
   over the wire — existing items pick it up with no migration, re-picking art is how a user
@@ -461,5 +461,6 @@
   gesture); a native pull-down filter menu (nine categories in a submenu, two round-trips to
   combine axes); LLM-returned food category (a second enum to keep in sync server-side for no
   gain); storing `foodCategory` on `FridgeItem` (a migration plus a second source of truth that
-  drifts from the art); letting scans return `pantry` (contradicts the fridge/freezer-only scan
-  scope).
+  drifts from the art); keeping the fridge/freezer-only scan scope with `pantry` manual-only
+  (the first cut of this change — with a pantry section on screen, silently dropping the pantry
+  half of a receipt reads as a broken scan).

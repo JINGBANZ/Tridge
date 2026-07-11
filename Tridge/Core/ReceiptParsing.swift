@@ -9,9 +9,8 @@ public struct ParsedItem: Equatable, Sendable {
     public var receiptText: String?
     public var quantity: Int
     public var shelfLifeDays: Int
-    /// Where this purchase belongs at home. Scans only extract fridge/freezer
-    /// food, so the LLM says which of the two; pantry exists for manual adds
-    /// and user edits only.
+    /// Where this purchase belongs at home — the LLM's guess (fridge, freezer,
+    /// or pantry), editable in the review sheet.
     public var storage: StorageLocation
 
     public init(id: ItemID, name: String, receiptText: String?, quantity: Int,
