@@ -34,26 +34,39 @@ platform :ios do
     # GITHUB_RUN_NUMBER only ever increases, so it needs no state in the repo.
     build_number = ENV.fetch("BUILD_NUMBER")
 
-    build_app(
-      project: "Tridge.xcodeproj",
-      scheme: "Tridge",
-      configuration: "Release",
-      xcargs: [
-        "-allowProvisioningUpdates",
-        "-authenticationKeyID #{key_id}",
-        "-authenticationKeyIssuerID #{issuer_id}",
-        "-authenticationKeyPath #{key_path}",
-        "CURRENT_PROJECT_VERSION=#{build_number}",
-        "DEVELOPMENT_TEAM=#{team_id}",
-      ].join(" "),
-      export_options: {
-        method: "app-store",
-        teamID: team_id,
-        signingStyle: "automatic",
-      },
-      output_directory: "build",
-      output_name: "Tridge.ipa",
-    )
+    2.times do |attempt|
+      begin
+        build_app(
+          project: "Tridge.xcodeproj",
+          scheme: "Tridge",
+          configuration: "Release",
+          xcargs: [
+            "-allowProvisioningUpdates",
+            "-authenticationKeyID #{key_id}",
+            "-authenticationKeyIssuerID #{issuer_id}",
+            "-authenticationKeyPath #{key_path}",
+            "CURRENT_PROJECT_VERSION=#{build_number}",
+            "DEVELOPMENT_TEAM=#{team_id}",
+          ].join(" "),
+          export_options: {
+            method: "app-store",
+            teamID: team_id,
+            signingStyle: "automatic",
+          },
+          output_directory: "build",
+          output_name: "Tridge.ipa",
+        )
+        break
+      rescue => error
+        raise error if attempt == 1
+
+        # Apple's provisioning service occasionally times out while Xcode is
+        # obtaining a cloud-managed profile. Retry the archive, never upload,
+        # so a successful upload cannot be duplicated.
+        UI.important("Archive failed; retrying once in 15 seconds")
+        sleep(15)
+      end
+    end
 
     upload_to_testflight(
       api_key: api_key,

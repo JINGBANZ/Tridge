@@ -14,8 +14,9 @@ jobs:
     # TestFlight uploads built with an older SDK, so macos-15 (Xcode 16 / iOS 18
     # SDK) can't be used for the release build.
     runs-on: macos-26
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # Fail early with actionable guidance if the release secrets are missing,
       # rather than deep inside a fastlane stack trace.
