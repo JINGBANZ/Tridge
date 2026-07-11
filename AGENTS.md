@@ -68,10 +68,10 @@ Worker (TypeScript) that holds the OpenAI key; the app POSTs the receipt JPEG to
   Structure pure-logic code (LLM response parsing, urgency rules, date-regex parsing) into targets
   that build and pass under `swift test` on Linux.
 - The OpenAI key is held server-side as a Cloudflare Worker secret (`wrangler secret put`, run from
-  a dev machine) — never on the device or in the repo. The app authenticates to the worker with the
-  `SCAN_API_TOKEN` bearer token, bundled at build time as the gitignored resource
-  `Tridge/Resources/ScanAPIToken.txt` (CI writes it from the secret; create it locally to scan);
-  no secret ever enters the repo, CI, or committed build config.
+  a dev machine) — never on the device or in the repo. The app authenticates to the worker with
+  Apple App Attest (`AppAttestAuthorizer`), whose Secure Enclave key is generated on-device at
+  runtime — no auth secret ships in the app or CI. The local receipt smoke harness still uses the
+  worker's `SCAN_API_TOKEN` (from env/`.env`), which never enters the app binary.
 - `server/` (the scan API worker) needs Node 22+; `npm install` inside `server/`.
 
 ## Commands
@@ -108,9 +108,10 @@ Worker (TypeScript) that holds the OpenAI key; the app POSTs the receipt JPEG to
 
 ## Security & safety
 
-- Never commit an OpenAI API key, the worker bearer token, or any receipt images with personal
-  data. The OpenAI key lives only in Cloudflare Worker secrets (`server/`); the app's
-  `SCAN_API_TOKEN` lives only in the gitignored resource `Tridge/Resources/ScanAPIToken.txt`.
+- Never commit an OpenAI API key, the worker bearer token, the Apple team id, or any receipt images
+  with personal data. The OpenAI key and `SCAN_API_TOKEN` live only in Cloudflare Worker secrets
+  (`server/`); `APPLE_TEAM_ID` lives in both Cloudflare Worker secrets (App Attest) and GitHub repo
+  secrets (TestFlight CI). The app ships no auth secret — it uses Apple App Attest.
 
 ## Gotchas
 

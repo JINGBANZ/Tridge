@@ -17,14 +17,16 @@ browser. Agents: start with [`AGENTS.md`](AGENTS.md), then [`wiki/index.md`](wik
   fill in `SCAN_API_TOKEN`, then `swift test --filter ReceiptScanSmokeTests`. See
   [`Tests/ReceiptScanSmokeTests/Fixtures/README.md`](Tests/ReceiptScanSmokeTests/Fixtures/README.md)
   for how to add your own receipt images + expected inventory.
-- iOS app (macOS + Xcode 16): drop the worker `SCAN_API_TOKEN` into
-  `Tridge/Resources/ScanAPIToken.txt` (gitignored — `printf '%s' "$TOKEN" > Tridge/Resources/ScanAPIToken.txt`),
-  then open `Tridge.xcodeproj`, or
-  `xcodebuild -scheme Tridge -destination 'generic/platform=iOS Simulator' build`
+- iOS app (macOS + Xcode 16): open `Tridge.xcodeproj`, or
+  `xcodebuild -scheme Tridge -destination 'generic/platform=iOS Simulator' build`.
+  No build-time secret — the app authenticates to the scan worker with Apple App
+  Attest, whose key is generated on-device at runtime.
 - Runtime: no user setup — scanning goes through the scan-API worker, which holds the
-  OpenAI key. The app carries only the worker bearer token, bundled from
-  `Tridge/Resources/ScanAPIToken.txt` at build time (a build without it reports
-  "Scanning isn't set up" instead of scanning).
+  OpenAI key. The app proves it's a genuine Tridge install with Apple App Attest and
+  ships no token. App Attest runs only on real hardware, so the Simulator can't
+  live-scan (use "Try sample receipt" / "Seed the App" / manual add there, or a
+  TestFlight build to scan for real). One worker serves every build today; a
+  dedicated production worker can be added later (`server/README.md`).
 
 ## Trying the app
 
@@ -54,8 +56,10 @@ paid **Apple Developer Program** membership ($99/yr).
    - `ASC_KEY_P8` — the base64 of the `.p8` file: `base64 -i AuthKey_XXXX.p8`
    - `APPLE_TEAM_ID` — your 10-character Team ID (developer.apple.com → **Membership**)
 
-   (Live scanning also needs the existing `SCAN_API_TOKEN` secret; without it the
-   build still ships but scans report "Scanning isn't set up".)
+   (No scan secret ships in the app — it authenticates with Apple App Attest.
+   Live scanning does need the scan worker deployed; the same `APPLE_TEAM_ID`
+   above is also the worker's App Attest team-id secret. See
+   [`server/README.md`](server/README.md).)
 5. Register at least **one device**: developer.apple.com → **Certificates,
    Identifiers & Profiles** → **Devices** → **+**, paste your iPhone's UDID.
    Cloud-managed signing needs a device on the team to mint the archive's
@@ -84,8 +88,8 @@ sample receipt" instead, and "Seed the App" fills the fridge with no scan at all
 If the `APPETIZE_API_TOKEN` repo secret is set, **pull requests** get their own
 Appetize preview automatically: CI comments the link on the PR and updates it on
 every push (the preview app is deleted when the PR closes) — handy for reviewing
-UI changes before merge. Scanning works here too, since the worker bearer token
-is compiled into the build from `SCAN_API_TOKEN`.
+UI changes before merge. Live scanning does **not** work here — Apple App Attest
+requires real hardware — so use "Try sample receipt" / "Seed the App" / manual add.
 
 ### With a Mac (Xcode 16+)
 

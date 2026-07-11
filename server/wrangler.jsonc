@@ -1,10 +1,15 @@
-// Test environment of the receipt-scan API. The future production deployment
-// gets its own environment (separate URL, secrets, STORE_RESPONSES=false,
-// App Attest verification) — see wiki/decisions.md → 2026-07-07 entries.
+// One worker for now: `tridge-scan-api-test` (`wrangler deploy`). It serves both
+// Xcode-dev builds and TestFlight — App Attest with `APP_ATTEST_ALLOW_DEV=true`,
+// plus a static bearer token for the local smoke harness. `store:true` and every
+// other behavior here is already the production posture, so adding a dedicated
+// prod worker later is purely additive — see server/README.md → "Adding a
+// production worker later" (add an `env.prod` block, its own KV + OpenAI key,
+// set APP_ATTEST_ALLOW_DEV=false, and switch ScanAPIConfig to a build-config URL).
 //
-// Secrets (never here; set per environment with `wrangler secret put`):
-//   OPENAI_API_KEY  — dedicated OpenAI *test* project key with a budget cap
-//   SCAN_API_TOKEN  — app bearer token; generate: openssl rand -base64 32
+// Secrets (never here; set with `wrangler secret put`):
+//   OPENAI_API_KEY  — dedicated OpenAI project key with a budget cap
+//   APPLE_TEAM_ID   — Apple Developer team id for com.tridge.app (App Attest)
+//   SCAN_API_TOKEN  — app bearer token for the smoke harness (openssl rand -base64 32)
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "tridge-scan-api-test",
@@ -17,17 +22,28 @@
     "head_sampling_rate": 1
   },
   "vars": {
-    // "true" only in the test environment: lets failed scans be inspected in
-    // OpenAI's dashboard. Production must set "false" — receipts are personal data.
-    "STORE_RESPONSES": "true"
+    "APPLE_BUNDLE_ID": "com.tridge.app",
+    // Accept development-environment attestations (Xcode-signed dev builds on a
+    // real device) in addition to production (TestFlight/App Store). A dedicated
+    // prod worker later sets this "false" to accept production attestations only.
+    "APP_ATTEST_ALLOW_DEV": "true",
+    "DEVICE_DAILY_QUOTA": "10"
   },
-  // 10 scans/min per client IP — generous for a human scanning receipts,
-  // tight for abuse. Counted per Cloudflare location (eventually consistent).
+  // Per-device App Attest registry (public key + sign counter) and per-device
+  // quota counters. Created with `wrangler kv namespace create DEVICE_KV`; the
+  // id is account-scoped and non-secret, so it lives in config.
+  "kv_namespaces": [
+    { "binding": "DEVICE_KV", "id": "3b653b7cf9684f4486c6cfa2c3aba208" }
+  ],
+  // 20 requests/min per client IP, across every route (scan + attest). Generous
+  // for a human scanning receipts (the per-device 10/day quota is the real usage
+  // cap); this mainly bounds burst abuse of the unauthenticated attest endpoints.
+  // Counted per Cloudflare location (eventually consistent).
   "ratelimits": [
     {
       "name": "SCAN_RATE_LIMIT",
       "namespace_id": "1001",
-      "simple": { "limit": 10, "period": 60 }
+      "simple": { "limit": 20, "period": 60 }
     }
   ]
 }

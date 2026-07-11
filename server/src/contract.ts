@@ -29,16 +29,15 @@ Rules:
   and name "Unknown item".`;
 
 /** Responses API request body for one receipt image. */
-export function buildOpenAIRequest(imageBase64: string, store: boolean): unknown {
+export function buildOpenAIRequest(imageBase64: string): unknown {
   return {
     model: MODEL,
     // Generous cap: gpt-5 reasoning tokens count against it.
     max_output_tokens: 4000,
     reasoning: { effort: "low" },
-    // true only in the test environment, so failed scans can be inspected in
-    // OpenAI's dashboard; the production environment will set it to false
-    // (receipts are personal data).
-    store,
+    // Retain the request at OpenAI so failed scans stay inspectable in the
+    // dashboard. Same in every environment (see wiki/decisions.md → 2026-07-10).
+    store: true,
     input: [
       {
         role: "user",

@@ -42,13 +42,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Full logic test suite
         run: swift test
-      # The bearer token the app uses to reach the scan-API worker, written into
-      # the bundled resource ScanAPIToken.txt (gitignored) that ScanAPIConfig
-      # reads at runtime. Empty when the SCAN_API_TOKEN secret isn't set — the
-      # build still succeeds; scanning then reports "not set up" rather than
-      # 401-ing. GitHub masks the value in logs.
-      - name: Write scan-API token resource
-        run: printf '%s' "${{ secrets.SCAN_API_TOKEN }}" > Tridge/Resources/ScanAPIToken.txt
+      # The app authenticates to the scan worker with Apple App Attest, which
+      # needs no build-time secret (and can't run on the Simulator anyway).
       # Debug on purpose: keeps the DEBUG-only "Try sample receipt" path in test builds.
       - name: Build for iOS Simulator
         run: >
@@ -124,7 +119,7 @@ jobs:
 
           **https://appetize.io/app/${KEY}** — updated for ${SHA}.
 
-          Sessions start from a clean device — no setup needed: tap the scan button for \"Try sample receipt\", or \"Seed the App\" to fill the fridge instantly. (Live scanning needs a build compiled with SCAN_API_TOKEN.)"
+          Sessions start from a clean device — no setup needed: tap the scan button for \"Try sample receipt\", or \"Seed the App\" to fill the fridge instantly. (Live scanning needs Apple App Attest, which runs only on a real device — use a TestFlight build.)"
           cid=$(gh api "repos/${{ github.repository }}/issues/${PR}/comments" --paginate \
             --jq "[.[] | select(.body | startswith(\"${marker}\"))][0].id // empty")
           if [ -n "$cid" ]; then

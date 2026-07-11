@@ -1,5 +1,8 @@
 # Local-only secrets for `wrangler dev` — copy to .dev.vars (gitignored).
 # Use a dedicated OpenAI test-project key with a budget cap, never a prod key.
 OPENAI_API_KEY=sk-proj-your-test-key
-# Generate with: openssl rand -base64 32
+# Apple Developer team id for com.tridge.app (App Attest verification).
+APPLE_TEAM_ID=YOURTEAMID
+# Test env only — the app uses App Attest, not this token. It authenticates the
+# local receipt smoke harness. Generate with: openssl rand -base64 32
 SCAN_API_TOKEN=replace-with-a-random-token

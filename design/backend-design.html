@@ -203,12 +203,12 @@
   <div class="flow">
     <div class="node">
       <b>iOS app</b>
-      <span>JPEG ≤ 1568 px · <code>ProxyLLMService</code> is the only scan path (no OpenAI key on device); bearer token baked in at build time</span>
+      <span>JPEG ≤ 1568 px · <code>ProxyLLMService</code> is the only scan path (no OpenAI key on device); each scan signed with Apple App Attest (no shipped token)</span>
     </div>
-    <div class="arrow"><b>→</b>POST /v1/receipt-scan<br>image/jpeg + bearer token</div>
+    <div class="arrow"><b>→</b>POST /v1/receipt-scan<br>image/jpeg + App Attest assertion</div>
     <div class="node hl">
-      <b>Worker (test env)</b>
-      <span>holds OpenAI key · owns prompt, model, schema, retry · rate limits · <code>store:true</code> for debugging</span>
+      <b>Worker</b>
+      <span>holds OpenAI key · owns prompt, model, schema, retry · rate limits + per-device quota · <code>store:true</code></span>
     </div>
     <div class="arrow"><b>→</b>Responses API<br>gpt-5-mini · strict schema</div>
     <div class="node">
@@ -219,10 +219,11 @@
 
   <h3>How a request is protected — the gauntlet, in code order</h3>
   <div class="gauntlet">
-    <div class="gate"><span class="status">404·405</span><div><b>Route + method</b><span>only <code>POST /v1/receipt-scan</code> exists</span></div></div>
-    <div class="gate"><span class="status">429</span><div><b>Per-IP rate limit — 10 scans/min</b><span>Workers rate-limiting binding, keyed by <code>CF-Connecting-IP</code>. Checked <em>before</em> auth so the token can't be brute-forced faster than 10 tries/min. <code>Retry-After: 60</code>.</span></div></div>
-    <div class="gate"><span class="status">401</span><div><b>Bearer token, compared timing-safely</b><span><code>SCAN_API_TOKEN</code> worker secret; SHA-256 digests + <code>timingSafeEqual</code> — no length or prefix leaks.</span></div></div>
+    <div class="gate"><span class="status">429</span><div><b>Per-IP rate limit — 20 req/min</b><span>Workers rate-limiting binding, keyed by <code>CF-Connecting-IP</code>. The outermost layer on <em>every</em> route — the unauthenticated attest endpoints (KV writes + X.509/ECDSA work) are throttled too, and credentials can't be brute-forced faster than 20 tries/min. <code>Retry-After: 60</code>.</span></div></div>
+    <div class="gate"><span class="status">404·405</span><div><b>Route + method</b><span><code>POST</code> only; <code>/v1/receipt-scan</code> plus the attest endpoints when App Attest is configured.</span></div></div>
     <div class="gate"><span class="status">415·413·400</span><div><b>Strict input validation</b><span><code>image/jpeg</code> only; 8 MB cap enforced via Content-Length before buffering, re-checked after; empty bodies rejected.</span></div></div>
+    <div class="gate"><span class="status">401</span><div><b>Client auth — App Attest (prod) or bearer token (test)</b><span>Prod: per-scan App Attest assertion over the image bytes + strictly-increasing sign counter (verified with <code>node-app-attest</code>; device key + counter in <code>DEVICE_KV</code>). Test: static <code>SCAN_API_TOKEN</code>, SHA-256 digests + <code>timingSafeEqual</code>. Registration: <code>POST /v1/attest/challenge</code> → <code>POST /v1/attest</code>. Auth binds to the buffered image, so it runs just after validation, before any billable work.</span></div></div>
+    <div class="gate"><span class="status">429</span><div><b>Per-device daily quota</b><span>KV counter keyed by the attested device (10 scans/day), on top of the per-IP limit.</span></div></div>
     <div class="gate final"><span class="status pass">200</span><div><b>Proxy the scan</b><span>base64 → Responses API with strict schema; refusal/unparseable retried once then <code>422</code>; upstream errors → <code>502</code> with the OpenAI body logged, never echoed.</span></div></div>
   </div>
 
@@ -249,8 +250,8 @@
     <div class="col">
       <h3>App</h3>
       <ul class="filetree">
-        <li><code>LLMService</code> protocol → <code>ProxyLLMService</code> — the one scan path (single construction site in <code>ScanFlowModel</code>)</li>
-        <li><code>ScanAPIConfig</code> — worker URL + build-injected bearer token (bundled resource <code>Tridge/Resources/ScanAPIToken.txt</code>)</li>
+        <li><code>LLMService</code> protocol → <code>ProxyLLMService</code> (pluggable <code>ScanRequestAuthorizer</code>) — the one scan path (single construction site in <code>ScanFlowModel</code>)</li>
+        <li><code>ScanAPIConfig</code> — single worker URL (build-config split when a prod worker is added); <code>AppAttestAuthorizer</code> signs each scan with Apple App Attest (no shipped token)</li>
         <li><code>ReceiptResponseParser</code>, DTOs, urgency — stay in FridgeCore</li>
         <li>No OpenAI key, Keychain, or Settings key field — the prompt/schema live only server-side</li>
       </ul>
@@ -259,7 +260,10 @@
 
   <h2>API contract (implemented)</h2>
 <pre><code>POST /v1/receipt-scan
-Authorization: Bearer &lt;SCAN_API_TOKEN&gt;      # worker secret; openssl rand -base64 32
+X-Attest-Key-Id: &lt;keyId&gt;                      # App Attest (prod + on-device test builds)
+X-Attest-Assertion: &lt;base64&gt;                  # assertion over the image bytes
+  # — or, for the local smoke harness only —
+Authorization: Bearer &lt;SCAN_API_TOKEN&gt;      # test env worker secret
 Content-Type: image/jpeg                     # raw body, ≤ 8 MB
 
 200 OK  application/json                     # exactly what the app parses today
@@ -267,31 +271,36 @@ Content-Type: image/jpeg                     # raw body, ≤ 8 MB
     "receipt_text": "WHL MLK", "quantity": 1, "shelf_life_days": 7 } ] }
 
 400 empty body                413 body &gt; 8 MB
-401 bad/missing token         415 not image/jpeg
+401 bad auth / unregistered   415 not image/jpeg
 404/405 wrong route/method    422 unparseable receipt or refusal (after 1 retry)
-429 rate limited (Retry-After: 60)           502 OpenAI failure (body never echoed)</code></pre>
+429 IP rate limit or device quota (Retry-After)   502 OpenAI failure (body never echoed)
+
+# App Attest registration (once per install):
+POST /v1/attest/challenge  → { "challenge": "&lt;base64&gt;" }
+POST /v1/attest            { keyId, attestation, challenge }  → { "ok": true }</code></pre>
   <p class="small">
     All errors are <code>{"error": "&lt;human-readable message&gt;"}</code>. The 200 body is passed
     through from the schema-constrained model reply, so the app's existing parser (defaults,
     clamps, unknown-id fallback) keeps working unchanged.
   </p>
 
-  <h2>Test environment vs production</h2>
+  <h2>One worker now vs a future production split</h2>
   <div class="tablewrap">
     <table>
-      <tr><th></th><th>Test env — deployed now (<code>myfridge-scan-api-test</code>)</th><th>Production — separate endpoint, later</th></tr>
-      <tr><td class="provider">Client auth</td><td>Static bearer token (rotatable secret)</td><td>Apple App Attest assertion per scan + per-device quotas</td></tr>
-      <tr><td class="provider">OpenAI <code>store</code></td><td><code>true</code> — owner's call, so failed test scans are inspectable in OpenAI's dashboard</td><td><code>false</code> — receipts are personal data</td></tr>
-      <tr><td class="provider">OpenAI key</td><td>Dedicated test-project key, budget-capped</td><td>Separate prod key, isolated budget + alerts</td></tr>
-      <tr><td class="provider">Rate limiting</td><td>10/min per IP (binding)</td><td>Per-device quotas (KV/DO) + tighter IP limits</td></tr>
-      <tr><td class="provider">URL</td><td><code>tridge-scan-api-test.forrestzjb.workers.dev</code></td><td>Custom domain (unlocks WAF rules) — optional</td></tr>
+      <tr><th></th><th>Worker now (<code>tridge-scan-api-test</code>)</th><th>Dedicated prod worker — additive, later</th></tr>
+      <tr><td class="provider">Client auth</td><td>Apple App Attest per scan + per-device quotas (bearer token kept only for the local smoke harness)</td><td>Same — App Attest only (no token secret set)</td></tr>
+      <tr><td class="provider">App Attest env</td><td>development + production accepted (<code>APP_ATTEST_ALLOW_DEV=true</code>) — serves Xcode-dev and TestFlight</td><td>production only (<code>false</code>)</td></tr>
+      <tr><td class="provider">OpenAI <code>store</code></td><td><code>true</code> — scans inspectable in OpenAI's dashboard</td><td><code>true</code> (same)</td></tr>
+      <tr><td class="provider">OpenAI key</td><td>Dedicated project key, budget-capped</td><td>Separate isolated key, own budget + alerts</td></tr>
+      <tr><td class="provider">Rate limiting</td><td>20/min per IP (all routes) + 10/day per-device quota (KV)</td><td>Same; custom domain unlocks WAF (optional)</td></tr>
+      <tr><td class="provider">App URL</td><td>single <code>ScanAPIConfig.baseURL</code></td><td>build-config split (Debug → test, Release → prod)</td></tr>
     </table>
   </div>
   <p class="small muted">
-    Honest limit of the test posture: a static token embedded in any shipped binary is extractable.
-    Acceptable pre-release because the endpoint serves only the owner and the blast radius is a
-    capped test budget; App Attest is the durable fix and slots in behind the same endpoint with no
-    contract change.
+    The worker already runs the production posture, so the prod split is purely additive — a new
+    <code>env.prod</code> block, its own KV + OpenAI key, and a build-config URL in the app. Deferred
+    by choice: one consistent worker is simpler pre-launch. See <code>server/README.md → Adding a
+    production worker later</code>.
   </p>
 
   <h2>Cloudflare best practices applied</h2>
@@ -314,9 +323,18 @@ Content-Type: image/jpeg                     # raw body, ≤ 8 MB
       <b>App switched to <code>ProxyLLMService</code>; BYOK removed</b>
       <p>Done in one step rather than staged. <code>ScanFlowModel</code> now builds a <code>ProxyLLMService</code> (via <code>ScanAPIConfig</code>) as its only scan path. Deleted: the Settings key field, <code>KeychainStore</code>, the direct-OpenAI client, the app-side prompt/schema copies, and the parity test — the contract lives only server-side. The app authenticates with the <code>SCAN_API_TOKEN</code> bearer token, bundled at build time as the gitignored resource <code>Tridge/Resources/ScanAPIToken.txt</code> (a custom <code>Info.plist</code> key is silently dropped by Xcode's generated plist), never committed. The receipt smoke test drives the live worker through <code>ProxyLLMService</code> (token from env/<code>.env</code>, <code>BACKEND_URL</code> to retarget). See the decision log → <i>2026-07-07 — App scans through the worker</i>.</p>
     </li>
-    <li>
-      <b>Production environment</b>
-      <p>Separate Wrangler env/URL: <code>store:false</code>, App Attest verification, per-device quotas, isolated prod key.</p>
+    <li class="done">
+      <b>Production-grade auth (App Attest) on one worker — implemented, PR #21</b>
+      <p>Apple App Attest verification (attestation registration + per-scan assertion, via
+      <code>node-app-attest</code>), per-device quotas, and <code>store:true</code>. Device keys, sign counters, and quota
+      counts live in the <code>DEVICE_KV</code> namespace. The app (<code>AppAttestAuthorizer</code>) signs each scan and
+      ships no static token; the worker keeps a bearer token only for the local smoke harness. One worker
+      (<code>tridge-scan-api-test</code>) serves every build via a single <code>ScanAPIConfig.baseURL</code>. Server suite
+      and <code>swift test</code> green. See <code>wiki/decisions.md → 2026-07-10</code>.</p>
+      <p><b>Owner-only to go live (no code):</b> create the <code>DEVICE_KV</code> namespace and paste its id into
+      <code>wrangler.jsonc</code>; set secrets (<code>OPENAI_API_KEY</code>, <code>APPLE_TEAM_ID</code>,
+      <code>SCAN_API_TOKEN</code>); connect Workers Builds; verify a TestFlight build scans end-to-end. See
+      <code>server/README.md → Deploy</code>.</p>
     </li>
   </ol>
 
