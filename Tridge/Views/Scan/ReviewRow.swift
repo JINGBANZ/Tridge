@@ -24,7 +24,7 @@ struct ReviewRow: View {
                         .foregroundStyle(AppTheme.mutedInk)
                         .lineLimit(1)
                 }
-                HStack(spacing: 4) {
+                HStack(spacing: AppTheme.chipSpacing) {
                     // Display-only: the category follows the item's art.
                     Text(item.foodCategory.label)
                         .font(AppTheme.chipFont)

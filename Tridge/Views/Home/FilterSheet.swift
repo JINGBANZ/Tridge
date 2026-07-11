@@ -63,7 +63,7 @@ struct FilterSheet: View {
         Button(action: select) {
             Text(label)
                 .font(AppTheme.filterChipFont)
-                .foregroundStyle(isSelected ? .white : AppTheme.ink)
+                .foregroundStyle(isSelected ? AppTheme.chipSelectedLabel : AppTheme.ink)
                 .padding(.horizontal, AppTheme.filterChipPadding.h)
                 .padding(.vertical, AppTheme.filterChipPadding.v)
                 .background(isSelected ? AppTheme.brandGreen : AppTheme.mutedInk.opacity(0.12),

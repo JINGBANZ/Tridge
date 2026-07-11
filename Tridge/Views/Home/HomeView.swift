@@ -170,7 +170,7 @@ struct HomeView: View {
                     .font(AppTheme.filterTagXFont)
                     .opacity(0.75)
             }
-            .foregroundStyle(.white)
+            .foregroundStyle(AppTheme.chipSelectedLabel)
             .padding(.horizontal, AppTheme.filterChipPadding.h)
             .padding(.vertical, AppTheme.filterChipPadding.v)
             .background(AppTheme.brandGreen, in: Capsule())

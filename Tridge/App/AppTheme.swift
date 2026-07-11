@@ -23,6 +23,9 @@ enum AppTheme {
     static let scanTop = Color(hex: 0x37985F)
     static let scanBottom = Color(hex: 0x25714A)
 
+    /// Label color on filled (selected/active) chips and tags.
+    static let chipSelectedLabel = Color.white
+
     static func color(for urgency: Urgency) -> Color {
         switch urgency {
         case .fresh: fresh
@@ -56,6 +59,7 @@ enum AppTheme {
     static let heroArtSize: CGFloat = 96
     /// Review-sheet chips (quantity ×N, expiry date, Food Category, Storage).
     static let chipPadding = (h: CGFloat(8), v: CGFloat(3))
+    static let chipSpacing: CGFloat = 4
     /// Filter chips (the filter sheet's options and Home's active-filter tags).
     static let filterChipPadding = (h: CGFloat(12), v: CGFloat(6))
     static let filterChipSpacing: CGFloat = 6
