@@ -14,6 +14,9 @@ export const PROMPT = `This is a grocery store receipt. Extract the FOOD and BEV
 belong in a fridge or freezer.
 Rules:
 - Expand abbreviations into clean, human-friendly names ("WHL MLK 1GAL" → "Whole Milk").
+- "name" is the bare food name and nothing else — strip weights, sizes, counts,
+  prices, packaging, and brand or marketing words ("Jalapeño Pepper (0.34 lb)" →
+  "Jalapeño Pepper", "Local Eggs (dozen) — 6 dozens" → "Eggs").
 - Skip non-food lines: tax, totals, coupons, bags, household goods, loyalty points.
 - Skip food and drink that is NOT normally refrigerated or frozen — shelf-stable
   pantry goods kept at room temperature (canned goods, dry pasta and rice, chips

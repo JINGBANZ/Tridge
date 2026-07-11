@@ -403,9 +403,9 @@
     <div class="tablewrap"><table>
       <tr><th>Screen</th><th>Contents &amp; behavior</th></tr>
       <tr><td><b>1 · Home</b></td><td>Header ("Fridge", unit count (×N quantities summed, not rows), gear icon → Settings sheet) · item grid as specced above · single floating scan button. <br><b>Tap item</b> → Item Detail sheet. <br><b>Long-press + drag item</b> → grid dims, scan button fades out, the two drop zones slide up: <code>😋 Ate it</code> (left) and <code>🗑️ Tossed</code> (right); dropping marks the item consumed/wasted with a haptic — for ×N items it decrements quantity by 1 and the item stays until 0. Releasing outside a zone cancels. <br><b>Empty state:</b> centered ghost item + "Scan your first receipt" + arrow pointing at the scan button.</td></tr>
-      <tr><td><b>2 · Scan / Add</b></td><td>Tapping the scan button opens the add menu — no hidden long-press: <b>Scan with camera</b> (<code>VNDocumentCameraViewController</code>, VisionKit; the entry is hidden where the document camera is unavailable — Simulator, browser-hosted simulators — so the camera is an enhancement, not a requirement) · <b>Choose from library</b> (photo-library picker) · <b>Type to add</b> (manual-add sheet: art, name, quantity stepper, expiry date — saves directly, no API key or LLM call; debug builds add a bundled sample receipt and a preset seed). On capture or photo selection: full-screen progress ("Reading your receipt…", animated receipt emoji), image is downscaled to max 1568px long edge, JPEG 80%, sent to the LLM. Errors (network / key missing / unparseable) show a friendly retry alert.</td></tr>
-      <tr><td><b>3 · Review sheet</b></td><td>Presented sheet (see mock). Scan date + count header. Each row: art, clean name, original receipt text in small gray, tappable quantity chip (opens a stepper), tappable date chip (opens compact date picker). Unrecognized items (id <code>unknown</code>) flagged amber with "tap to fix". Rows can be deleted (swipe) or edited (tap name). Primary button "Add N items to Fridge" saves all, schedules notifications, pops to Home where new items animate in.</td></tr>
-      <tr><td><b>4 · Item Detail</b></td><td>Sheet with large art (tap to pick different art from the prebuilt set), name field, quantity stepper, storage picker (Fridge/Freezer/Pantry), expiry date picker with source note ("Guessed by AI — tap to correct"), and a <b>"📷 Scan date label"</b> button → camera + on-device Vision OCR (<code>VNRecognizeTextRequest</code>), regex-match date formats (<code>MM/DD/YY</code>, <code>DD MMM YYYY</code>, <code>YYYY-MM-DD</code>, "Best by …"), accept the first plausible date (today &lt; d &lt; today+5y) after user confirmation. Buttons: Ate it · Tossed it · Delete.</td></tr>
+      <tr><td><b>2 · Scan / Add</b></td><td>Tapping the scan button opens the add menu — no hidden long-press: <b>Scan with camera</b> (<code>VNDocumentCameraViewController</code>, VisionKit; the entry is hidden where the document camera is unavailable — Simulator, browser-hosted simulators — so the camera is an enhancement, not a requirement) · <b>Choose from library</b> (photo-library picker) · <b>Type to add</b> (manual-add sheet: art, name, type-in quantity field, expiry date — saves directly, no API key or LLM call; debug builds add a bundled sample receipt and a preset seed). On capture or photo selection: full-screen progress ("Reading your receipt…", animated receipt emoji), image is downscaled to max 1568px long edge, JPEG 80%, sent to the LLM. Errors (network / key missing / unparseable) show a friendly retry alert.</td></tr>
+      <tr><td><b>3 · Review sheet</b></td><td>Presented sheet (see mock). Scan date + count header. Each row: art, clean name, original receipt text in small gray, type-in quantity chip (number pad, 1–99), tappable date chip (opens compact date picker). Unrecognized items (id <code>unknown</code>) flagged amber with "tap to fix". Rows can be deleted (swipe) or edited (tap name). Primary button "Add N items to Fridge" saves all, schedules notifications, pops to Home where new items animate in.</td></tr>
+      <tr><td><b>4 · Item Detail</b></td><td>Sheet with large art (tap to pick different art from the prebuilt set), name field, type-in quantity field, storage picker (Fridge/Freezer/Pantry), expiry date picker with source note ("Guessed by AI — tap to correct"), and a <b>"📷 Scan date label"</b> button → camera + on-device Vision OCR (<code>VNRecognizeTextRequest</code>), regex-match date formats (<code>MM/DD/YY</code>, <code>DD MMM YYYY</code>, <code>YYYY-MM-DD</code>, "Best by …"), accept the first plausible date (today &lt; d &lt; today+5y) after user confirmation. Buttons: Ate it · Tossed it · Delete.</td></tr>
       <tr><td><b>＋ Settings sheet</b></td><td>Opened from the gear icon (not a tab): OpenAI API key (SecureField, stored in Keychain), notification hour (default 9:00), default storage location, and a Diagnostics row that copies this session’s app logs (via <code>AppLog</code>/OSLog) to the clipboard for bug reports. No stats in v1.</td></tr>
     </table></div>
 
@@ -448,17 +448,25 @@
     <pre>POST https://api.openai.com/v1/responses
 headers: Authorization: Bearer &lt;key&gt; · content-type: application/json
 body: { "model": "gpt-5-mini", "max_output_tokens": 4000, "reasoning": { "effort": "low" },
-        "store": false,          ← receipts are personal data; Responses retains by default
+        "store": true,           ← failed scans stay inspectable at OpenAI (wiki/decisions.md → 2026-07-10)
         "text": { "format": { "type": "json_schema",
                   "name": "parsed_receipt", "strict": true, "schema": SCHEMA }},
         "input": [{ "role": "user", "content": [
           { "type": "input_image", "image_url": "data:image/jpeg;base64,&lt;receipt&gt;" },
           { "type": "input_text", "text": PROMPT }]}] }</pre>
     <p><b>PROMPT</b> (verbatim — content rules only; the JSON shape and allowed <code>id</code> values come from SCHEMA):</p>
-    <pre>This is a grocery store receipt. Extract every FOOD and BEVERAGE item.
+    <pre>This is a grocery store receipt. Extract the FOOD and BEVERAGE items that
+belong in a fridge or freezer.
 Rules:
 - Expand abbreviations into clean, human-friendly names ("WHL MLK 1GAL" → "Whole Milk").
+- "name" is the bare food name and nothing else — strip weights, sizes, counts,
+  prices, packaging, and brand or marketing words ("Jalapeño Pepper (0.34 lb)" →
+  "Jalapeño Pepper", "Local Eggs (dozen) — 6 dozens" → "Eggs").
 - Skip non-food lines: tax, totals, coupons, bags, household goods, loyalty points.
+- Skip food and drink that is NOT normally refrigerated or frozen — shelf-stable
+  pantry goods kept at room temperature (canned goods, dry pasta and rice, chips
+  and crackers, cookies, bottled water, soda, coffee, tea, unopened condiments).
+  Only include items a person would actually store in the fridge or freezer.
 - If one line has a quantity multiplier, set quantity accordingly.
 - Estimate each item's typical shelf life in days from purchase, assuming it
   is stored appropriately at home (refrigerated promptly where applicable).

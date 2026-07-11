@@ -1,11 +1,10 @@
 import SwiftUI
 
 /// One editable line of the review sheet: art, name (tap to edit), source
-/// receipt text, and tappable quantity + expiry-date chips.
+/// receipt text, a type-in quantity chip, and a tappable expiry-date chip.
 struct ReviewRow: View {
     @Binding var item: ScanFlowModel.ReviewItem
     @State private var showDatePicker = false
-    @State private var showQuantityStepper = false
 
     var body: some View {
         HStack(spacing: 9) {
@@ -28,25 +27,18 @@ struct ReviewRow: View {
 
             Spacer(minLength: 4)
 
-            Button {
-                showQuantityStepper = true
-            } label: {
-                Text("×\(item.quantity)")
-                    .font(AppTheme.chipFont.monospacedDigit())
-                    .foregroundStyle(AppTheme.mutedInk)
-                    .padding(.horizontal, AppTheme.chipPadding.h)
-                    .padding(.vertical, AppTheme.chipPadding.v)
-                    .background(AppTheme.mutedInk.opacity(0.12), in: Capsule())
+            HStack(spacing: 0) {
+                Text("×")
+                TextField("1", value: quantityBinding, format: .number)
+                    .keyboardType(.numberPad)
+                    .fixedSize()
             }
-            .buttonStyle(.borderless)
-            .accessibilityLabel("Quantity \(item.quantity)")
-            .popover(isPresented: $showQuantityStepper) {
-                Stepper("×\(item.quantity)", value: $item.quantity, in: 1...99)
-                    .font(AppTheme.stepperPopoverFont.monospacedDigit())
-                    .padding(.horizontal, AppTheme.stepperPopoverPadding.h)
-                    .padding(.vertical, AppTheme.stepperPopoverPadding.v)
-                    .presentationCompactAdaptation(.popover)
-            }
+            .font(AppTheme.chipFont.monospacedDigit())
+            .foregroundStyle(AppTheme.mutedInk)
+            .padding(.horizontal, AppTheme.chipPadding.h)
+            .padding(.vertical, AppTheme.chipPadding.v)
+            .background(AppTheme.mutedInk.opacity(0.12), in: Capsule())
+            .accessibilityLabel("Quantity")
 
             Button {
                 showDatePicker = true
@@ -78,5 +70,11 @@ struct ReviewRow: View {
             }
         }
         .padding(.vertical, 2)
+    }
+
+    /// Typed quantities are kept in the stepper's old 1...99 bounds.
+    private var quantityBinding: Binding<Int> {
+        Binding(get: { item.quantity },
+                set: { item.quantity = min(max($0, 1), 99) })
     }
 }

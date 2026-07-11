@@ -56,8 +56,6 @@ enum AppTheme {
     static let heroArtSize: CGFloat = 96
     /// Review-sheet chips (quantity ×N, expiry date).
     static let chipPadding = (h: CGFloat(8), v: CGFloat(3))
-    /// The stepper popover behind the review sheet's ×N chip.
-    static let stepperPopoverPadding = (h: CGFloat(16), v: CGFloat(10))
     static let gridColumns = 4
     static let gridRowGap: CGFloat = 18
     static let gridColumnGap: CGFloat = 6
@@ -73,7 +71,6 @@ enum AppTheme {
     static let pillFont = Font.system(size: 10, weight: .heavy)
     static let countFont = Font.system(size: 12, weight: .semibold).monospacedDigit()
     static let chipFont = Font.system(size: 10.5, weight: .bold)
-    static let stepperPopoverFont = Font.system(size: 14, weight: .semibold)
 
     // MARK: Effects
 

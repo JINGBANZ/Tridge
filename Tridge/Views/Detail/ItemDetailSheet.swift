@@ -39,7 +39,11 @@ struct ItemDetailSheet: View {
 
                 Section {
                     TextField("Name", text: $item.name)
-                    Stepper("Quantity  ×\(item.quantity)", value: $item.quantity, in: 1...99)
+                    LabeledContent("Quantity") {
+                        TextField("1", value: quantityBinding, format: .number)
+                            .keyboardType(.numberPad)
+                            .multilineTextAlignment(.trailing)
+                    }
                     Picker("Storage", selection: storageBinding) {
                         ForEach(StorageLocation.allCases, id: \.self) { location in
                             Text(location.label).tag(location)
@@ -112,6 +116,12 @@ struct ItemDetailSheet: View {
 
     private var storageBinding: Binding<StorageLocation> {
         Binding(get: { item.storage }, set: { item.storage = $0 })
+    }
+
+    /// Typed quantities are kept in the stepper's old 1...99 bounds.
+    private var quantityBinding: Binding<Int> {
+        Binding(get: { item.quantity },
+                set: { item.quantity = min(max($0, 1), 99) })
     }
 
     /// Hand-edited dates become `.userSet` and reschedule both notifications.
