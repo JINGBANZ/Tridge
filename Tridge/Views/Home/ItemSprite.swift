@@ -26,7 +26,7 @@ struct ItemSprite: View {
     private func art(daysLeft: Int) -> some View {
         let isExpired = daysLeft < 0
 
-        Text(Artwork.artwork(for: item))
+        return Text(Artwork.artwork(for: item))
             .font(.system(size: AppTheme.artPointSize))
             .shadow(color: AppTheme.artShadow.color.opacity(isExpired ? 0.6 : 1),
                     radius: AppTheme.artShadow.radius,
