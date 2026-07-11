@@ -26,6 +26,7 @@ struct HomeView: View {
     @State private var showManualAdd = false
     @State private var pickedPhoto: PhotosPickerItem?
     @State private var searchText = ""
+    @State private var animatedItemIDs: Set<UUID> = []
 
     // Drag-to-consume state
     @State private var draggedItem: FridgeItem?
@@ -40,14 +41,12 @@ struct HomeView: View {
             content
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbarBackground(.hidden, for: .navigationBar)
-                // Keep the search host beside the scroll view. Hosting it on
-                // NavigationStack makes UIKit continuously reconcile the
-                // drawer with LazyVGrid's changing visible cells while a
-                // scroll is in flight, which can stall repeated scrolling.
-                .searchable(text: $searchText,
-                            placement: .navigationBarDrawer(displayMode: .automatic),
-                            prompt: "Search your fridge")
         }
+        // The outer host lets the navigation drawer keep search hidden until
+        // the user deliberately pulls down on the inventory.
+        .searchable(text: $searchText,
+                    placement: .navigationBarDrawer(displayMode: .automatic),
+                    prompt: "Search your fridge")
     }
 
     private var content: some View {
@@ -172,7 +171,10 @@ struct HomeView: View {
     private func slot(for item: FridgeItem, index: Int) -> some View {
         ItemSprite(item: item)
             .modifier(PopIn(index: index,
-                            enabled: !reduceMotion && index < AppTheme.popInItemLimit))
+                            enabled: !reduceMotion
+                                && index < AppTheme.popInItemLimit
+                                && !animatedItemIDs.contains(item.id),
+                            onFinished: { animatedItemIDs.insert(item.id) }))
             .opacity(slotOpacity(for: item))
             .onTapGesture { selectedItem = item }
             .gesture(consumeGesture(for: item))
@@ -374,6 +376,7 @@ struct HomeView: View {
 private struct PopIn: ViewModifier {
     let index: Int
     let enabled: Bool
+    let onFinished: () -> Void
     @State private var shown = false
 
     @ViewBuilder
@@ -383,10 +386,14 @@ private struct PopIn: ViewModifier {
                 .scaleEffect(shown ? 1 : AppTheme.popInStartScale)
                 .opacity(shown ? 1 : 0)
                 .onAppear {
+                    guard !shown else { return }
                     withAnimation(.spring(response: 0.5, dampingFraction: 0.65)
                         .delay(Double(index) * AppTheme.popInDelayPerItem)) {
                         shown = true
                     }
+                    DispatchQueue.main.asyncAfter(
+                        deadline: .now() + 0.5 + Double(index) * AppTheme.popInDelayPerItem,
+                        execute: onFinished)
                 }
         } else {
             // Lazy grid cells appear during scrolling. Leaving them unmodified
