@@ -6,8 +6,10 @@ struct ItemSprite: View {
     let item: FridgeItem
 
     var body: some View {
+        let daysLeft = UrgencyRules.daysLeft(until: item.expiryDate)
+
         VStack(spacing: 3) {
-            art
+            art(daysLeft: daysLeft)
                 .frame(width: AppTheme.spriteCellSize.width,
                        height: AppTheme.spriteCellSize.height)
             Text(item.name)
@@ -18,19 +20,21 @@ struct ItemSprite: View {
                 .frame(maxWidth: 70)
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(item.name), \(accessibilityFreshness)")
+        .accessibilityLabel("\(item.name), \(accessibilityFreshness(daysLeft: daysLeft))")
     }
 
-    private var art: some View {
+    private func art(daysLeft: Int) -> some View {
+        let isExpired = daysLeft < 0
+
         Text(Artwork.artwork(for: item))
             .font(.system(size: AppTheme.artPointSize))
-            .shadow(color: AppTheme.artShadow.color.opacity(item.isExpired ? 0.6 : 1),
+            .shadow(color: AppTheme.artShadow.color.opacity(isExpired ? 0.6 : 1),
                     radius: AppTheme.artShadow.radius,
                     y: AppTheme.artShadow.y)
-            .grayscale(item.isExpired ? AppTheme.expiredGrayscale : 0)
-            .opacity(item.isExpired ? AppTheme.expiredOpacity : 1)
+            .grayscale(isExpired ? AppTheme.expiredGrayscale : 0)
+            .opacity(isExpired ? AppTheme.expiredOpacity : 1)
             .overlay(alignment: .topTrailing) {
-                StatusPill(daysLeft: item.daysLeft)
+                StatusPill(daysLeft: daysLeft)
                     .offset(x: 10, y: -7)
             }
             .overlay(alignment: .bottomTrailing) {
@@ -47,11 +51,11 @@ struct ItemSprite: View {
             }
     }
 
-    private var accessibilityFreshness: String {
-        switch item.urgency {
-        case .fresh, .soon: "expires in \(item.daysLeft) days"
+    private func accessibilityFreshness(daysLeft: Int) -> String {
+        switch UrgencyRules.urgency(daysLeft: daysLeft) {
+        case .fresh, .soon: "expires in \(daysLeft) days"
         case .today: "expires today"
-        case .expired: "expired \(-item.daysLeft) days ago"
+        case .expired: "expired \(-daysLeft) days ago"
         }
     }
 }
