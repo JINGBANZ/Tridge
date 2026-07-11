@@ -26,7 +26,6 @@ struct HomeView: View {
     @State private var showManualAdd = false
     @State private var pickedPhoto: PhotosPickerItem?
     @State private var searchText = ""
-    @State private var isSearchPresented = false
 
     // Drag-to-consume state
     @State private var draggedItem: FridgeItem?
@@ -41,11 +40,13 @@ struct HomeView: View {
             content
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbarBackground(.hidden, for: .navigationBar)
-                .searchable(text: $searchText,
-                            isPresented: $isSearchPresented,
-                            placement: .navigationBarDrawer(displayMode: .automatic),
-                            prompt: "Search your fridge")
         }
+        // Attach search to the navigation container so it can discover and
+        // track the grid's ScrollView. On the inner content view, SwiftUI
+        // renders the drawer but doesn't receive scrolling updates to hide it.
+        .searchable(text: $searchText,
+                    placement: .navigationBarDrawer(displayMode: .automatic),
+                    prompt: "Search your fridge")
     }
 
     private var content: some View {
