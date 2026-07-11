@@ -1,13 +1,17 @@
 import SwiftUI
+import SwiftData
 import UIKit
 
 /// Notification hour and the copy-diagnostics feedback loop.
 struct SettingsSheet: View {
+    @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
     @AppStorage("notificationHour") private var notificationHour = 9
+    @Query private var items: [FridgeItem]
 
     @State private var copiedDiagnostics = false
     @State private var collectingDiagnostics = false
+    @State private var showingClearConfirmation = false
 
     var body: some View {
         NavigationStack {
@@ -18,6 +22,17 @@ struct SettingsSheet: View {
                             Text(hourLabel(hour)).tag(hour)
                         }
                     }
+                }
+
+                Section {
+                    Button("Clear all items", role: .destructive) {
+                        showingClearConfirmation = true
+                    }
+                    .disabled(items.isEmpty)
+                } header: {
+                    Text("Fridge")
+                } footer: {
+                    Text("Permanently deletes every item, including your item history.")
                 }
 
                 Section {
@@ -38,7 +53,26 @@ struct SettingsSheet: View {
                     Button("Done") { dismiss() }
                 }
             }
+            .confirmationDialog(
+                "Clear all fridge items?",
+                isPresented: $showingClearConfirmation,
+                titleVisibility: .visible
+            ) {
+                Button("Clear all items", role: .destructive) { clearAllItems() }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("This permanently deletes all \(items.count) item\(items.count == 1 ? "" : "s") and cannot be undone.")
+            }
         }
+    }
+
+    private func clearAllItems() {
+        Haptics.warning()
+        for item in items {
+            NotificationService.cancel(for: item.id)
+            context.delete(item)
+        }
+        NotificationService.updateBadge(expiredCount: 0)
     }
 
     private var diagnosticsLabel: String {
