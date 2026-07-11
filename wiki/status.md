@@ -76,7 +76,7 @@ worker + isolated key.
   quick-fill history chips above the name field and automatic art (remembered → inferred → tap-to-pick).
 - `Tridge.xcodeproj` — hand-written project (synchronized folder group) + shared scheme;
   see the decision log for why it's hand-authored.
-- `.github/workflows/ci.yml` — Linux `swift test`; server typecheck + Vitest;
+- `.github/workflows/ci.yml` — Linux `swift test`; server typecheck + Vitest; release-lane syntax;
   macOS `swift test` + Debug simulator build,
   published as the `Tridge-simulator` artifact (Appetize.io's upload format) and, on pull
   requests, as a per-PR Appetize preview app whose link is commented on the PR (no-op without the
@@ -84,7 +84,8 @@ worker + isolated key.
   app when the PR closes.
 - `.github/workflows/testflight.yml` + `fastlane/` (`Fastfile`, `Appfile`) + `Gemfile` — the
   manual TestFlight release lane: `workflow_dispatch` builds a signed Release IPA (cloud-managed
-  signing — no certs in the repo) and uploads it via fastlane's `upload_to_testflight`. Signing
+  signing — no certs in the repo) and uploads it via fastlane's `upload_to_testflight`; the archive
+  retries once when Apple's provisioning service transiently fails, before any upload begins. Signing
   hands the App Store Connect API key to `xcodebuild` itself via `-authenticationKey*` (gym does
   not forward it), so the workflow decodes the `.p8` to a file first; the key must have the
   **Admin** role because creating a distribution certificate is Admin-only. Needs the `ASC_KEY_ID`,
