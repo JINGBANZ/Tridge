@@ -432,6 +432,8 @@
   suggestion-catalog entity (a denormalized cache to keep correct on every write — derived from
   history instead); whole-receipt double-scan fingerprinting (additive later if wanted; per-item
   merging already absorbs the damage silently).
+- **Superseded by:** *2026-07-11 — Home search is a custom pinned field, not the system
+  `.searchable` drawer* for the search mechanism; everything else stands.
 
 ### 2026-07-11 — Storage from the LLM, Food Category derived on-device, one filter button on Home
 
@@ -464,3 +466,20 @@
   drifts from the art); keeping the fridge/freezer-only scan scope with `pantry` manual-only
   (the first cut of this change — with a pantry section on screen, silently dropping the pantry
   half of a receipt reads as a broken scan).
+
+### 2026-07-11 — Home search is a custom pinned field, not the system `.searchable` drawer
+
+- **Chose:** The home grid's pull-down search (from the grouping entry above) is a hand-rolled
+  field pinned below the Tridge header, revealed by an `onScrollGeometryChange` threshold on the
+  rubber-band overscroll and hidden again once the user scrolls back into the list with an empty,
+  unfocused query. The `NavigationStack` around `HomeView` went with the drawer — nothing on the
+  home screen navigates.
+- **Why:** The `.searchable(placement: .navigationBarDrawer)` drawer is scroll-linked: UIKit
+  resizes the (even hidden) navigation-bar area continuously during grid scrolls, shifting the top
+  safe-area inset and re-laying-out the header plus the whole `LazyVGrid` every frame — the home
+  scroll jank that two perf passes (#29, #31) could not fix from the outside. It also renders the
+  field *above* the custom header, where the §6.2 mock in `design/item-grouping-search.html` puts
+  it below. Boolean-mapped scroll observers keep the replacement free of per-frame work.
+- **Rejected:** Keeping `.searchable` with `displayMode: .always` (field permanently visible —
+  breaks the single-control home face); a toolbar search button (extra chrome the design reversals
+  forbid); observing raw offsets to drive the reveal (reintroduces per-frame state writes).

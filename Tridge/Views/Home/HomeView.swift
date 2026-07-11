@@ -10,6 +10,11 @@ struct HomeView: View {
         count: AppTheme.gridColumns
     )
 
+    /// Rubber-band pull (pt) past the top that reveals the search field, and
+    /// the scroll depth past which an idle, empty field hides again.
+    private static let searchRevealPull: CGFloat = 60
+    private static let searchHideDrift: CGFloat = 8
+
     @Environment(\.modelContext) private var context
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -26,6 +31,8 @@ struct HomeView: View {
     @State private var showManualAdd = false
     @State private var pickedPhoto: PhotosPickerItem?
     @State private var searchText = ""
+    @State private var searchShown = false
+    @FocusState private var searchFocused: Bool
     @State private var animatedItemIDs: Set<UUID> = []
 
     // Filter state: nil = "All" on that axis.
@@ -39,27 +46,20 @@ struct HomeView: View {
     @State private var dragScale: CGFloat = 1.3
     @State private var zoneFrames: [DropZone: CGRect] = [:]
 
+    // No NavigationStack: nothing navigates, and a system search drawer is
+    // scroll-linked — it resizes the bar area every frame while the grid
+    // scrolls, re-laying-out the whole screen. The header and search field
+    // are plain pinned views above the ScrollView instead.
     var body: some View {
-        // The stack exists only to host the pull-down search field; its bar
-        // stays invisible so the home screen keeps its single-control face.
-        NavigationStack {
-            content
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbarBackground(.hidden, for: .navigationBar)
-        }
-        // The outer host lets the navigation drawer keep search hidden until
-        // the user deliberately pulls down on the inventory.
-        .searchable(text: $searchText,
-                    placement: .navigationBarDrawer(displayMode: .automatic),
-                    prompt: "Search your fridge")
-    }
-
-    private var content: some View {
         ZStack {
             AppTheme.ChillBackground()
 
             VStack(spacing: 0) {
                 header
+                if searchShown && !items.isEmpty {
+                    searchField
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
                 if items.isEmpty {
                     EmptyStateView()
                         .padding(.bottom, AppTheme.scanButtonSize + 40)
@@ -121,9 +121,13 @@ struct HomeView: View {
         }
         .onChange(of: items.count) { updateBadge() }
         .onChange(of: items.isEmpty) { _, empty in
-            // Filters don't outlive the inventory: the last item leaving also
-            // hides the filter button, so nothing could remove a stale filter.
-            if empty { clearFilters() }
+            // Filters and search don't outlive the inventory: the last item
+            // leaving also removes the filter button and the grid's hide
+            // observer, so nothing could clear a stale filter or query.
+            if empty {
+                clearFilters()
+                setSearchShown(false)
+            }
         }
     }
 
@@ -251,6 +255,51 @@ struct HomeView: View {
         .accessibilityLabel(hasActiveFilter ? "Filter (active)" : "Filter")
     }
 
+    // MARK: Search
+
+    /// The spec's search field (item-grouping-search.html §6.2): pinned under
+    /// the header, hidden until the user pulls down on the grid.
+    private var searchField: some View {
+        HStack(spacing: AppTheme.searchFieldIconGap) {
+            Image(systemName: "magnifyingglass")
+                .font(AppTheme.searchFont)
+                .foregroundStyle(AppTheme.mutedInk)
+            TextField("Search your fridge", text: $searchText)
+                .font(AppTheme.searchFont)
+                .foregroundStyle(AppTheme.ink)
+                .focused($searchFocused)
+                .submitLabel(.search)
+                .autocorrectionDisabled()
+            if !searchText.isEmpty {
+                Button {
+                    searchText = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(AppTheme.searchClearFont)
+                        .foregroundStyle(AppTheme.mutedInk)
+                }
+                .accessibilityLabel("Clear search")
+            }
+        }
+        .padding(.horizontal, AppTheme.searchFieldPadding.h)
+        .padding(.vertical, AppTheme.searchFieldPadding.v)
+        .background(AppTheme.surfaceSolid,
+                    in: RoundedRectangle(cornerRadius: AppTheme.searchFieldRadius))
+        .overlay(
+            RoundedRectangle(cornerRadius: AppTheme.searchFieldRadius)
+                .strokeBorder(AppTheme.hairline, lineWidth: 1))
+        .padding(.horizontal, AppTheme.searchFieldMargin.h)
+        .padding(.top, AppTheme.searchFieldMargin.top)
+    }
+
+    private func setSearchShown(_ shown: Bool) {
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+            searchShown = shown
+        }
+        searchFocused = shown
+        if !shown { searchText = "" }
+    }
+
     // MARK: Grid
 
     /// The grid filtered by the search field on top of the active Storage /
@@ -279,6 +328,21 @@ struct HomeView: View {
             .padding(.bottom, AppTheme.scanButtonSize + 40)
         }
         .scrollIndicators(.hidden)
+        .scrollDismissesKeyboard(.immediately)
+        // Both observers map the offset to a Bool, so the action only runs on
+        // threshold crossings — nothing happens per scroll frame.
+        .onScrollGeometryChange(for: Bool.self) { geometry in
+            geometry.contentOffset.y + geometry.contentInsets.top < -Self.searchRevealPull
+        } action: { _, isPulledDown in
+            if isPulledDown && !searchShown { setSearchShown(true) }
+        }
+        .onScrollGeometryChange(for: Bool.self) { geometry in
+            geometry.contentOffset.y + geometry.contentInsets.top > Self.searchHideDrift
+        } action: { _, isInList in
+            if isInList && searchShown && searchText.isEmpty && !searchFocused {
+                setSearchShown(false)
+            }
+        }
     }
 
     private func slot(for item: FridgeItem, index: Int) -> some View {
