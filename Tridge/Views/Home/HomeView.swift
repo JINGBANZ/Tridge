@@ -40,13 +40,14 @@ struct HomeView: View {
             content
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbarBackground(.hidden, for: .navigationBar)
+                // Keep the search host beside the scroll view. Hosting it on
+                // NavigationStack makes UIKit continuously reconcile the
+                // drawer with LazyVGrid's changing visible cells while a
+                // scroll is in flight, which can stall repeated scrolling.
+                .searchable(text: $searchText,
+                            placement: .navigationBarDrawer(displayMode: .automatic),
+                            prompt: "Search your fridge")
         }
-        // Attach search to the navigation container so it can discover and
-        // track the grid's ScrollView. On the inner content view, SwiftUI
-        // renders the drawer but doesn't receive scrolling updates to hide it.
-        .searchable(text: $searchText,
-                    placement: .navigationBarDrawer(displayMode: .automatic),
-                    prompt: "Search your fridge")
     }
 
     private var content: some View {
