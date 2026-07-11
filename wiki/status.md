@@ -76,7 +76,7 @@ worker + isolated key.
   quick-fill history chips above the name field and automatic art (remembered → inferred → tap-to-pick).
 - `Tridge.xcodeproj` — hand-written project (synchronized folder group) + shared scheme;
   see the decision log for why it's hand-authored.
-- `.github/workflows/ci.yml` — Linux `swift test`; server typecheck + Vitest;
+- `.github/workflows/ci.yml` — Linux `swift test`; server typecheck + Vitest; release-lane syntax;
   macOS `swift test` + Debug simulator build,
   published as the `Tridge-simulator` artifact (Appetize.io's upload format) and, on pull
   requests, as a per-PR Appetize preview app whose link is commented on the PR (no-op without the

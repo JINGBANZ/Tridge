@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     container: swift:6.1
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - run: swift test
 
   server-tests:
@@ -21,7 +21,7 @@ jobs:
       run:
         working-directory: server
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -35,11 +35,18 @@ jobs:
   # (the platform's recommended git integration) on pushes to main that touch
   # server/ — see server/README.md → Deploy. CI's job is only to gate PRs.
 
+  release-config:
+    name: release config syntax
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: ruby -c fastlane/Fastfile
+
   ios-build:
     name: build + tests (macOS)
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Full logic test suite
         run: swift test
       # The app authenticates to the scan worker with Apple App Attest, which
