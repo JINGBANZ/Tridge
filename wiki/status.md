@@ -35,7 +35,7 @@ owner-only provisioning (no code):
    App Attest can't run on the Simulator.
 
 Still open beyond that: the browser-testable acceptance checklist on Appetize; the on-device
-camera/OCR acceptance items via a TestFlight build; and, when wanted, the dedicated production
+camera acceptance items via a TestFlight build; and, when wanted, the dedicated production
 worker + isolated key.
 
 ## Built
@@ -44,13 +44,13 @@ worker + isolated key.
   schema, LLM contract, acceptance criteria).
 - `Package.swift` + `Tridge/Core/` — Linux-testable FridgeCore: LLM receipt-JSON parsing incl. the
   per-item `storage` guess (`ReceiptParsing.swift`), the curated `ItemID` vocabulary + shared enums
-  + the derived `FoodCategory` mapping (`Types.swift`), urgency rules (`Urgency.swift`), date-label
-  regex (`DateLabelParser.swift`), the item-identity key
+  + the derived `FoodCategory` mapping (`Types.swift`), urgency rules (`Urgency.swift`), the
+  item-identity key
   (`NameKey.swift`), merge decisions (`MergePlanner.swift`), search ranking (`NameSearch.swift`),
   and name→art inference (`ArtInference.swift`). The scan-API client
   (`../Services/ProxyLLMService.swift`) lives here too so the smoke test can drive it on Linux.
 - `Tests/FridgeCoreTests/` — parsing (incl. fenced/prose-wrapped output), urgency
-  thresholds, date-regex, name-key, merge-planner, art-inference, and search-ranking tests; all
+  thresholds, name-key, merge-planner, art-inference, and search-ranking tests; all
   pass via `swift test`.
 - `Tests/ReceiptScanSmokeTests/` — live regression harness: fixture receipt images +
   fuzzy `expected.json` inventories (see its `Fixtures/README.md`), sent through the deployed
@@ -70,14 +70,15 @@ worker + isolated key.
   (`LLMService.swift` protocol + errors, `ProxyLLMService.swift` scan-API client with a pluggable
   `ScanRequestAuthorizer`, `AppAttestAuthorizer.swift` on-device App Attest, `ScanAPIConfig.swift`
   single worker URL (build-config Debug/Release split deferred until a prod worker exists), `ReceiptScanner.swift` VisionKit
-  camera, `DateLabelScanner.swift` Vision OCR, `NotificationService.swift`, `Haptics.swift`), `Views/`
+  camera, `NotificationService.swift`, `Haptics.swift`), `Views/`
   (Home grid + drag-to-consume + pull-down name search + the header filter button/sheet — Storage +
   Food Category filters via `Views/Home/FilterSheet.swift`, hidden on an empty fridge, search
   applying on top of the filters — scan flow + review sheet with per-row Food Category/Storage
   chips, item detail + art picker, settings). Saving — scanned or typed — merges into a matching
   active item by normalized name instead of duplicating it (`design/item-grouping-search.html`);
   manual add has quick-fill history chips above the name field and automatic art
-  (remembered → inferred → tap-to-pick).
+  (remembered → inferred → tap-to-pick). Item detail and manual add render the same
+  label-left / value-right field set (`Views/Shared/ItemFormRows.swift`).
 - `Tridge.xcodeproj` — hand-written project (synchronized folder group) + shared scheme;
   see the decision log for why it's hand-authored.
 - `.github/workflows/ci.yml` — Linux `swift test`; server typecheck + Vitest; release-lane syntax;
@@ -130,5 +131,5 @@ worker + isolated key.
 - A dedicated production worker + isolated budget-capped key (separate URL) — deferred; the code is
   ready for it (`server/README.md` → "Adding a production worker later").
 - Verification of the spec's acceptance checklist on a test build: Appetize covers the
-  simulator-safe items; the camera/OCR items and a live App Attest scan need a TestFlight build on a
+  simulator-safe items; the camera items and a live App Attest scan need a TestFlight build on a
   physical iPhone.

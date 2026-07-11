@@ -1,6 +1,6 @@
 // swift-tools-version:5.10
 // FridgeCore holds the pure logic (LLM response parsing + schema, the scan-API
-// client, urgency rules, date-label regex) so it builds and tests on Linux via
+// client, urgency rules) so it builds and tests on Linux via
 // `swift test`; the iOS app target compiles the same sources directly (see
 // Tridge.xcodeproj).
 import PackageDescription

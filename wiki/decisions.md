@@ -497,3 +497,29 @@
   auto-focusing the field on reveal (presenting the keyboard mid-drag fights
   `scrollDismissesKeyboard` — the same drag instantly dismisses it — which made the reveal stutter
   and left a focused-field race that swallowed the auto-hide crossing, freezing the bar shown).
+
+### 2026-07-11 — One shared item form; the date-label OCR scan is removed
+
+- **Chose:** Item detail and manual add render the same field set through one component
+  (`Tridge/Views/Shared/ItemFormRows.swift`): every row is label-left / value-right — the name
+  gains its "Name" label in the detail sheet, and storage becomes a menu picker (label left,
+  value right) in both sheets, replacing the segmented control. The quantity row owns a plain
+  text field backed by its own state so the value can be cleared and retyped (the old
+  `TextField(value:format:)` bound to the SwiftData model snapped back on every keystroke).
+  The detail sheet's expiry picker moves into that same details section, and the
+  **"📷 Scan date label" button is removed outright** — with its only entry point gone, the whole
+  OCR stack went too (`DateLabelScanner.swift`, `DateLabelParser.swift`, `DateRegexTests`), per
+  owner direction to drop the control; `ExpirySource.scannedLabel` stays in the model so
+  previously scanned rows still decode. Alongside: the manual-add hero art shrinks to 64pt
+  (`AppTheme.manualAddArtSize`) so the form leads the page, the filter sheet sizes its detent to
+  the measured chip content (no dead space below the groups) with 15pt chips, and home item
+  names go to 13pt.
+- **Why:** The two edit sheets had drifted (unlabeled name field, segmented storage, a quantity
+  field that couldn't be retyped); one shared component makes future drift structurally
+  impossible. The OCR feature was deleted rather than left dormant because an unreachable
+  feature is dead code the repo conventions forbid; git history holds it if a future entry point
+  (e.g. on the review sheet) wants it back.
+- **Rejected:** Keeping the OCR stack compiled-but-unreachable (dead code + spec drift);
+  a segmented storage control inside the shared form (inconsistent with the label/value rows
+  around it); fixing the quantity field with an optional-Int binding (still misbehaves while
+  focused, since SwiftData writebacks reformat the text mid-edit).

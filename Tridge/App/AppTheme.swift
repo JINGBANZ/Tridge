@@ -58,8 +58,10 @@ enum AppTheme {
 
     static let spriteCellSize = CGSize(width: 64, height: 60)
     static let artPointSize: CGFloat = 44
-    /// Large art atop the item-detail and manual-add sheets.
+    /// Large art atop the item-detail sheet.
     static let heroArtSize: CGFloat = 96
+    /// Art atop the manual-add sheet — smaller, so the form leads the page.
+    static let manualAddArtSize: CGFloat = 64
     /// Review-sheet chips (quantity ×N, expiry date, Food Category, Storage).
     static let chipPadding = (h: CGFloat(8), v: CGFloat(3))
     static let chipSpacing: CGFloat = 4
@@ -68,9 +70,14 @@ enum AppTheme {
     static let chipSoftOpacity: Double = 0.12
     /// Review rows: name-to-receipt-text gap.
     static let reviewRowNameSpacing: CGFloat = 2
-    /// Filter chips (the filter sheet's options and Home's active-filter tags).
+    /// Home's active-filter tags.
     static let filterChipPadding = (h: CGFloat(12), v: CGFloat(6))
     static let filterChipSpacing: CGFloat = 6
+    /// The filter sheet's option chips — larger than Home's tags for easy tapping.
+    static let filterSheetChipPadding = (h: CGFloat(14), v: CGFloat(8))
+    /// Sheet chrome above the measured filter content: inline nav bar (44pt)
+    /// plus bottom breathing room, so the sheet hugs the chip groups exactly.
+    static let filterSheetChrome: CGFloat = 60
     /// Filter sheet layout; the padding also frames Home's active-filter bar.
     static let filterGroupSpacing: CGFloat = 22
     static let filterGroupTitleSpacing: CGFloat = 10
@@ -105,13 +112,15 @@ enum AppTheme {
     // MARK: Type
 
     static let titleFont = Font.system(size: 28, weight: .heavy, design: .rounded)
-    static let itemNameFont = Font.system(size: 11, weight: .semibold)
+    static let itemNameFont = Font.system(size: 13, weight: .semibold)
     static let pillFont = Font.system(size: 10, weight: .heavy)
     static let countFont = Font.system(size: 12, weight: .semibold).monospacedDigit()
     static let chipFont = Font.system(size: 10.5, weight: .bold)
     static let filterChipFont = Font.system(size: 13, weight: .semibold)
+    /// The filter sheet's option chips.
+    static let filterSheetChipFont = Font.system(size: 15, weight: .semibold)
     /// The filter sheet's uppercase group labels ("STORAGE", "FOOD CATEGORY").
-    static let filterGroupLabelFont = Font.system(size: 11, weight: .bold)
+    static let filterGroupLabelFont = Font.system(size: 12, weight: .bold)
     static let filterGroupLabelKerning: CGFloat = 0.8
     /// The ✕ inside Home's active-filter tags.
     static let filterTagXFont = Font.system(size: 9, weight: .bold)

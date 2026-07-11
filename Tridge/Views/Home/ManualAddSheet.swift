@@ -35,55 +35,23 @@ struct ManualAddSheet: View {
         NavigationStack {
             Form {
                 Section {
-                    HStack {
-                        Spacer()
-                        Button {
-                            showArtPicker = true
-                        } label: {
-                            Text(Artwork.emoji(forKey: artKey))
-                                .font(.system(size: AppTheme.heroArtSize))
-                                .shadow(color: AppTheme.artShadow.color,
-                                        radius: AppTheme.artShadow.radius,
-                                        y: AppTheme.artShadow.y)
-                                .padding(8)
-                                .overlay {
-                                    // The one quiet nudge: art resolution came
-                                    // up empty, and a tap here fixes it.
-                                    if needsArt {
-                                        RoundedRectangle(cornerRadius: 16)
-                                            .strokeBorder(AppTheme.soon,
-                                                          style: StrokeStyle(lineWidth: 1.5,
-                                                                             dash: [5, 4]))
-                                    }
-                                }
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Change art")
-                        Spacer()
+                    // Smaller than the detail sheet's hero: this page is
+                    // form-first, so the fields keep the space.
+                    HeroArtRow(emoji: Artwork.emoji(forKey: artKey),
+                               size: AppTheme.manualAddArtSize,
+                               needsArt: needsArt) {
+                        showArtPicker = true
                     }
-                    .listRowBackground(Color.clear)
                 }
 
                 Section {
                     if !suggestions.isEmpty {
                         chipsRow
                     }
-                    LabeledContent("Name") {
-                        TextField("e.g. Milk", text: $name)
-                            .multilineTextAlignment(.trailing)
-                    }
-                    LabeledContent("Quantity") {
-                        TextField("1", value: quantityBinding, format: .number)
-                            .keyboardType(.numberPad)
-                            .multilineTextAlignment(.trailing)
-                    }
-                    Picker("Storage", selection: $storage) {
-                        ForEach(StorageLocation.allCases, id: \.self) { location in
-                            Text(location.label).tag(location)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    DatePicker("Expires", selection: expiryBinding, displayedComponents: .date)
+                    ItemFieldRows(name: $name,
+                                  quantity: $quantity,
+                                  storage: $storage,
+                                  expiryDate: expiryBinding)
                 }
             }
             .navigationTitle("Add an item")
@@ -234,12 +202,6 @@ struct ManualAddSheet: View {
 
     private var trimmedName: String {
         name.trimmingCharacters(in: .whitespaces)
-    }
-
-    /// Typed quantities are kept in the stepper's old 1...99 bounds.
-    private var quantityBinding: Binding<Int> {
-        Binding(get: { quantity },
-                set: { quantity = min(max($0, 1), 99) })
     }
 
     private var expiryBinding: Binding<Date> {
