@@ -399,3 +399,36 @@
   `server/wrangler.jsonc`; set secrets (`OPENAI_API_KEY`, `APPLE_TEAM_ID`, `SCAN_API_TOKEN`); connect
   Cloudflare Workers Builds; verify a TestFlight build scans end-to-end. See `wiki/status.md` → Next
   action and `server/README.md` → Deploy.
+
+### 2026-07-11 — Items group by name; silent merge behind the review page; automatic art
+
+- **Chose:** Saving a scanned or hand-typed item now merges into a matching **active** item instead
+  of inserting a twin (issue #26). Identity is the **normalized name alone** — case/diacritic-folded,
+  whitespace-collapsed, persisted as the indexed `FridgeItem.normalizedName` — with storage and
+  `artKey` deliberately outside the key. The merge is **silent**: the review sheet gained no badges
+  or rescan banners (the page itself is the confirmation step; a merge only ever adds quantity).
+  Expired items never absorb a new purchase (a fresh buy is a new batch), the existing item's
+  expiry/source always survive a merge, and same-name rows within one receipt coalesce at review
+  time. Manual add became one edit page: quick-fill chips (ranked by prefix > word-prefix > contains,
+  then recency/frequency, from the household's own history) above the name input, automatic art
+  (remembered art → exact/synonym/token/typo inference → 🛒 with a dashed tap-to-pick nudge whose
+  choice is remembered), and a merge-aware Add where only a deliberately edited date overwrites the
+  existing expiry. The home grid gained pull-down `.searchable` filtering over the same key. The
+  deployment floor moved to **iOS 18** for SwiftData `#Index`. Full design with animated mocks and
+  research: `design/item-grouping-search.html`.
+- **Why:** Rescanning a receipt duplicated every item (no save path checked existing inventory), and
+  LLM name variance made naive equality unreliable. Exact normalized match is the confidence bar for
+  silent merging — competitor research (AnyList's silent combine vs Plan to Eat's silent-automation
+  backlash) showed silence is safe only when the action is additive and the match is certain. Name
+  matching research ruled out `.lowercased()` (Turkish I/ß) in favor of `String.folding`, and ruled
+  out fuzzy auto-merge (a false merge silently eats a distinct item; typo tolerance is confined to
+  cosmetic art inference, previewed live). At tens-to-hundreds of rows, in-memory ranking beats any
+  search infrastructure; FTS/trigram rejected outright.
+- **Rejected:** Merge badges + rescan banner on the review sheet (designed, animated, declined by
+  owner — three UI elements to explain an outcome the grid already shows); a Grocy-style
+  product/batch split (semantically best for restocks but a two-entity schema rewrite touching every
+  view — `normalizedName` is its future product key if revisited); storage in the matching key (one
+  name means one thing in a household; a merge keeps the item where it lives); a dedicated
+  suggestion-catalog entity (a denormalized cache to keep correct on every write — derived from
+  history instead); whole-receipt double-scan fingerprinting (additive later if wanted; per-item
+  merging already absorbs the damage silently).

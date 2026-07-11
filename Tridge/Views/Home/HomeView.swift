@@ -20,6 +20,7 @@ struct HomeView: View {
     @State private var showSettings = false
     @State private var showManualAdd = false
     @State private var pickedPhoto: PhotosPickerItem?
+    @State private var searchText = ""
 
     // Drag-to-consume state
     @State private var draggedItem: FridgeItem?
@@ -28,6 +29,19 @@ struct HomeView: View {
     @State private var zoneFrames: [DropZone: CGRect] = [:]
 
     var body: some View {
+        // The stack exists only to host the pull-down search field; its bar
+        // stays invisible so the home screen keeps its single-control face.
+        NavigationStack {
+            content
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbarBackground(.hidden, for: .navigationBar)
+                .searchable(text: $searchText,
+                            placement: .navigationBarDrawer(displayMode: .automatic),
+                            prompt: "Search your fridge")
+        }
+    }
+
+    private var content: some View {
         ZStack {
             AppTheme.ChillBackground()
 
@@ -40,6 +54,7 @@ struct HomeView: View {
                     grid
                 }
             }
+            .animation(.default, value: visibleItems.count)
 
             bottomArea
             draggedGhost
@@ -120,6 +135,16 @@ struct HomeView: View {
 
     // MARK: Grid
 
+    /// The grid filtered by the search field; expiry order is preserved.
+    /// Matching is diacritic-blind via the stored normalized key.
+    private var visibleItems: [FridgeItem] {
+        let query = NameKey.normalize(searchText)
+        guard !query.isEmpty else { return items }
+        return items.filter {
+            NameSearch.tier(query: query, candidate: $0.normalizedName) != nil
+        }
+    }
+
     private var grid: some View {
         ScrollView {
             LazyVGrid(
@@ -127,7 +152,7 @@ struct HomeView: View {
                                count: AppTheme.gridColumns),
                 spacing: AppTheme.gridRowGap
             ) {
-                ForEach(Array(items.enumerated()), id: \.element.persistentModelID) { index, item in
+                ForEach(Array(visibleItems.enumerated()), id: \.element.persistentModelID) { index, item in
                     slot(for: item, index: index)
                 }
             }

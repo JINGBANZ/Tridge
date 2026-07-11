@@ -487,7 +487,7 @@ Rules:
   <section>
     <span class="eyebrow">Architecture</span>
     <h2>Project layout</h2>
-    <pre>Tridge/                    (iOS 17+, Swift 5.10, SwiftUI, no third-party packages)
+    <pre>Tridge/                    (iOS 18+, Swift 5.10, SwiftUI, no third-party packages)
 ├─ App/            TridgeApp.swift · AppTheme.swift (tokens above)
 ├─ Models/         FridgeItem.swift (SwiftData @Model + enums) · Artwork.swift (artKey → image lookup)
 ├─ Services/
@@ -538,7 +538,7 @@ Rules:
     <span class="eyebrow">Definition of done</span>
     <h2>Acceptance criteria for the one-shot build</h2>
     <ul class="checklist">
-      <li>App builds clean in Xcode for iOS 17 simulator; no third-party dependencies.</li>
+      <li>App builds clean in Xcode for iOS 18 simulator; no third-party dependencies.</li>
       <li>Scanning a real Trader Joe's–style receipt yields a review sheet with ≥90% of food lines as clean names, each with art, quantity, and a plausible future expiry date.</li>
       <li>Confirming the sheet adds items to Home, sorted soonest-first, with staggered pop-in animation.</li>
       <li>Items render with no background frame — art + shadow directly on the gradient; pills green ≥3d, amber 1–2d, red today/expired; expired art desaturates; app badge equals expired count.</li>
