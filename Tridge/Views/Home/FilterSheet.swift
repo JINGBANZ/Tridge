@@ -11,7 +11,7 @@ struct FilterSheet: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 22) {
+                VStack(alignment: .leading, spacing: AppTheme.filterGroupSpacing) {
                     group("Storage") {
                         chip("All", isSelected: storage == nil) { storage = nil }
                         ForEach(StorageLocation.allCases, id: \.self) { option in
@@ -25,8 +25,8 @@ struct FilterSheet: View {
                         }
                     }
                 }
-                .padding(.horizontal, 20)
-                .padding(.top, 8)
+                .padding(.horizontal, AppTheme.filterBarPadding.h)
+                .padding(.top, AppTheme.filterBarPadding.top)
             }
             .navigationTitle("Filter")
             .navigationBarTitleDisplayMode(.inline)
@@ -48,10 +48,10 @@ struct FilterSheet: View {
     }
 
     private func group(_ title: String, @ViewBuilder chips: () -> some View) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: AppTheme.filterGroupTitleSpacing) {
             Text(title.uppercased())
-                .font(.system(size: 11, weight: .bold))
-                .kerning(0.8)
+                .font(AppTheme.filterGroupLabelFont)
+                .kerning(AppTheme.filterGroupLabelKerning)
                 .foregroundStyle(AppTheme.mutedInk)
             FlowLayout(spacing: AppTheme.filterChipSpacing) {
                 chips()

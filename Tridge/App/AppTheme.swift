@@ -59,8 +59,19 @@ enum AppTheme {
     /// Filter chips (the filter sheet's options and Home's active-filter tags).
     static let filterChipPadding = (h: CGFloat(12), v: CGFloat(6))
     static let filterChipSpacing: CGFloat = 6
+    /// Filter sheet layout; the padding also frames Home's active-filter bar.
+    static let filterGroupSpacing: CGFloat = 22
+    static let filterGroupTitleSpacing: CGFloat = 10
+    static let filterBarPadding = (h: CGFloat(20), top: CGFloat(8))
+    /// Home's active-filter tags: label-to-✕ gap.
+    static let filterTagSpacing: CGFloat = 5
     /// The green dot on the header's filter glyph while a filter is active.
     static let filterDotSize: CGFloat = 6
+    static let filterDotOffset = (x: CGFloat(4), y: CGFloat(-4))
+    /// Header glyph size (filter and gear).
+    static let headerGlyphSize: CGFloat = 17
+    /// Home's "nothing matches" ghost under an active filter.
+    static let ghostSpacing: CGFloat = 10
     static let gridColumns = 4
     static let gridRowGap: CGFloat = 18
     static let gridColumnGap: CGFloat = 6
@@ -77,6 +88,14 @@ enum AppTheme {
     static let countFont = Font.system(size: 12, weight: .semibold).monospacedDigit()
     static let chipFont = Font.system(size: 10.5, weight: .bold)
     static let filterChipFont = Font.system(size: 13, weight: .semibold)
+    /// The filter sheet's uppercase group labels ("STORAGE", "FOOD CATEGORY").
+    static let filterGroupLabelFont = Font.system(size: 11, weight: .bold)
+    static let filterGroupLabelKerning: CGFloat = 0.8
+    /// The ✕ inside Home's active-filter tags.
+    static let filterTagXFont = Font.system(size: 9, weight: .bold)
+    /// Home's "nothing matches" ghost: art + caption.
+    static let ghostArtFont = Font.system(size: 34)
+    static let ghostTextFont = Font.system(size: 13, weight: .semibold)
 
     // MARK: Effects
 

@@ -157,17 +157,17 @@ struct HomeView: View {
             }
             Spacer()
         }
-        .padding(.horizontal, 20)
-        .padding(.top, 8)
+        .padding(.horizontal, AppTheme.filterBarPadding.h)
+        .padding(.top, AppTheme.filterBarPadding.top)
     }
 
     private func filterTag(_ label: String, remove: @escaping () -> Void) -> some View {
         Button(action: remove) {
-            HStack(spacing: 5) {
+            HStack(spacing: AppTheme.filterTagSpacing) {
                 Text(label)
                     .font(AppTheme.filterChipFont)
                 Image(systemName: "xmark")
-                    .font(.system(size: 9, weight: .bold))
+                    .font(AppTheme.filterTagXFont)
                     .opacity(0.75)
             }
             .foregroundStyle(.white)
@@ -180,12 +180,12 @@ struct HomeView: View {
     }
 
     private var noMatchView: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: AppTheme.ghostSpacing) {
             Text("🕳️")
-                .font(.system(size: 34))
+                .font(AppTheme.ghostArtFont)
                 .opacity(0.5)
             Text("Nothing matches — remove a filter")
-                .font(.system(size: 13, weight: .semibold))
+                .font(AppTheme.ghostTextFont)
                 .foregroundStyle(AppTheme.mutedInk)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -218,7 +218,7 @@ struct HomeView: View {
                     showSettings = true
                 } label: {
                     Image(systemName: "gearshape")
-                        .font(.system(size: 17))
+                        .font(.system(size: AppTheme.headerGlyphSize))
                         .foregroundStyle(AppTheme.mutedInk)
                 }
                 .accessibilityLabel("Settings")
@@ -236,14 +236,15 @@ struct HomeView: View {
             showFilterSheet = true
         } label: {
             Image(systemName: "line.3.horizontal.decrease")
-                .font(.system(size: 17, weight: hasActiveFilter ? .semibold : .regular))
+                .font(.system(size: AppTheme.headerGlyphSize,
+                              weight: hasActiveFilter ? .semibold : .regular))
                 .foregroundStyle(hasActiveFilter ? AppTheme.brandGreen : AppTheme.mutedInk)
                 .overlay(alignment: .topTrailing) {
                     if hasActiveFilter {
                         Circle()
                             .fill(AppTheme.brandGreen)
                             .frame(width: AppTheme.filterDotSize, height: AppTheme.filterDotSize)
-                            .offset(x: 4, y: -4)
+                            .offset(x: AppTheme.filterDotOffset.x, y: AppTheme.filterDotOffset.y)
                     }
                 }
         }
