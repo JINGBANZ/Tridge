@@ -26,6 +26,7 @@ struct HomeView: View {
     @State private var showManualAdd = false
     @State private var pickedPhoto: PhotosPickerItem?
     @State private var searchText = ""
+    @State private var isSearchPresented = false
 
     // Drag-to-consume state
     @State private var draggedItem: FridgeItem?
@@ -41,6 +42,7 @@ struct HomeView: View {
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbarBackground(.hidden, for: .navigationBar)
                 .searchable(text: $searchText,
+                            isPresented: $isSearchPresented,
                             placement: .navigationBarDrawer(displayMode: .automatic),
                             prompt: "Search your fridge")
         }
