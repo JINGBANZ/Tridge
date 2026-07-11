@@ -382,7 +382,7 @@
     <div class="tablewrap"><table>
       <tr><th>Token</th><th>Spec</th></tr>
       <tr><td>Type — display</td><td>SF Pro Rounded Heavy, 28pt for the screen title; use <code>.fontDesign(.rounded)</code></td></tr>
-      <tr><td>Type — body / labels</td><td>SF Pro; item names 11pt Semibold, pills 10pt Heavy, tabular numerals for counts</td></tr>
+      <tr><td>Type — body / labels</td><td>SF Pro; item names 13pt Semibold, pills 10pt Heavy, tabular numerals for counts</td></tr>
       <tr><td>Item sprite</td><td>No background, no frame. Art (emoji for v1) rendered at 44pt in a fixed 64×60pt cell, soft drop shadow (28% ink, y=5, blur=7). Name centered below, one line, truncated.</td></tr>
       <tr><td>Status pill</td><td>Capsule overlapping the art's top-right shoulder. Fresh ≥3d: <code>state.fresh</code> · 1–2d: <code>state.soon</code> · today/expired: <code>state.expired</code>. Label: "Nd" / "Today" / "✕ Nd" (days since expiry).</td></tr>
       <tr><td>Quantity badge</td><td>Bottom-right of the art, white capsule, "×N", only when N &gt; 1</td></tr>
@@ -390,7 +390,7 @@
       <tr><td>Grid</td><td>4 columns, 18pt row / 6pt column gap, 14pt screen margins, sorted by <code>expiryDate</code> ascending (soonest first, expired at very top)</td></tr>
       <tr><td>Scan button</td><td>The only chrome: 58pt circle, brand-green gradient, receipt glyph, floating bottom-center with a strong shadow. No tab bar.</td></tr>
       <tr><td>Filter button</td><td>Bare <code>line.3.horizontal.decrease</code> glyph at the gear's weight (17pt, muted ink), in the header between the count and the gear — no circle background. Hidden entirely while the fridge is empty. Active filter: glyph turns <code>brand.green</code> semibold with a 6pt green dot at its top-right.</td></tr>
-      <tr><td>Filter chips</td><td>Capsules, 13pt Semibold, 12×6pt padding, 6pt spacing, wrapping rows. Sheet options: selected = <code>brand.green</code> fill + white text, unselected = 12% muted-ink fill. Home's active-filter tags: <code>brand.green</code> fill with a trailing ✕; tap removes that filter.</td></tr>
+      <tr><td>Filter chips</td><td>Capsules, wrapping rows, 6pt spacing. Sheet options: 15pt Semibold, 14×8pt padding, selected = <code>brand.green</code> fill + white text, unselected = 12% muted-ink fill; the sheet's height hugs the chip groups (no dead space below). Home's active-filter tags: 13pt Semibold, 12×6pt padding, <code>brand.green</code> fill with a trailing ✕; tap removes that filter.</td></tr>
       <tr><td>Drop zones</td><td>Hidden until a drag starts, then slide up over the scan button: two flexible zones, 78pt tall, radius 20pt, frosted white with dashed outline; active/hovered zone turns green-tinted, solid border, scales to 1.04.</td></tr>
       <tr><td>Dark mode (app)</td><td>bg gradient <code>#101B16 → #0F1620</code>, ink <code>#E8ECE6</code>, drop zones frosted dark; pills keep the same three state colors</td></tr>
       <tr><td>Motion</td><td>Items pop in with a staggered spring on load (0.03s/item, scale 0.7→1). Dragged item lifts to 1.3× with a deeper shadow; drop animates it shrinking into the zone. Respect Reduce Motion.</td></tr>
@@ -407,7 +407,7 @@
       <tr><td><b>1 · Home</b></td><td>Header ("Fridge", unit count (×N quantities summed, not rows; follows the active filter), filter glyph → Filter sheet, gear icon → Settings sheet) · item grid as specced above · single floating scan button. <br><b>Filter:</b> the filter glyph opens a half sheet with two chip groups — <b>Storage</b> (All · Fridge · Freezer · Pantry) and <b>Food Category</b> (All · Produce · Dairy · Meat · Seafood · Bakery · Drinks · Snacks · Condiments · Other) — one selection per group, applied to the grid live behind the sheet, with Clear All / Done. While a filter is active the glyph tints green with a dot and removable filter tags sit under the header; a filter matching nothing shows a small ghost ("Nothing matches — remove a filter"), never a dead end. An empty fridge shows no filter UI at all and clears any active filter. <br><b>Tap item</b> → Item Detail sheet. <br><b>Long-press + drag item</b> → grid dims, scan button fades out, the two drop zones slide up: <code>😋 Ate it</code> (left) and <code>🗑️ Tossed</code> (right); dropping marks the item consumed/wasted with a haptic — for ×N items it decrements quantity by 1 and the item stays until 0. Releasing outside a zone cancels. <br><b>Empty state:</b> centered ghost item + "Scan your first receipt" + arrow pointing at the scan button.</td></tr>
       <tr><td><b>2 · Scan / Add</b></td><td>Tapping the scan button opens the add menu — no hidden long-press: <b>Scan with camera</b> (<code>VNDocumentCameraViewController</code>, VisionKit; the entry is hidden where the document camera is unavailable — Simulator, browser-hosted simulators — so the camera is an enhancement, not a requirement) · <b>Choose from library</b> (photo-library picker) · <b>Type to add</b> (manual-add sheet: art, name, type-in quantity field, storage picker (defaults to Fridge), expiry date — saves directly, no API key or LLM call; debug builds add a bundled sample receipt and a preset seed). On capture or photo selection: full-screen progress ("Reading your receipt…", animated receipt emoji), image is downscaled to max 1568px long edge, JPEG 80%, sent to the LLM. Errors (network / key missing / unparseable) show a friendly retry alert.</td></tr>
       <tr><td><b>3 · Review sheet</b></td><td>Presented sheet (see mock). Scan date + count header. Each row: art, clean name, original receipt text in small gray, a Food Category chip (green-tinted, display-only — the category follows the art) and a Storage chip (gray, tappable menu: Fridge / Freezer / Pantry) under the name, plus a type-in quantity chip (number pad, 1–99) and a tappable date chip (opens compact date picker). Unrecognized items (id <code>unknown</code>) flagged amber with "tap to fix". Rows can be deleted (swipe) or edited (tap name). Primary button "Add N items to Fridge" saves all, schedules notifications, pops to Home where new items animate in.</td></tr>
-      <tr><td><b>4 · Item Detail</b></td><td>Sheet with large art (tap to pick different art from the prebuilt set), name field, type-in quantity field, storage picker (Fridge/Freezer/Pantry), a read-only Food Category row ("Category follows the artwork — change the art to recategorize"), expiry date picker with source note ("Guessed by AI — tap to correct"), and a <b>"📷 Scan date label"</b> button → camera + on-device Vision OCR (<code>VNRecognizeTextRequest</code>), regex-match date formats (<code>MM/DD/YY</code>, <code>DD MMM YYYY</code>, <code>YYYY-MM-DD</code>, "Best by …"), accept the first plausible date (today &lt; d &lt; today+5y) after user confirmation. Buttons: Ate it · Tossed it · Delete.</td></tr>
+      <tr><td><b>4 · Item Detail</b></td><td>Sheet with large art (tap to pick different art from the prebuilt set) above a single details section of label-left / value-right rows, the same shared form manual add uses (<code>Views/Shared/ItemFormRows.swift</code>): name field, type-in quantity field (clearable while retyping), storage picker (Fridge/Freezer/Pantry), expiry date picker with source note ("Expiry guessed by AI — tap to correct"), and a read-only Food Category row ("Category follows the artwork — change the art to recategorize"). Buttons: Ate it · Tossed it · Delete.</td></tr>
       <tr><td><b>＋ Settings sheet</b></td><td>Opened from the gear icon (not a tab): notification hour (default 9:00) and a Diagnostics row that copies this session’s app logs (via <code>AppLog</code>/OSLog) to the clipboard for bug reports. No stats in v1.</td></tr>
     </table></div>
 
@@ -494,15 +494,15 @@ Rules:
 ├─ Services/
 │  ├─ LLMService.swift              protocol + OpenAIService (URLSession, async/await)
 │  ├─ ReceiptScanner.swift          VisionKit wrapper → UIImage
-│  ├─ DateLabelScanner.swift        Vision OCR + date-regex parsing
 │  ├─ NotificationService.swift     schedule/cancel per item
 │  └─ KeychainStore.swift           API key
 ├─ Views/
 │  ├─ Home/        HomeView · ItemSprite · StatusPill · DropZoneBar · EmptyStateView
 │  ├─ Scan/        ScanProgressView · ReviewSheet · ReviewRow
 │  ├─ Detail/      ItemDetailSheet · ArtPicker
+│  ├─ Shared/      ItemFormRows (HeroArtRow · ItemFieldRows)
 │  └─ Settings/    SettingsSheet
-└─ Tests/          LLMResponseParsingTests · UrgencyLogicTests · DateRegexTests</pre>
+└─ Tests/          LLMResponseParsingTests · UrgencyLogicTests</pre>
     <div class="tablewrap"><table>
       <tr><th>Concern</th><th>Decision</th></tr>
       <tr><td>Notifications</td><td><code>UNUserNotificationCenter</code>, local only. Two per item: T−2d and expiry day, at the Settings hour. Identifiers <code>"{uuid}-pre"</code> / <code>"{uuid}-day"</code>; cancel + reschedule on any date change, cancel on consume/delete. Request permission on first successful item add, not at launch.</td></tr>
@@ -523,7 +523,7 @@ Rules:
       <tr><td><b>B · Rented cloud Mac</b></td><td>A macOS VM you remote into: MacStadium, Scaleway Apple silicon, AWS EC2 Mac. Run Xcode over screen sharing; your Linux VPS workflow stays for everything else.</td><td>~$0.10–0.65/hr or ~$50–130/mo; AWS has a 24h minimum. Remote-desktop Xcode is usable but laggy.</td></tr>
       <tr><td><b>C · Linux VPS + macOS CI</b></td><td>You (and Claude Code) write all the Swift on the VPS. GitHub Actions macOS runners compile, run the unit tests, and upload builds to TestFlight. You never touch a Mac directly.</td><td>Free for public repos (macOS runners bill 10× minutes on private free tier). Iteration loop is 10–20 min per build and there's no simulator screenshot loop — fine for an agent one-shot + fix cycles, painful for pixel-level UI tweaking. Requires the $99/yr Apple Developer Program for TestFlight signing.</td></tr>
     </table></div>
-    <div class="callout">Realistic recommendation for your setup: <b>write the code on the VPS, build with option C</b>, and if the UI needs more than a couple of correction rounds, spin up a cloud Mac for a day (option B) to polish with the simulator. Swift Package structure + unit tests (parsing, urgency logic, date regex) are Linux-runnable, so most logic bugs get caught before a macOS build is ever needed.</div>
+    <div class="callout">Realistic recommendation for your setup: <b>write the code on the VPS, build with option C</b>, and if the UI needs more than a couple of correction rounds, spin up a cloud Mac for a day (option B) to polish with the simulator. Swift Package structure + unit tests (parsing, urgency logic) are Linux-runnable, so most logic bugs get caught before a macOS build is ever needed.</div>
 
     <h3>Getting it onto your iPhone</h3>
     <div class="tablewrap"><table>
@@ -548,13 +548,12 @@ Rules:
       <li>Scanned items land in the LLM's storage guess (fridge, freezer, or pantry); review rows show a display-only Food Category chip and an editable Storage chip; every item's Food Category derives from its art's <code>ItemID</code>.</li>
       <li>Long-press-dragging an item dims the grid and reveals the two drop zones; dropping on "Ate it"/"Tossed" fires a haptic and updates status; ×N quantity decrements before removal; releasing elsewhere cancels.</li>
       <li>Editing a date in Item Detail sets <code>expirySource = userSet</code>, reschedules both notifications, and survives relaunch.</li>
-      <li>"Scan date label" reads a printed "BEST BY 07/12/26" via on-device OCR and offers it for confirmation.</li>
       <li>Notifications fire at T−2d and expiry day at the configured hour (verifiable with a short-dated test item).</li>
       <li>No API key → scan routes to Settings with explanation; network failure → retry alert; malformed LLM JSON → one automatic retry.</li>
       <li>Empty fridge shows the empty state; dark mode renders per the dark tokens; Reduce Motion disables the pop-in spring and drag float.</li>
-      <li>Unit tests pass on Linux via <code>swift test</code> where possible: LLM JSON parsing (incl. fenced output), urgency thresholds, date-regex parsing.</li>
+      <li>Unit tests pass on Linux via <code>swift test</code> where possible: LLM JSON parsing (incl. fenced output), urgency thresholds.</li>
     </ul>
-    <div class="callout" style="margin-top:8px">Build order for the agent: Models + Artwork lookup → AppTheme → Home grid with seeded sample data → drag-to-consume → LLM service + scan flow → review sheet → detail + notifications → OCR date scan → settings → tests.</div>
+    <div class="callout" style="margin-top:8px">Build order for the agent: Models + Artwork lookup → AppTheme → Home grid with seeded sample data → drag-to-consume → LLM service + scan flow → review sheet → detail + notifications → settings → tests.</div>
   </section>
 
 </div>
