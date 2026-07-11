@@ -1,12 +1,17 @@
 import SwiftUI
 
-/// The filter button's half sheet: at most one Storage and one Food Category
-/// selection, applied to the grid live behind the sheet. `nil` = "All" on that
-/// axis. Dismissing keeps the filters; Home's active-filter tags remove them.
+/// The filter button's sheet, sized to hug its content: at most one Storage and
+/// one Food Category selection, applied to the grid live behind the sheet.
+/// `nil` = "All" on that axis. Dismissing keeps the filters; Home's
+/// active-filter tags remove them.
 struct FilterSheet: View {
     @Binding var storage: StorageLocation?
     @Binding var category: FoodCategory?
     @Environment(\.dismiss) private var dismiss
+    /// Measured height of the chip groups; the sheet's single detent tracks it
+    /// so no dead space is left under the last group. Seeded near the expected
+    /// height to avoid a visible first-layout jump.
+    @State private var contentHeight: CGFloat = 320
 
     var body: some View {
         NavigationStack {
@@ -27,6 +32,11 @@ struct FilterSheet: View {
                 }
                 .padding(.horizontal, AppTheme.filterBarPadding.h)
                 .padding(.top, AppTheme.filterBarPadding.top)
+                .onGeometryChange(for: CGFloat.self) { proxy in
+                    proxy.size.height
+                } action: { height in
+                    contentHeight = height
+                }
             }
             .navigationTitle("Filter")
             .navigationBarTitleDisplayMode(.inline)
@@ -43,7 +53,7 @@ struct FilterSheet: View {
                 }
             }
         }
-        .presentationDetents([.medium])
+        .presentationDetents([.height(contentHeight + AppTheme.filterSheetChrome)])
         .presentationDragIndicator(.visible)
     }
 
@@ -62,10 +72,10 @@ struct FilterSheet: View {
     private func chip(_ label: String, isSelected: Bool, select: @escaping () -> Void) -> some View {
         Button(action: select) {
             Text(label)
-                .font(AppTheme.filterChipFont)
+                .font(AppTheme.filterSheetChipFont)
                 .foregroundStyle(isSelected ? AppTheme.chipSelectedLabel : AppTheme.ink)
-                .padding(.horizontal, AppTheme.filterChipPadding.h)
-                .padding(.vertical, AppTheme.filterChipPadding.v)
+                .padding(.horizontal, AppTheme.filterSheetChipPadding.h)
+                .padding(.vertical, AppTheme.filterSheetChipPadding.v)
                 .background(isSelected ? AppTheme.brandGreen : AppTheme.mutedInk.opacity(AppTheme.chipSoftOpacity),
                             in: Capsule())
         }

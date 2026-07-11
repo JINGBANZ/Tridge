@@ -65,7 +65,7 @@ Worker (TypeScript) that holds the OpenAI key; the app POSTs the receipt JPEG to
 ## Setup
 
 - Development happens on a Linux box; Xcode/macOS exists only in CI (GitHub Actions macOS runners).
-  Structure pure-logic code (LLM response parsing, urgency rules, date-regex parsing) into targets
+  Structure pure-logic code (LLM response parsing, urgency rules) into targets
   that build and pass under `swift test` on Linux.
 - The OpenAI key is held server-side as a Cloudflare Worker secret (`wrangler secret put`, run from
   a dev machine) — never on the device or in the repo. The app authenticates to the worker with
@@ -97,7 +97,7 @@ Worker (TypeScript) that holds the OpenAI key; the app POSTs the receipt JPEG to
 
 ## Testing
 
-- XCTest. Logic tests (LLM JSON parsing incl. fenced output, urgency thresholds, date regex) must
+- XCTest. Logic tests (LLM JSON parsing incl. fenced output, urgency thresholds) must
   run on Linux via `swift test`. UI/integration behavior is covered by the spec's acceptance
   criteria checklist.
 
