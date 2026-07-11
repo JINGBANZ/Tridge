@@ -67,7 +67,10 @@ struct ManualAddSheet: View {
                     if !suggestions.isEmpty {
                         chipsRow
                     }
-                    TextField("Name (e.g. Milk)", text: $name)
+                    LabeledContent("Name") {
+                        TextField("e.g. Milk", text: $name)
+                            .multilineTextAlignment(.trailing)
+                    }
                     LabeledContent("Quantity") {
                         TextField("1", value: quantityBinding, format: .number)
                             .keyboardType(.numberPad)
@@ -112,10 +115,6 @@ struct ManualAddSheet: View {
                             Text(suggestion.displayName)
                                 .lineLimit(1)
                                 .foregroundStyle(AppTheme.ink)
-                            if let count = suggestion.activeQuantity {
-                                Text("×\(count)")
-                                    .foregroundStyle(AppTheme.mutedInk)
-                            }
                         }
                         .font(.subheadline)
                         .padding(.horizontal, 12)
@@ -135,9 +134,8 @@ struct ManualAddSheet: View {
         let normalizedName: String
         let displayName: String
         let artKey: String
-        /// Set when a non-expired active row exists — the chip shows ×N and
-        /// Add will group into it.
-        let activeQuantity: Int?
+        /// Set when a non-expired active row exists — its date prefills the
+        /// expiry field so an untouched Add preserves it on merge.
         let activeExpiry: Date?
         let typicalShelfLifeDays: Int
         var id: String { normalizedName }
@@ -161,7 +159,6 @@ struct ManualAddSheet: View {
                 normalizedName: key,
                 displayName: latest.name,
                 artKey: latest.artKey,
-                activeQuantity: activeRow?.quantity,
                 activeExpiry: activeRow?.expiryDate,
                 typicalShelfLifeDays: Self.typicalShelfLife(of: rows))
             entries.append(SearchEntry(normalizedName: key,

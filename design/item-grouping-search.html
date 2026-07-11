@@ -269,10 +269,6 @@
     color: var(--accent); font-size: 11px; font-weight: 650; padding: 4px 10px;
     border-radius: 999px; white-space: nowrap;
   }
-  .p-chipq .mini {
-    background: var(--surface-solid); border: 1px solid var(--line); border-radius: 999px;
-    font-size: 9px; padding: 0 4px; color: var(--ink);
-  }
   .p-name-layers { display: inline-grid; }
   .p-name-layers > span { grid-area: 1 / 1; justify-self: start; white-space: nowrap; }
   .p-chip.stack { display: inline-grid; }
@@ -545,7 +541,7 @@ organically without the curated <code>ItemID</code> enum ever needing to.</p>
 
 <ul>
   <li><strong>Scan path:</strong> unchanged — the LLM already returns a schema-enforced <code>ItemID</code>, which stays authoritative for scanned rows.</li>
-  <li><strong>Manual add:</strong> the ArtPicker row disappears; the resolved emoji shows live next to the name field as the user types (animated in §6). Suggestion chips carry their remembered <code>artKey</code> — tier 0 by construction.</li>
+  <li><strong>Manual add:</strong> the ArtPicker row disappears; the resolved emoji fills the sheet's hero art live as the user types (animated in §6). Suggestion chips carry their remembered <code>artKey</code> — tier 0 by construction.</li>
   <li><strong>Consistency guarantee:</strong> same name → same art, always: tier 0 makes the user's correction sticky; tiers 1–5 are a pure function of the name. Changing art never affects identity.</li>
 </ul>
 
@@ -700,13 +696,14 @@ scale ranking runs in memory per keystroke with no debounce; the <code>#Index</c
 addition: a row of <strong>suggestion chips</strong> sitting directly above the name input box.
 Before typing, the chips show
 the most recently/frequently added items; typing re-ranks them through <code>NameSearch</code>.
-Chips for items currently in the fridge carry a small ×N badge. Tapping a chip <em>fills the
-form</em> — it never commits anything: name and art fill in, and expiry prefills with the existing
-item's current date (in-fridge chip) or today + that item's typical shelf life (past-item chip).
+Tapping a chip <em>fills the form</em> — it never commits anything: name and art fill in, and
+expiry prefills with the existing item's current date (in-fridge chip) or today + that item's
+typical shelf life (past-item chip).
 Quantity always means "how many I'm adding" and defaults to 1. Everything stays editable after a
-fill; the single <strong>Add</strong> button confirms. The art slot beside the name is the page's
-one silent control: it fills itself (§3.3), invites a tap only when resolution lands on 🛒, and a
-tap there opens the picker without adding any standing chrome.</p>
+fill; the single <strong>Add</strong> button confirms. The hero art atop the page is its one
+silent control: it fills itself (§3.3), invites a tap only when resolution lands on 🛒, and a tap
+there opens the picker without adding any standing chrome. The name row itself is a standard
+label-left / input-right form row, matching Quantity and Expires.</p>
 
 <div class="demo-row">
   <div class="demo">
@@ -725,17 +722,22 @@ tap there opens the picker without adding any standing chrome.</p>
       </div>
       <div class="p-sheet">
         <div class="p-sheet-title">Type to add</div>
+        <div style="text-align: center; font-size: 32px; padding: 2px 0 6px;">
+          <span class="art-slot"><span class="field-art">🌶️</span></span>
+        </div>
         <div class="p-chips">
-          <span class="p-chipq chip-tap">🌶️ Jalapeno Peppers <span class="mini">×2</span></span>
+          <span class="p-chipq chip-tap">🌶️ Jalapeno Peppers</span>
           <span class="p-chipq">🫙 Jalapeno Salsa</span>
         </div>
         <div class="p-field">
-          <span class="art-slot"><span class="field-art">🌶️</span></span>
-          <span class="p-name-layers">
-            <span><span class="t1">J</span><span class="t2">a</span><span class="t3">l</span></span>
-            <span class="full-name">Jalapeno Peppers</span>
+          <span style="color: var(--muted);">Name</span>
+          <span style="margin-left: auto; display: inline-flex; align-items: center;">
+            <span class="p-name-layers">
+              <span><span class="t1">J</span><span class="t2">a</span><span class="t3">l</span></span>
+              <span class="full-name">Jalapeno Peppers</span>
+            </span>
+            <span class="p-caret"></span>
           </span>
-          <span class="p-caret"></span>
         </div>
         <div class="p-details">
           <div class="p-row">
@@ -750,7 +752,7 @@ tap there opens the picker without adding any standing chrome.</p>
         <button class="p-cta">Add to Fridge</button>
       </div>
     </div>
-    <p class="demo-caption">Typing "Jal" ranks the chips; tapping the <strong>Jalapeno Peppers ×2</strong>
+    <p class="demo-caption">Typing "Jal" ranks the chips; tapping the <strong>Jalapeno Peppers</strong>
     chip fills name, art and expiry (Jul 16, from the fridge item). The user still edits quantity
     (×1 → ×2 here), then taps <strong>Add</strong> — the grid badge ticks ×2 → ×4. A brand-new name
     skips the chips entirely: type it, art infers, defaults apply, Add inserts.</p>
