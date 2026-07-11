@@ -150,7 +150,7 @@ public enum ItemID: String, Codable, CaseIterable, Sendable {
 /// What an item *is* (Storage is where it *lives*). Never stored or sent over
 /// the wire — derived from the item's `ItemID` via `foodCategory` below, so
 /// existing items pick up categories with no migration and no LLM change.
-public enum FoodCategory: String, Codable, CaseIterable, Sendable {
+public enum FoodCategory: String, CaseIterable, Sendable {
     case produce, dairy, meat, seafood, bakery, drinks, snacks, condiments, other
 
     public var label: String {

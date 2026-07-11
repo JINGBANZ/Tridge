@@ -13,7 +13,7 @@ struct ReviewRow: View {
                 .font(.system(size: 24))
                 .shadow(color: .black.opacity(0.2), radius: 1.5, y: 2)
 
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: AppTheme.reviewRowNameSpacing) {
                 TextField("Name", text: $item.name)
                     .font(.system(size: 13, weight: .semibold))
                 if let receiptText = item.receiptText {
@@ -31,7 +31,7 @@ struct ReviewRow: View {
                         .foregroundStyle(AppTheme.brandGreen)
                         .padding(.horizontal, AppTheme.chipPadding.h)
                         .padding(.vertical, AppTheme.chipPadding.v)
-                        .background(AppTheme.brandGreen.opacity(0.12), in: Capsule())
+                        .background(AppTheme.brandGreen.opacity(AppTheme.chipSoftOpacity), in: Capsule())
                     storageChip
                 }
             }
@@ -48,7 +48,7 @@ struct ReviewRow: View {
             .foregroundStyle(AppTheme.mutedInk)
             .padding(.horizontal, AppTheme.chipPadding.h)
             .padding(.vertical, AppTheme.chipPadding.v)
-            .background(AppTheme.mutedInk.opacity(0.12), in: Capsule())
+            .background(AppTheme.mutedInk.opacity(AppTheme.chipSoftOpacity), in: Capsule())
             .accessibilityLabel("Quantity")
 
             Button {
@@ -64,7 +64,7 @@ struct ReviewRow: View {
                     .padding(.vertical, AppTheme.chipPadding.v)
                     .background(
                         (item.needsFix && !item.userEditedDate
-                         ? AppTheme.soon : AppTheme.brandGreen).opacity(0.12),
+                         ? AppTheme.soon : AppTheme.brandGreen).opacity(AppTheme.chipSoftOpacity),
                         in: Capsule())
             }
             .buttonStyle(.borderless)
@@ -103,7 +103,7 @@ struct ReviewRow: View {
                 .foregroundStyle(AppTheme.mutedInk)
                 .padding(.horizontal, AppTheme.chipPadding.h)
                 .padding(.vertical, AppTheme.chipPadding.v)
-                .background(AppTheme.mutedInk.opacity(0.12), in: Capsule())
+                .background(AppTheme.mutedInk.opacity(AppTheme.chipSoftOpacity), in: Capsule())
         }
         .buttonStyle(.borderless)
         .accessibilityLabel("Storage \(item.storage.label)")

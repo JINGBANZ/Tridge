@@ -62,7 +62,7 @@ struct HomeView: View {
                 }
                 if items.isEmpty {
                     EmptyStateView()
-                        .padding(.bottom, AppTheme.scanButtonSize + 40)
+                        .padding(.bottom, AppTheme.scanButtonClearance)
                 } else {
                     if hasActiveFilter {
                         activeFilterBar
@@ -172,7 +172,7 @@ struct HomeView: View {
                     .font(AppTheme.filterChipFont)
                 Image(systemName: "xmark")
                     .font(AppTheme.filterTagXFont)
-                    .opacity(0.75)
+                    .opacity(AppTheme.filterTagDismissOpacity)
             }
             .foregroundStyle(AppTheme.chipSelectedLabel)
             .padding(.horizontal, AppTheme.filterChipPadding.h)
@@ -187,13 +187,13 @@ struct HomeView: View {
         VStack(spacing: AppTheme.ghostSpacing) {
             Text("🕳️")
                 .font(AppTheme.ghostArtFont)
-                .opacity(0.5)
+                .opacity(AppTheme.ghostArtOpacity)
             Text("Nothing matches — remove a filter")
                 .font(AppTheme.ghostTextFont)
                 .foregroundStyle(AppTheme.mutedInk)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(.bottom, AppTheme.scanButtonSize + 40)
+        .padding(.bottom, AppTheme.scanButtonClearance)
         .accessibilityElement(children: .combine)
     }
 
@@ -325,7 +325,7 @@ struct HomeView: View {
             }
             .padding(.horizontal, AppTheme.screenMargin)
             .padding(.top, AppTheme.screenMargin)
-            .padding(.bottom, AppTheme.scanButtonSize + 40)
+            .padding(.bottom, AppTheme.scanButtonClearance)
         }
         .scrollIndicators(.hidden)
         .scrollDismissesKeyboard(.immediately)
