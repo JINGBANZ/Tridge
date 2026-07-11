@@ -809,9 +809,11 @@ label-left / input-right form row, matching Quantity and Expires.</p>
         </div>
       </div>
     </div>
-    <p class="demo-caption"><code>.searchable</code> on the home stack — the field is hidden until
-    pulled down, so the spec's single-control home screen keeps its face. Typing filters the
-    already-fetched grid in memory through <code>NameSearch</code>; clearing restores everything.
+    <p class="demo-caption">A custom field pinned below the header — hidden until the grid is
+    pulled down, so the spec's single-control home screen keeps its face. (Not the system
+    <code>.searchable</code> drawer: its scroll-linked bar re-layouts the grid every frame — see
+    the decision log, 2026-07-11.) Typing filters the already-fetched grid in memory through
+    <code>NameSearch</code>; clearing restores everything.
     Diacritic-blind: "jala" finds "Jalapeño Peppers".</p>
   </div>
 </div>
@@ -909,7 +911,7 @@ spec's acceptance-criteria checklist and is exercised on Appetize per the existi
   <li><strong>Foundation</strong> — <code>NameKey</code> + <code>normalizedName</code> property + <code>#Index</code> + backfill + <code>setName</code> write discipline. Invisible, independently shippable.</li>
   <li><strong>Merge at confirm</strong> — <code>MergePlanner</code> wired into <code>ScanFlowModel.confirm</code> and <code>ManualAddSheet.add</code>. Closes #26.</li>
   <li><strong>Manual add, minimized</strong> — <code>ArtInference</code> replaces the ArtPicker; <code>NameSearch</code> drives the quick-fill chips row; merge-aware <strong>Add</strong> with the prefill-vs-edited expiry rule.</li>
-  <li><strong>Inventory lookup</strong> — <code>.searchable</code> on the home grid.</li>
+  <li><strong>Inventory lookup</strong> — the pull-down search field on the home grid (§6.2).</li>
 </ol>
 <p>Steps 2–4 are separately reviewable PRs on the same foundation; none blocks another after
 step 1. On implementation, the owner calls recorded here (silent merge, name-only key, auto art,

@@ -26,6 +26,11 @@ enum AppTheme {
     /// Label color on filled (selected/active) chips and tags.
     static let chipSelectedLabel = Color.white
 
+    /// Solid field/card surface: #FFFFFF light / #18231D dark.
+    static let surfaceSolid = Color(light: 0xFFFFFF, dark: 0x18231D)
+    /// Hairline borders: ink at 14%, both schemes.
+    static let hairline = ink.opacity(0.14)
+
     static func color(for urgency: Urgency) -> Color {
         switch urgency {
         case .fresh: fresh
@@ -60,6 +65,11 @@ enum AppTheme {
     /// Review-sheet chips (quantity ×N, expiry date, Food Category, Storage).
     static let chipPadding = (h: CGFloat(8), v: CGFloat(3))
     static let chipSpacing: CGFloat = 4
+    /// Soft chip fill: the chip's tint color at 12% (unselected filter options,
+    /// review-row guess chips).
+    static let chipSoftOpacity: Double = 0.12
+    /// Review rows: name-to-receipt-text gap.
+    static let reviewRowNameSpacing: CGFloat = 2
     /// Filter chips (the filter sheet's options and Home's active-filter tags).
     static let filterChipPadding = (h: CGFloat(12), v: CGFloat(6))
     static let filterChipSpacing: CGFloat = 6
@@ -76,13 +86,24 @@ enum AppTheme {
     static let headerGlyphSize: CGFloat = 17
     /// Home's "nothing matches" ghost under an active filter.
     static let ghostSpacing: CGFloat = 10
+    static let ghostArtOpacity: Double = 0.5
+    /// The ✕ inside Home's active-filter tags sits slightly quieter than its label.
+    static let filterTagDismissOpacity: Double = 0.75
     static let gridColumns = 4
     static let gridRowGap: CGFloat = 18
     static let gridColumnGap: CGFloat = 6
     static let screenMargin: CGFloat = 14
     static let scanButtonSize: CGFloat = 58
+    /// Bottom padding that keeps scrollable/centered content clear of the
+    /// floating scan button.
+    static let scanButtonClearance: CGFloat = scanButtonSize + 40
     static let dropZoneHeight: CGFloat = 78
     static let dropZoneRadius: CGFloat = 20
+    /// Home search field (item-grouping-search.html §6.2 mock).
+    static let searchFieldRadius: CGFloat = 10
+    static let searchFieldPadding = (h: CGFloat(11), v: CGFloat(7))
+    static let searchFieldIconGap: CGFloat = 7
+    static let searchFieldMargin = (h: CGFloat(20), top: CGFloat(8))
 
     // MARK: Type
 
@@ -100,6 +121,9 @@ enum AppTheme {
     /// Home's "nothing matches" ghost: art + caption.
     static let ghostArtFont = Font.system(size: 34)
     static let ghostTextFont = Font.system(size: 13, weight: .semibold)
+    static let searchFont = Font.system(size: 13, weight: .semibold)
+    /// The ⓧ clear button inside the search field.
+    static let searchClearFont = Font.system(size: 14)
 
     // MARK: Effects
 

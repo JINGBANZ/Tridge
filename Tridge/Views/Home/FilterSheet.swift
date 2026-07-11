@@ -66,7 +66,7 @@ struct FilterSheet: View {
                 .foregroundStyle(isSelected ? AppTheme.chipSelectedLabel : AppTheme.ink)
                 .padding(.horizontal, AppTheme.filterChipPadding.h)
                 .padding(.vertical, AppTheme.filterChipPadding.v)
-                .background(isSelected ? AppTheme.brandGreen : AppTheme.mutedInk.opacity(0.12),
+                .background(isSelected ? AppTheme.brandGreen : AppTheme.mutedInk.opacity(AppTheme.chipSoftOpacity),
                             in: Capsule())
         }
         .buttonStyle(.plain)
