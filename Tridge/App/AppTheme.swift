@@ -84,6 +84,8 @@ enum AppTheme {
     /// Staggered pop-in on load: 0.03s per item, scale 0.7 → 1.
     static let popInDelayPerItem: Double = 0.03
     static let popInStartScale: CGFloat = 0.7
+    /// Only animate the initial screenful; later lazy cells must stay cheap to scroll.
+    static let popInItemLimit = 16
 }
 
 extension Color {

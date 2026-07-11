@@ -5,6 +5,11 @@ import PhotosUI
 /// The whole app on one screen: frameless item grid on the chilled background,
 /// one scan button, drag-to-consume.
 struct HomeView: View {
+    private static let gridLayout = Array(
+        repeating: GridItem(.flexible(), spacing: AppTheme.gridColumnGap),
+        count: AppTheme.gridColumns
+    )
+
     @Environment(\.modelContext) private var context
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -54,8 +59,6 @@ struct HomeView: View {
                     grid
                 }
             }
-            .animation(.default, value: visibleItems.count)
-
             bottomArea
             draggedGhost
 
@@ -148,8 +151,7 @@ struct HomeView: View {
     private var grid: some View {
         ScrollView {
             LazyVGrid(
-                columns: Array(repeating: GridItem(.flexible(), spacing: AppTheme.gridColumnGap),
-                               count: AppTheme.gridColumns),
+                columns: Self.gridLayout,
                 spacing: AppTheme.gridRowGap
             ) {
                 ForEach(Array(visibleItems.enumerated()), id: \.element.persistentModelID) { index, item in
@@ -165,7 +167,8 @@ struct HomeView: View {
 
     private func slot(for item: FridgeItem, index: Int) -> some View {
         ItemSprite(item: item)
-            .modifier(PopIn(index: index, reduceMotion: reduceMotion))
+            .modifier(PopIn(index: index,
+                            enabled: !reduceMotion && index < AppTheme.popInItemLimit))
             .opacity(slotOpacity(for: item))
             .onTapGesture { selectedItem = item }
             .gesture(consumeGesture(for: item))
@@ -366,23 +369,26 @@ struct HomeView: View {
 /// under Reduce Motion.
 private struct PopIn: ViewModifier {
     let index: Int
-    let reduceMotion: Bool
+    let enabled: Bool
     @State private var shown = false
 
+    @ViewBuilder
     func body(content: Content) -> some View {
-        content
-            .scaleEffect(shown ? 1 : AppTheme.popInStartScale)
-            .opacity(shown ? 1 : 0)
-            .onAppear {
-                if reduceMotion {
-                    shown = true
-                } else {
+        if enabled {
+            content
+                .scaleEffect(shown ? 1 : AppTheme.popInStartScale)
+                .opacity(shown ? 1 : 0)
+                .onAppear {
                     withAnimation(.spring(response: 0.5, dampingFraction: 0.65)
                         .delay(Double(index) * AppTheme.popInDelayPerItem)) {
                         shown = true
                     }
                 }
-            }
+        } else {
+            // Lazy grid cells appear during scrolling. Leaving them unmodified
+            // keeps transforms and delayed springs out of the scroll path.
+            content
+        }
     }
 }
 
