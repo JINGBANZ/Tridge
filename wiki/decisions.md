@@ -432,3 +432,35 @@
   suggestion-catalog entity (a denormalized cache to keep correct on every write — derived from
   history instead); whole-receipt double-scan fingerprinting (additive later if wanted; per-item
   merging already absorbs the damage silently).
+
+### 2026-07-11 — Storage from the LLM, Food Category derived on-device, one filter button on Home
+
+- **Chose:** Three linked owner decisions, designed via interactive mocks before implementation.
+  (1) **Storage becomes item-level and LLM-guessed:** the scan contract gains a required
+  `storage` field (schema-enforced enum `fridge | freezer | pantry`), and scans extract *every*
+  food/beverage line again — shelf-stable goods come back labeled `pantry` (owner call on PR #27
+  review, reversing PR #24's fridge/freezer-only scan scope); the Settings "default storage"
+  concept is removed entirely, and manual add gets its own storage picker (defaults Fridge). (2) **Food Category** (Produce · Dairy · Meat · Seafood ·
+  Bakery · Drinks · Snacks · Condiments · Other) is **derived on-device** from the curated
+  `ItemID` via an exhaustive switch (`Tridge/Core/Types.swift`), never stored and never sent
+  over the wire — existing items pick it up with no migration, re-picking art is how a user
+  recategorizes, and a new vocabulary id can't compile without a category. Judgment calls:
+  eggs → Dairy, ice cream → Snacks, grains/pantry staples and prepared food → Other.
+  (3) **Filtering is one filter button** in Home's header (bare glyph, hidden while the fridge
+  is empty) opening a half sheet with one selection per axis; active filters show as removable
+  tags and tint the glyph. Review rows surface both guesses as chips (category display-only,
+  storage editable).
+- **Why:** Owner direction after comparing mock options: always-visible chip rows/tabs diluted
+  the near-empty-shelf home screen ("no tab bar" stands), and a menu buried nine categories in
+  submenus — the sheet shows the whole filter space in one surface. Deriving category on-device
+  keeps the LLM contract minimal (*2026-07-05 — Minimal LLM contract* stands), costs zero server
+  change, and is Linux-testable; storage must come from the LLM because it's item-dependent
+  ("bread" can be fridge or freezer depending on what was bought).
+- **Rejected:** A bottom tab bar per category (explicit design reversal, stands); always-visible
+  filter chip rows and a storage segmented control (chrome tax on every launch for an occasional
+  gesture); a native pull-down filter menu (nine categories in a submenu, two round-trips to
+  combine axes); LLM-returned food category (a second enum to keep in sync server-side for no
+  gain); storing `foodCategory` on `FridgeItem` (a migration plus a second source of truth that
+  drifts from the art); keeping the fridge/freezer-only scan scope with `pantry` manual-only
+  (the first cut of this change — with a pantry section on screen, silently dropping the pantry
+  half of a receipt reads as a broken scan).

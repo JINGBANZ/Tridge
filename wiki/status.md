@@ -42,9 +42,10 @@ worker + isolated key.
 
 - `design/fridge-design.html` — the complete v2 design & build spec (mocks, tokens, screens,
   schema, LLM contract, acceptance criteria).
-- `Package.swift` + `Tridge/Core/` — Linux-testable FridgeCore: LLM receipt-JSON parsing
-  (`ReceiptParsing.swift`), the curated `ItemID` vocabulary + shared enums (`Types.swift`), urgency
-  rules (`Urgency.swift`), date-label regex (`DateLabelParser.swift`), the item-identity key
+- `Package.swift` + `Tridge/Core/` — Linux-testable FridgeCore: LLM receipt-JSON parsing incl. the
+  per-item `storage` guess (`ReceiptParsing.swift`), the curated `ItemID` vocabulary + shared enums
+  + the derived `FoodCategory` mapping (`Types.swift`), urgency rules (`Urgency.swift`), date-label
+  regex (`DateLabelParser.swift`), the item-identity key
   (`NameKey.swift`), merge decisions (`MergePlanner.swift`), search ranking (`NameSearch.swift`),
   and name→art inference (`ArtInference.swift`). The scan-API client
   (`../Services/ProxyLLMService.swift`) lives here too so the smoke test can drive it on Linux.
@@ -70,10 +71,13 @@ worker + isolated key.
   `ScanRequestAuthorizer`, `AppAttestAuthorizer.swift` on-device App Attest, `ScanAPIConfig.swift`
   single worker URL (build-config Debug/Release split deferred until a prod worker exists), `ReceiptScanner.swift` VisionKit
   camera, `DateLabelScanner.swift` Vision OCR, `NotificationService.swift`, `Haptics.swift`), `Views/`
-  (Home grid + drag-to-consume + pull-down name search, scan flow + review sheet, item detail +
-  art picker, settings). Saving — scanned or typed — merges into a matching active item by
-  normalized name instead of duplicating it (`design/item-grouping-search.html`); manual add has
-  quick-fill history chips above the name field and automatic art (remembered → inferred → tap-to-pick).
+  (Home grid + drag-to-consume + pull-down name search + the header filter button/sheet — Storage +
+  Food Category filters via `Views/Home/FilterSheet.swift`, hidden on an empty fridge, search
+  applying on top of the filters — scan flow + review sheet with per-row Food Category/Storage
+  chips, item detail + art picker, settings). Saving — scanned or typed — merges into a matching
+  active item by normalized name instead of duplicating it (`design/item-grouping-search.html`);
+  manual add has quick-fill history chips above the name field and automatic art
+  (remembered → inferred → tap-to-pick).
 - `Tridge.xcodeproj` — hand-written project (synchronized folder group) + shared scheme;
   see the decision log for why it's hand-authored.
 - `.github/workflows/ci.yml` — Linux `swift test`; server typecheck + Vitest; release-lane syntax;

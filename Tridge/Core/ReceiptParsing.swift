@@ -9,20 +9,24 @@ public struct ParsedItem: Equatable, Sendable {
     public var receiptText: String?
     public var quantity: Int
     public var shelfLifeDays: Int
+    /// Where this purchase belongs at home — the LLM's guess (fridge, freezer,
+    /// or pantry), editable in the review sheet.
+    public var storage: StorageLocation
 
     public init(id: ItemID, name: String, receiptText: String?, quantity: Int,
-                shelfLifeDays: Int) {
+                shelfLifeDays: Int, storage: StorageLocation = .fridge) {
         self.id = id
         self.name = name
         self.receiptText = receiptText
         self.quantity = quantity
         self.shelfLifeDays = shelfLifeDays
+        self.storage = storage
     }
 }
 
 extension ParsedItem: Decodable {
     private enum CodingKeys: String, CodingKey {
-        case id, name, quantity
+        case id, name, quantity, storage
         case receiptText = "receipt_text"
         case shelfLifeDays = "shelf_life_days"
     }
@@ -38,6 +42,8 @@ extension ParsedItem: Decodable {
         receiptText = try c.decodeIfPresent(String.self, forKey: .receiptText)
         quantity = max(1, (try? c.decode(Int.self, forKey: .quantity)) ?? 1)
         shelfLifeDays = max(0, (try? c.decode(Int.self, forKey: .shelfLifeDays)) ?? 7)
+        let storageRaw = (try? c.decode(String.self, forKey: .storage)) ?? ""
+        storage = StorageLocation(rawValue: storageRaw) ?? .fridge
     }
 }
 

@@ -28,6 +28,11 @@ struct HomeView: View {
     @State private var searchText = ""
     @State private var animatedItemIDs: Set<UUID> = []
 
+    // Filter state: nil = "All" on that axis.
+    @State private var filterStorage: StorageLocation?
+    @State private var filterCategory: FoodCategory?
+    @State private var showFilterSheet = false
+
     // Drag-to-consume state
     @State private var draggedItem: FridgeItem?
     @State private var dragLocation: CGPoint = .zero
@@ -59,7 +64,14 @@ struct HomeView: View {
                     EmptyStateView()
                         .padding(.bottom, AppTheme.scanButtonSize + 40)
                 } else {
-                    grid
+                    if hasActiveFilter {
+                        activeFilterBar
+                    }
+                    if filteredItems.isEmpty {
+                        noMatchView
+                    } else {
+                        grid
+                    }
                 }
             }
             bottomArea
@@ -85,6 +97,9 @@ struct HomeView: View {
         .sheet(isPresented: $showManualAdd) {
             ManualAddSheet()
         }
+        .sheet(isPresented: $showFilterSheet) {
+            FilterSheet(storage: $filterStorage, category: $filterCategory)
+        }
         .fullScreenCover(isPresented: cameraBinding) {
             DocumentCameraView { scanFlow.handleCapture($0) }
                 .ignoresSafeArea()
@@ -105,13 +120,85 @@ struct HomeView: View {
             if phase == .active { updateBadge() }
         }
         .onChange(of: items.count) { updateBadge() }
+        .onChange(of: items.isEmpty) { _, empty in
+            // Filters don't outlive the inventory: the last item leaving also
+            // hides the filter button, so nothing could remove a stale filter.
+            if empty { clearFilters() }
+        }
+    }
+
+    // MARK: Filtering
+
+    private var hasActiveFilter: Bool {
+        filterStorage != nil || filterCategory != nil
+    }
+
+    private var filteredItems: [FridgeItem] {
+        items.filter { item in
+            (filterStorage == nil || item.storage == filterStorage)
+                && (filterCategory == nil || item.foodCategory == filterCategory)
+        }
+    }
+
+    private func clearFilters() {
+        filterStorage = nil
+        filterCategory = nil
+    }
+
+    /// Removable tags naming the active filters — filter state stays visible
+    /// while the sheet is closed.
+    private var activeFilterBar: some View {
+        HStack(spacing: AppTheme.filterChipSpacing) {
+            if let storage = filterStorage {
+                filterTag(storage.label) { filterStorage = nil }
+            }
+            if let category = filterCategory {
+                filterTag(category.label) { filterCategory = nil }
+            }
+            Spacer()
+        }
+        .padding(.horizontal, AppTheme.filterBarPadding.h)
+        .padding(.top, AppTheme.filterBarPadding.top)
+    }
+
+    private func filterTag(_ label: String, remove: @escaping () -> Void) -> some View {
+        Button(action: remove) {
+            HStack(spacing: AppTheme.filterTagSpacing) {
+                Text(label)
+                    .font(AppTheme.filterChipFont)
+                Image(systemName: "xmark")
+                    .font(AppTheme.filterTagXFont)
+                    .opacity(0.75)
+            }
+            .foregroundStyle(AppTheme.chipSelectedLabel)
+            .padding(.horizontal, AppTheme.filterChipPadding.h)
+            .padding(.vertical, AppTheme.filterChipPadding.v)
+            .background(AppTheme.brandGreen, in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Remove \(label) filter")
+    }
+
+    private var noMatchView: some View {
+        VStack(spacing: AppTheme.ghostSpacing) {
+            Text("🕳️")
+                .font(AppTheme.ghostArtFont)
+                .opacity(0.5)
+            Text("Nothing matches — remove a filter")
+                .font(AppTheme.ghostTextFont)
+                .foregroundStyle(AppTheme.mutedInk)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.bottom, AppTheme.scanButtonSize + 40)
+        .accessibilityElement(children: .combine)
     }
 
     // MARK: Header
 
-    /// The header counts units, not rows — a ×3 milk is three items.
+    /// The header counts units, not rows — a ×3 milk is three items — and
+    /// follows the active filter.
     private var unitCount: Int {
-        items.reduce(0) { $0 + $1.quantity }
+        filteredItems.reduce(0) { $0 + $1.quantity }
     }
 
     private var header: some View {
@@ -124,11 +211,14 @@ struct HomeView: View {
                 Text("\(unitCount) item\(unitCount == 1 ? "" : "s")")
                     .font(AppTheme.countFont)
                     .foregroundStyle(AppTheme.mutedInk)
+                if !items.isEmpty {
+                    filterButton
+                }
                 Button {
                     showSettings = true
                 } label: {
                     Image(systemName: "gearshape")
-                        .font(.system(size: 17))
+                        .font(.system(size: AppTheme.headerGlyphSize))
                         .foregroundStyle(AppTheme.mutedInk)
                 }
                 .accessibilityLabel("Settings")
@@ -139,14 +229,37 @@ struct HomeView: View {
         .padding(.bottom, 4)
     }
 
+    /// Bare glyph at the gear's visual weight; tints green with a dot while a
+    /// filter is active. Absent entirely on an empty fridge.
+    private var filterButton: some View {
+        Button {
+            showFilterSheet = true
+        } label: {
+            Image(systemName: "line.3.horizontal.decrease")
+                .font(.system(size: AppTheme.headerGlyphSize,
+                              weight: hasActiveFilter ? .semibold : .regular))
+                .foregroundStyle(hasActiveFilter ? AppTheme.brandGreen : AppTheme.mutedInk)
+                .overlay(alignment: .topTrailing) {
+                    if hasActiveFilter {
+                        Circle()
+                            .fill(AppTheme.brandGreen)
+                            .frame(width: AppTheme.filterDotSize, height: AppTheme.filterDotSize)
+                            .offset(x: AppTheme.filterDotOffset.x, y: AppTheme.filterDotOffset.y)
+                    }
+                }
+        }
+        .accessibilityLabel(hasActiveFilter ? "Filter (active)" : "Filter")
+    }
+
     // MARK: Grid
 
-    /// The grid filtered by the search field; expiry order is preserved.
-    /// Matching is diacritic-blind via the stored normalized key.
+    /// The grid filtered by the search field on top of the active Storage /
+    /// Food Category filters; expiry order is preserved. Matching is
+    /// diacritic-blind via the stored normalized key.
     private var visibleItems: [FridgeItem] {
         let query = NameKey.normalize(searchText)
-        guard !query.isEmpty else { return items }
-        return items.filter {
+        guard !query.isEmpty else { return filteredItems }
+        return filteredItems.filter {
             NameSearch.tier(query: query, candidate: $0.normalizedName) != nil
         }
     }

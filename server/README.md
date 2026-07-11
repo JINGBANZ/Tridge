@@ -19,7 +19,7 @@ POST /v1/receipt-scan
   Content-Type: image/jpeg              (raw body, ≤ 8 MB)
   App Attest:   X-Attest-Key-Id: <keyId> + X-Attest-Assertion: <base64>   (assertion over the image bytes)
   or token:     Authorization: Bearer <SCAN_API_TOKEN>                      (smoke harness only)
-  200 {"items":[{"id":"milk","name":"Whole Milk","receipt_text":"WHL MLK","quantity":1,"shelf_life_days":7}]}
+  200 {"items":[{"id":"milk","name":"Whole Milk","receipt_text":"WHL MLK","quantity":1,"shelf_life_days":7,"storage":"fridge"}]}
   400 empty · 401 bad auth/unregistered device · 404/405 route/method · 413 too large
   415 not image/jpeg · 422 unparseable (after 1 retry) · 429 IP-rate-limited or device quota · 502 OpenAI failure
 

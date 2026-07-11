@@ -50,6 +50,9 @@ struct ItemDetailSheet: View {
                         }
                     }
                     .pickerStyle(.segmented)
+                    LabeledContent("Food Category", value: item.foodCategory.label)
+                } footer: {
+                    Text("Category follows the artwork — change the art to recategorize.")
                 }
 
                 Section {

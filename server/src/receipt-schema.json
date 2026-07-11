@@ -8,7 +8,7 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["id", "name", "receipt_text", "quantity", "shelf_life_days"],
+        "required": ["id", "name", "receipt_text", "quantity", "shelf_life_days", "storage"],
         "properties": {
           "id": {
             "type": "string",
@@ -35,7 +35,12 @@
           "name": { "type": "string" },
           "receipt_text": { "type": ["string", "null"] },
           "quantity": { "type": "integer" },
-          "shelf_life_days": { "type": "integer" }
+          "shelf_life_days": { "type": "integer" },
+          "storage": {
+            "type": "string",
+            "description": "Where this purchase belongs once home: \"freezer\" for items sold frozen or normally frozen at home, \"pantry\" for shelf-stable goods kept at room temperature, otherwise \"fridge\".",
+            "enum": ["fridge", "freezer", "pantry"]
+          }
         }
       }
     }

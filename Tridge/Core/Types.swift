@@ -147,6 +147,64 @@ public enum ItemID: String, Codable, CaseIterable, Sendable {
     }
 }
 
+/// What an item *is* (Storage is where it *lives*). Never stored or sent over
+/// the wire — derived from the item's `ItemID` via `foodCategory` below, so
+/// existing items pick up categories with no migration and no LLM change.
+public enum FoodCategory: String, Codable, CaseIterable, Sendable {
+    case produce, dairy, meat, seafood, bakery, drinks, snacks, condiments, other
+
+    public var label: String {
+        switch self {
+        case .produce: "Produce"
+        case .dairy: "Dairy"
+        case .meat: "Meat"
+        case .seafood: "Seafood"
+        case .bakery: "Bakery"
+        case .drinks: "Drinks"
+        case .snacks: "Snacks"
+        case .condiments: "Condiments"
+        case .other: "Other"
+        }
+    }
+}
+
+extension ItemID {
+    /// Exhaustive by design: a new vocabulary id can't ship without a category.
+    public var foodCategory: FoodCategory {
+        switch self {
+        case .apple, .banana, .orange, .grapes, .strawberry, .blueberry, .lemon,
+             .peach, .pear, .watermelon, .melon, .pineapple, .kiwi, .cherry,
+             .mango, .avocado, .coconut, .fruit,
+             .lettuce, .spinach, .broccoli, .carrot, .corn, .cucumber, .tomato,
+             .potato, .sweetPotato, .onion, .garlic, .pepper, .mushroom,
+             .eggplant, .peas, .beans, .vegetable:
+            .produce
+        case .milk, .cheese, .butter, .yogurt, .eggs, .dairy:
+            .dairy
+        case .chicken, .beef, .pork, .bacon, .sausage, .turkey, .groundMeat, .meat:
+            .meat
+        case .fish, .salmon, .tuna, .shrimp, .crab, .seafood:
+            .seafood
+        case .bread, .bagel, .croissant, .tortilla, .cake, .cookie, .muffin, .bakery:
+            .bakery
+        case .juice, .soda, .coffee, .tea, .beer, .wine, .water, .beverage:
+            .drinks
+        // Ice cream sits with the treats, not the dairy case — that's how
+        // people browse for it.
+        case .chips, .crackers, .chocolate, .candy, .popcorn, .nuts, .iceCream, .snack:
+            .snacks
+        case .sauce, .oil, .honey, .jam, .peanutButter, .condiment:
+            .condiments
+        // Grains/pantry staples and prepared food land in Other until the
+        // vocabulary earns them a category of their own.
+        case .rice, .pasta, .noodles, .cereal, .soup, .cannedGoods, .grain,
+             .pizza, .sandwich, .sushi, .salad, .leftovers, .frozenMeal, .frozen,
+             .unknown:
+            .other
+        }
+    }
+}
+
 public enum StorageLocation: String, Codable, CaseIterable, Sendable {
     case fridge, freezer, pantry
 

@@ -26,6 +26,9 @@ final class ScanFlowModel {
         var receiptText: String?
         var quantity: Int
         var expiryDate: Date
+        /// The LLM's guess (fridge, freezer, or pantry), editable via the
+        /// row's chip.
+        var storage: StorageLocation
         /// Set when the user touches the date chip; such dates save as
         /// `.userSet` and are never overwritten by later LLM guesses.
         var userEditedDate = false
@@ -33,6 +36,7 @@ final class ScanFlowModel {
         /// The LLM couldn't identify this line — flagged amber for fixing.
         var needsFix: Bool { itemID == .unknown }
         var emoji: String { itemID.emoji }
+        var foodCategory: FoodCategory { itemID.foodCategory }
     }
 
     var phase: Phase = .idle
@@ -155,7 +159,8 @@ final class ScanFlowModel {
                 receiptText: parsed.receiptText,
                 quantity: parsed.quantity,
                 expiryDate: Calendar.current.date(byAdding: .day, value: parsed.shelfLifeDays,
-                                                  to: purchase) ?? purchase))
+                                                  to: purchase) ?? purchase,
+                storage: parsed.storage))
         }
         reviewItems = rows
     }
@@ -164,7 +169,6 @@ final class ScanFlowModel {
     /// where one exists (issue #26) and inserting the rest, then schedules
     /// notifications for the genuinely new items and ends the flow.
     func confirm(into context: ModelContext, notificationHour: Int) {
-        let storage = defaultStorageLocation()
         let active = (try? context.fetch(FetchDescriptor<FridgeItem>(
             predicate: #Predicate { $0.statusRaw == "active" }))) ?? []
         // The planner sequences the whole save — including review-time
@@ -192,7 +196,7 @@ final class ScanFlowModel {
                     receiptText: row.receiptText,
                     artKey: row.itemID.rawValue,
                     quantity: row.quantity,
-                    storage: storage,
+                    storage: row.storage,
                     purchaseDate: reviewPurchaseDate,
                     expiryDate: row.expiryDate,
                     expirySource: row.userEditedDate ? .userSet : .llmEstimate)
@@ -210,10 +214,5 @@ final class ScanFlowModel {
             }
         }
         reset()
-    }
-
-    private func defaultStorageLocation() -> StorageLocation {
-        let raw = UserDefaults.standard.string(forKey: "defaultStorage") ?? ""
-        return StorageLocation(rawValue: raw) ?? .fridge
     }
 }

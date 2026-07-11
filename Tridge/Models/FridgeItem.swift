@@ -55,6 +55,12 @@ final class FridgeItem {
         set { storageRaw = newValue.rawValue }
     }
 
+    /// Derived from the art's ItemID, never stored — changing the art is how
+    /// the user recategorizes an item.
+    var foodCategory: FoodCategory {
+        (ItemID(rawValue: artKey) ?? .unknown).foodCategory
+    }
+
     var expirySource: ExpirySource {
         get { ExpirySource(rawValue: expirySourceRaw) ?? .llmEstimate }
         set { expirySourceRaw = newValue.rawValue }

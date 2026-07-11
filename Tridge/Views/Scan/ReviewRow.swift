@@ -1,7 +1,8 @@
 import SwiftUI
 
 /// One editable line of the review sheet: art, name (tap to edit), source
-/// receipt text, a type-in quantity chip, and a tappable expiry-date chip.
+/// receipt text, the Food Category (derived from the art) and Storage chips,
+/// a type-in quantity chip, and a tappable expiry-date chip.
 struct ReviewRow: View {
     @Binding var item: ScanFlowModel.ReviewItem
     @State private var showDatePicker = false
@@ -12,7 +13,7 @@ struct ReviewRow: View {
                 .font(.system(size: 24))
                 .shadow(color: .black.opacity(0.2), radius: 1.5, y: 2)
 
-            VStack(alignment: .leading, spacing: 1) {
+            VStack(alignment: .leading, spacing: 2) {
                 TextField("Name", text: $item.name)
                     .font(.system(size: 13, weight: .semibold))
                 if let receiptText = item.receiptText {
@@ -22,6 +23,16 @@ struct ReviewRow: View {
                         .font(.system(size: 10))
                         .foregroundStyle(AppTheme.mutedInk)
                         .lineLimit(1)
+                }
+                HStack(spacing: AppTheme.chipSpacing) {
+                    // Display-only: the category follows the item's art.
+                    Text(item.foodCategory.label)
+                        .font(AppTheme.chipFont)
+                        .foregroundStyle(AppTheme.brandGreen)
+                        .padding(.horizontal, AppTheme.chipPadding.h)
+                        .padding(.vertical, AppTheme.chipPadding.v)
+                        .background(AppTheme.brandGreen.opacity(0.12), in: Capsule())
+                    storageChip
                 }
             }
 
@@ -76,5 +87,25 @@ struct ReviewRow: View {
     private var quantityBinding: Binding<Int> {
         Binding(get: { item.quantity },
                 set: { item.quantity = min(max($0, 1), 99) })
+    }
+
+    /// The LLM's storage guess; the menu reassigns it before saving.
+    private var storageChip: some View {
+        Menu {
+            Picker("Storage", selection: $item.storage) {
+                ForEach(StorageLocation.allCases, id: \.self) { location in
+                    Text(location.label).tag(location)
+                }
+            }
+        } label: {
+            Text(item.storage.label)
+                .font(AppTheme.chipFont)
+                .foregroundStyle(AppTheme.mutedInk)
+                .padding(.horizontal, AppTheme.chipPadding.h)
+                .padding(.vertical, AppTheme.chipPadding.v)
+                .background(AppTheme.mutedInk.opacity(0.12), in: Capsule())
+        }
+        .buttonStyle(.borderless)
+        .accessibilityLabel("Storage \(item.storage.label)")
     }
 }
