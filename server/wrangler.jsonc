@@ -35,13 +35,15 @@
   "kv_namespaces": [
     { "binding": "DEVICE_KV", "id": "3b653b7cf9684f4486c6cfa2c3aba208" }
   ],
-  // 10 scans/min per client IP — generous for a human scanning receipts,
-  // tight for abuse. Counted per Cloudflare location (eventually consistent).
+  // 3 requests/min per client IP, across every route (scan + attest). Enough
+  // for a human scanning receipts — note a brand-new install spends 3 on its
+  // first scan (challenge + attest + scan), then 1 per scan after. Counted per
+  // Cloudflare location (eventually consistent).
   "ratelimits": [
     {
       "name": "SCAN_RATE_LIMIT",
       "namespace_id": "1001",
-      "simple": { "limit": 10, "period": 60 }
+      "simple": { "limit": 3, "period": 60 }
     }
   ]
 }

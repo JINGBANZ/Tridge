@@ -219,7 +219,7 @@
 
   <h3>How a request is protected — the gauntlet, in code order</h3>
   <div class="gauntlet">
-    <div class="gate"><span class="status">429</span><div><b>Per-IP rate limit — 10 req/min</b><span>Workers rate-limiting binding, keyed by <code>CF-Connecting-IP</code>. The outermost layer on <em>every</em> route — the unauthenticated attest endpoints (KV writes + X.509/ECDSA work) are throttled too, and credentials can't be brute-forced faster than 10 tries/min. <code>Retry-After: 60</code>.</span></div></div>
+    <div class="gate"><span class="status">429</span><div><b>Per-IP rate limit — 3 req/min</b><span>Workers rate-limiting binding, keyed by <code>CF-Connecting-IP</code>. The outermost layer on <em>every</em> route — the unauthenticated attest endpoints (KV writes + X.509/ECDSA work) are throttled too, and credentials can't be brute-forced faster than 3 tries/min. <code>Retry-After: 60</code>.</span></div></div>
     <div class="gate"><span class="status">404·405</span><div><b>Route + method</b><span><code>POST</code> only; <code>/v1/receipt-scan</code> plus the attest endpoints when App Attest is configured.</span></div></div>
     <div class="gate"><span class="status">415·413·400</span><div><b>Strict input validation</b><span><code>image/jpeg</code> only; 8 MB cap enforced via Content-Length before buffering, re-checked after; empty bodies rejected.</span></div></div>
     <div class="gate"><span class="status">401</span><div><b>Client auth — App Attest (prod) or bearer token (test)</b><span>Prod: per-scan App Attest assertion over the image bytes + strictly-increasing sign counter (verified with <code>node-app-attest</code>; device key + counter in <code>DEVICE_KV</code>). Test: static <code>SCAN_API_TOKEN</code>, SHA-256 digests + <code>timingSafeEqual</code>. Registration: <code>POST /v1/attest/challenge</code> → <code>POST /v1/attest</code>. Auth binds to the buffered image, so it runs just after validation, before any billable work.</span></div></div>
@@ -292,7 +292,7 @@ POST /v1/attest            { keyId, attestation, challenge }  → { "ok": true }
       <tr><td class="provider">App Attest env</td><td>development + production accepted (<code>APP_ATTEST_ALLOW_DEV=true</code>) — serves Xcode-dev and TestFlight</td><td>production only (<code>false</code>)</td></tr>
       <tr><td class="provider">OpenAI <code>store</code></td><td><code>true</code> — scans inspectable in OpenAI's dashboard</td><td><code>true</code> (same)</td></tr>
       <tr><td class="provider">OpenAI key</td><td>Dedicated project key, budget-capped</td><td>Separate isolated key, own budget + alerts</td></tr>
-      <tr><td class="provider">Rate limiting</td><td>10/min per IP + per-device daily quota (KV)</td><td>Same + tighter quota; custom domain unlocks WAF (optional)</td></tr>
+      <tr><td class="provider">Rate limiting</td><td>3/min per IP (all routes) + 50/day per-device quota (KV)</td><td>Same + tighter quota; custom domain unlocks WAF (optional)</td></tr>
       <tr><td class="provider">App URL</td><td>single <code>ScanAPIConfig.baseURL</code></td><td>build-config split (Debug → test, Release → prod)</td></tr>
     </table>
   </div>
