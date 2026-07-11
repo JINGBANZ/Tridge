@@ -9,10 +9,12 @@ public enum NameKey {
     /// "  Jalapeño  Pepper " → "jalapeno pepper".
     ///
     /// `folding` is used instead of `lowercased()` so non-English case rules
-    /// (Turkish I, ß) and accents fold correctly.
+    /// (Turkish I, ß) and accents fold correctly. The locale is pinned: keys
+    /// are persisted, so folding must not shift under the user's feet when
+    /// the device locale changes.
     public static func normalize(_ name: String) -> String {
         name.folding(options: [.caseInsensitive, .diacriticInsensitive],
-                     locale: .current)
+                     locale: Locale(identifier: "en_US_POSIX"))
             .split(whereSeparator: \.isWhitespace)
             .joined(separator: " ")
     }

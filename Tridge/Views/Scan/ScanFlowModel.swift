@@ -167,23 +167,25 @@ final class ScanFlowModel {
         let storage = defaultStorageLocation()
         let active = (try? context.fetch(FetchDescriptor<FridgeItem>(
             predicate: #Predicate { $0.statusRaw == "active" }))) ?? []
-        // The candidate list is updated as rows land so review-time renames
-        // that collide (two rows made "Milk") stack instead of clobbering.
-        var candidates = active.map(\.mergeCandidate)
+        // The planner sequences the whole save — including review-time
+        // renames that make two rows collide (they stack into one insert).
+        let plans = MergePlanner.plan(rows: reviewItems.map { ($0.name, $0.quantity) },
+                                      existing: active.map(\.mergeCandidate))
+        var insertedByRow: [Int: FridgeItem] = [:]
         var inserted: [FridgeItem] = []
 
-        for row in reviewItems {
-            switch MergePlanner.decide(name: row.name, quantity: row.quantity,
-                                       existing: candidates) {
-            case .merge(let id, let resultingQuantity):
-                guard let target = active.first(where: { $0.id == id }) else { continue }
+        for (index, row) in reviewItems.enumerated() {
+            switch plans[index] {
+            case .merge(let target, let resultingQuantity):
+                let item: FridgeItem? = switch target {
+                case .existing(let id): active.first { $0.id == id }
+                case .insertedRow(let earlier): insertedByRow[earlier]
+                }
+                guard let item else { continue }
                 // Quantity grows; the existing expiry (and its source) always
                 // wins — a scan never overwrites a date already in the fridge.
-                target.quantity = resultingQuantity
-                if let receiptText = row.receiptText { target.receiptText = receiptText }
-                if let index = candidates.firstIndex(where: { $0.id == id }) {
-                    candidates[index] = target.mergeCandidate
-                }
+                item.quantity = resultingQuantity
+                if let receiptText = row.receiptText { item.receiptText = receiptText }
             case .insert:
                 let item = FridgeItem(
                     name: row.name,
@@ -195,8 +197,8 @@ final class ScanFlowModel {
                     expiryDate: row.expiryDate,
                     expirySource: row.userEditedDate ? .userSet : .llmEstimate)
                 context.insert(item)
+                insertedByRow[index] = item
                 inserted.append(item)
-                candidates.append(item.mergeCandidate)
             }
         }
         Haptics.success()

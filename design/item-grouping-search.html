@@ -481,11 +481,15 @@ enum NameKey {
     /// "  Jalapeño  Pepper " → "jalapeno pepper"
     static func normalize(_ name: String) -&gt; String {
         name.folding(options: [.caseInsensitive, .diacriticInsensitive],
-                     locale: .current)
+                     locale: Locale(identifier: "en_US_POSIX"))
             .split(whereSeparator: \.isWhitespace)
             .joined(separator: " ")
     }
 }</code></pre>
+
+<p>The folding locale is <strong>pinned</strong>, not <code>.current</code>: keys are persisted, so
+the same typed name must fold identically forever — a device-locale change must never silently stop
+items matching their own history.</p>
 
 <p>The key is <strong>persisted</strong> as a new indexed <code>normalizedName</code> property on
 <code>FridgeItem</code> (§7) rather than recomputed per comparison. Deliberately excluded: plural
@@ -661,7 +665,7 @@ enum MergePlanner {
   <li><strong>Candidates:</strong> active items only (<code>statusRaw == "active"</code>). Consumed history never absorbs new purchases.</li>
   <li><strong>Eligibility:</strong> expired items are skipped — a new purchase of something already past its date is a fresh batch and inserts as its own row. This is also what keeps "old expiry wins" from ever hiding fresh food behind a red sprite. The threshold is deliberately just <code>isExpired</code>, not "near expiry": near-expiry matches are exactly the double-scan case we <em>do</em> want to group.</li>
   <li><strong>On merge:</strong> <code>existing.quantity = resultingQuantity</code>; <code>expiryDate</code>/<code>expirySource</code> untouched (#26's settled decision — user-set dates are never overwritten); storage untouched (the item stays where it lives); <code>receiptText</code> refreshed to the newer line; notifications left as scheduled (expiry didn't change, and <code>NotificationService.schedule</code> is idempotent if re-run).</li>
-  <li><strong>Within one receipt:</strong> rows that match <em>each other</em> (the LLM emitted "Milk" twice) coalesce into one review row at parse time, quantities summed — the planner then sees one row per name.</li>
+  <li><strong>Within one receipt:</strong> rows that match <em>each other</em> (the LLM emitted "Milk" twice) coalesce into one review row at parse time, quantities summed. Review-time renames can re-create a collision after that, so the multi-row save runs through <code>MergePlanner.plan</code>, which sequences the whole batch: a colliding row stacks onto the earlier row's insert (or onto the same existing item, quantities accumulating) — it can never be dropped or duplicated. This sequencing is pure and Linux-tested.</li>
   <li><strong>Both paths:</strong> <code>ScanFlowModel.confirm</code> runs the planner per row at save; <code>ManualAddSheet</code> runs it once when <strong>Add</strong> is tapped. One manual-add nuance: because the edit page shows an expiry field (prefilled from the existing item when a chip was used), a merge applies the expiry <em>only if the user changed it from the prefill</em> — then it's a deliberate edit and saves as <code>.userSet</code>. Untouched, the existing item's date and source stay exactly as they are. The invariant holds: only an explicit user action can overwrite a date, never a default or a guess.</li>
 </ol>
 

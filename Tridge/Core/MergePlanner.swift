@@ -25,6 +25,20 @@ public enum MergeDecision: Equatable, Sendable {
     case merge(into: UUID, resultingQuantity: Int)
 }
 
+/// Where a planned row lands when several rows save together.
+public enum PlannedTarget: Equatable, Sendable {
+    /// An item already in the fridge.
+    case existing(UUID)
+    /// The item created by an earlier row of this same save (by row index) —
+    /// review-time renames can make two rows collide.
+    case insertedRow(Int)
+}
+
+public enum RowPlan: Equatable, Sendable {
+    case insert
+    case merge(PlannedTarget, resultingQuantity: Int)
+}
+
 /// Decides whether a row being saved groups into an existing active item
 /// (issue #26). Exact normalized-name match only — a false merge silently
 /// absorbing a distinct item is worse than a duplicate, so fuzzy signals are
@@ -46,5 +60,45 @@ public enum MergePlanner {
         else { return .insert }
         return .merge(into: match.id,
                       resultingQuantity: min(match.quantity + quantity, maxQuantity))
+    }
+
+    /// Plans a whole multi-row save (the scan confirm): each row either
+    /// merges into an existing active item, merges into an earlier row of
+    /// this save whose name it duplicates, or inserts. Quantities accumulate
+    /// row over row, so two rows landing on the same target stack instead of
+    /// clobbering each other.
+    public static func plan(rows: [(name: String, quantity: Int)],
+                            existing: [MergeCandidate]) -> [RowPlan] {
+        var candidates = existing
+        var insertedIndexByKey: [String: Int] = [:]
+        var insertedQuantity: [Int: Int] = [:]
+        var plans: [RowPlan] = []
+
+        for (index, row) in rows.enumerated() {
+            switch decide(name: row.name, quantity: row.quantity, existing: candidates) {
+            case .merge(let id, let resultingQuantity):
+                plans.append(.merge(.existing(id), resultingQuantity: resultingQuantity))
+                if let i = candidates.firstIndex(where: { $0.id == id }) {
+                    candidates[i] = MergeCandidate(id: id,
+                                                   normalizedName: candidates[i].normalizedName,
+                                                   quantity: resultingQuantity,
+                                                   isExpired: candidates[i].isExpired,
+                                                   purchaseDate: candidates[i].purchaseDate)
+                }
+            case .insert:
+                let key = NameKey.normalize(row.name)
+                if !key.isEmpty, let earlier = insertedIndexByKey[key] {
+                    let quantity = min((insertedQuantity[earlier] ?? 1) + row.quantity,
+                                       maxQuantity)
+                    insertedQuantity[earlier] = quantity
+                    plans.append(.merge(.insertedRow(earlier), resultingQuantity: quantity))
+                } else {
+                    insertedIndexByKey[key] = index
+                    insertedQuantity[index] = row.quantity
+                    plans.append(.insert)
+                }
+            }
+        }
+        return plans
     }
 }
