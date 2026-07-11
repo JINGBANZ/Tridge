@@ -7,7 +7,7 @@ import PackageDescription
 
 let package = Package(
     name: "FridgeCore",
-    platforms: [.iOS(.v17), .macOS(.v14)],
+    platforms: [.iOS("18.0"), .macOS(.v14)],
     targets: [
         .target(
             name: "FridgeCore",

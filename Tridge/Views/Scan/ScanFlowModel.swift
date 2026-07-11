@@ -136,39 +136,76 @@ final class ScanFlowModel {
 
     func load(_ receipt: ParsedReceipt, capturedOn purchase: Date) {
         reviewPurchaseDate = purchase
-        reviewItems = receipt.items.map { parsed in
-            ReviewItem(
+        // Rows naming the same item ("Milk" twice on one receipt) coalesce
+        // into one review row with summed quantity, so the review count and
+        // the merge planner both see one row per item.
+        var rows: [ReviewItem] = []
+        var indexByKey: [String: Int] = [:]
+        for parsed in receipt.items {
+            let key = NameKey.normalize(parsed.name)
+            if !key.isEmpty, let index = indexByKey[key] {
+                rows[index].quantity = min(rows[index].quantity + parsed.quantity,
+                                           MergePlanner.maxQuantity)
+                continue
+            }
+            indexByKey[key] = rows.count
+            rows.append(ReviewItem(
                 itemID: parsed.id,
                 name: parsed.name,
                 receiptText: parsed.receiptText,
                 quantity: parsed.quantity,
                 expiryDate: Calendar.current.date(byAdding: .day, value: parsed.shelfLifeDays,
-                                                  to: purchase) ?? purchase)
+                                                  to: purchase) ?? purchase))
         }
+        reviewItems = rows
     }
 
-    /// Saves all reviewed rows, schedules their notifications, and ends the flow.
+    /// Saves the reviewed rows, merging each into a matching active item
+    /// where one exists (issue #26) and inserting the rest, then schedules
+    /// notifications for the genuinely new items and ends the flow.
     func confirm(into context: ModelContext, notificationHour: Int) {
         let storage = defaultStorageLocation()
-        let items = reviewItems.map { row in
-            FridgeItem(
-                name: row.name,
-                receiptText: row.receiptText,
-                artKey: row.itemID.rawValue,
-                quantity: row.quantity,
-                storage: storage,
-                purchaseDate: reviewPurchaseDate,
-                expiryDate: row.expiryDate,
-                expirySource: row.userEditedDate ? .userSet : .llmEstimate)
-        }
-        for item in items {
-            context.insert(item)
+        let active = (try? context.fetch(FetchDescriptor<FridgeItem>(
+            predicate: #Predicate { $0.statusRaw == "active" }))) ?? []
+        // The planner sequences the whole save — including review-time
+        // renames that make two rows collide (they stack into one insert).
+        let plans = MergePlanner.plan(rows: reviewItems.map { ($0.name, $0.quantity) },
+                                      existing: active.map(\.mergeCandidate))
+        var insertedByRow: [Int: FridgeItem] = [:]
+        var inserted: [FridgeItem] = []
+
+        for (index, row) in reviewItems.enumerated() {
+            switch plans[index] {
+            case .merge(let target, let resultingQuantity):
+                let item: FridgeItem? = switch target {
+                case .existing(let id): active.first { $0.id == id }
+                case .insertedRow(let earlier): insertedByRow[earlier]
+                }
+                guard let item else { continue }
+                // Quantity grows; the existing expiry (and its source) always
+                // wins — a scan never overwrites a date already in the fridge.
+                item.quantity = resultingQuantity
+                if let receiptText = row.receiptText { item.receiptText = receiptText }
+            case .insert:
+                let item = FridgeItem(
+                    name: row.name,
+                    receiptText: row.receiptText,
+                    artKey: row.itemID.rawValue,
+                    quantity: row.quantity,
+                    storage: storage,
+                    purchaseDate: reviewPurchaseDate,
+                    expiryDate: row.expiryDate,
+                    expirySource: row.userEditedDate ? .userSet : .llmEstimate)
+                context.insert(item)
+                insertedByRow[index] = item
+                inserted.append(item)
+            }
         }
         Haptics.success()
         Task {
             // Permission is requested on first successful add, not at launch.
             await NotificationService.requestPermissionIfNeeded()
-            for item in items {
+            for item in inserted {
                 NotificationService.schedule(for: item, hour: notificationHour)
             }
         }

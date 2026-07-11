@@ -1,0 +1,930 @@
+<title>Tridge — Item grouping &amp; name search design</title>
+<style>
+  :root {
+    --accent: #2F7D4E;
+    --accent-soft: rgba(47, 125, 78, 0.10);
+    --fresh: #3E9463;
+    --amber: #D98A26;
+    --amber-soft: rgba(217, 138, 38, 0.14);
+    --red: #D9534A;
+    --red-soft: rgba(217, 83, 74, 0.12);
+    --ink: #22281F;
+    --muted: #6C766D;
+    --bg-top: #EAF4EE;
+    --bg-bottom: #E2EDF3;
+    --surface: rgba(255, 255, 255, 0.72);
+    --surface-solid: #FFFFFF;
+    --line: rgba(34, 40, 31, 0.14);
+    --code-bg: rgba(34, 40, 31, 0.055);
+    --shadow: 0 1px 2px rgba(34, 40, 31, 0.06), 0 8px 24px rgba(34, 40, 31, 0.07);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --accent: #4CAF78;
+      --accent-soft: rgba(76, 175, 120, 0.14);
+      --amber: #E09A3E;
+      --amber-soft: rgba(224, 154, 62, 0.16);
+      --red: #E06A62;
+      --red-soft: rgba(224, 106, 98, 0.15);
+      --ink: #E8ECE6;
+      --muted: #99A294;
+      --bg-top: #101B16;
+      --bg-bottom: #0F1620;
+      --surface: rgba(255, 255, 255, 0.045);
+      --surface-solid: #18231D;
+      --line: rgba(232, 236, 230, 0.14);
+      --code-bg: rgba(232, 236, 230, 0.07);
+      --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.35);
+    }
+  }
+  :root[data-theme="dark"] {
+    --accent: #4CAF78;
+    --accent-soft: rgba(76, 175, 120, 0.14);
+    --amber: #E09A3E;
+    --amber-soft: rgba(224, 154, 62, 0.16);
+    --red: #E06A62;
+    --red-soft: rgba(224, 106, 98, 0.15);
+    --ink: #E8ECE6;
+    --muted: #99A294;
+    --bg-top: #101B16;
+    --bg-bottom: #0F1620;
+    --surface: rgba(255, 255, 255, 0.045);
+    --surface-solid: #18231D;
+    --line: rgba(232, 236, 230, 0.14);
+    --code-bg: rgba(232, 236, 230, 0.07);
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.35);
+  }
+  :root[data-theme="light"] {
+    --accent: #2F7D4E;
+    --accent-soft: rgba(47, 125, 78, 0.10);
+    --amber: #D98A26;
+    --amber-soft: rgba(217, 138, 38, 0.14);
+    --red: #D9534A;
+    --red-soft: rgba(217, 83, 74, 0.12);
+    --ink: #22281F;
+    --muted: #6C766D;
+    --bg-top: #EAF4EE;
+    --bg-bottom: #E2EDF3;
+    --surface: rgba(255, 255, 255, 0.72);
+    --surface-solid: #FFFFFF;
+    --line: rgba(34, 40, 31, 0.14);
+    --code-bg: rgba(34, 40, 31, 0.055);
+    --shadow: 0 1px 2px rgba(34, 40, 31, 0.06), 0 8px 24px rgba(34, 40, 31, 0.07);
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+    color: var(--ink);
+    background: linear-gradient(180deg, var(--bg-top), var(--bg-bottom)) fixed;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  .page { max-width: 800px; margin: 0 auto; padding: 56px 24px 96px; }
+
+  .eyebrow {
+    font-size: 12px; font-weight: 600; letter-spacing: 0.10em; text-transform: uppercase;
+    color: var(--accent); margin: 0 0 12px;
+  }
+  h1 {
+    font-size: clamp(28px, 5vw, 38px); font-weight: 800; letter-spacing: -0.02em;
+    line-height: 1.15; margin: 0 0 10px; text-wrap: balance;
+  }
+  .meta { color: var(--muted); font-size: 14px; margin: 0 0 8px; }
+  .meta a { color: var(--accent); }
+
+  h2 {
+    font-size: 22px; font-weight: 750; letter-spacing: -0.01em;
+    margin: 56px 0 14px; padding-top: 20px; border-top: 1px solid var(--line);
+    text-wrap: balance;
+  }
+  h2 .num { color: var(--accent); font-variant-numeric: tabular-nums; margin-right: 10px; }
+  h3 { font-size: 16.5px; font-weight: 700; margin: 28px 0 8px; }
+  p, li { font-size: 15.5px; }
+  p { margin: 0 0 14px; }
+  ul, ol { margin: 0 0 14px; padding-left: 22px; }
+  li { margin-bottom: 6px; }
+  strong { font-weight: 650; }
+  a { color: var(--accent); text-underline-offset: 2px; }
+
+  code, pre {
+    font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.88em;
+  }
+  code { background: var(--code-bg); padding: 1.5px 5px; border-radius: 5px; }
+  pre {
+    background: var(--code-bg); border: 1px solid var(--line); border-radius: 10px;
+    padding: 14px 16px; overflow-x: auto; line-height: 1.55; margin: 0 0 16px;
+  }
+  pre code { background: none; padding: 0; }
+
+  .callout {
+    background: var(--accent-soft); border-left: 3px solid var(--accent);
+    border-radius: 0 10px 10px 0; padding: 12px 16px; margin: 0 0 16px; font-size: 15px;
+  }
+  .callout.warn { background: var(--amber-soft); border-left-color: var(--amber); }
+
+  table { width: 100%; border-collapse: collapse; font-size: 14px; margin: 0 0 6px; }
+  .table-wrap { overflow-x: auto; margin: 0 0 16px; border: 1px solid var(--line); border-radius: 10px; }
+  .table-wrap table { margin: 0; }
+  th {
+    text-align: left; font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em;
+    color: var(--muted); font-weight: 650; padding: 10px 12px; border-bottom: 1px solid var(--line);
+    background: var(--surface); white-space: nowrap;
+  }
+  td { padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  td code { white-space: nowrap; }
+
+  .option {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 14px;
+    padding: 20px 22px; margin: 0 0 18px; box-shadow: var(--shadow);
+  }
+  .option.recommended { border-color: var(--accent); border-width: 1.5px; }
+  .option-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; margin-bottom: 6px; }
+  .option-head h3 { margin: 0; font-size: 17.5px; }
+  .chip {
+    display: inline-block; font-size: 11.5px; font-weight: 700; letter-spacing: 0.05em;
+    text-transform: uppercase; padding: 3px 10px; border-radius: 999px; white-space: nowrap;
+  }
+  .chip.rec { background: var(--accent); color: #fff; }
+  .chip.no { background: var(--red-soft); color: var(--red); }
+
+  .refs { font-size: 13.5px; color: var(--muted); }
+  .refs li { margin-bottom: 4px; }
+  .refs a { overflow-wrap: anywhere; }
+
+  .toc {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+    padding: 14px 20px; margin: 24px 0 0; font-size: 14.5px;
+  }
+  .toc ol { margin: 0; padding-left: 20px; columns: 2; column-gap: 32px; }
+  @media (max-width: 560px) { .toc ol { columns: 1; } }
+  .toc li { margin-bottom: 3px; }
+  .toc a { text-decoration: none; }
+  .toc a:hover { text-decoration: underline; }
+
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* ---------- Animated phone demos ---------- */
+
+  .demo-row { display: flex; flex-wrap: wrap; gap: 28px; align-items: flex-start; margin: 18px 0 6px; }
+  .demo { width: 250px; }
+  .demo-label {
+    font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+    margin: 0 0 8px; color: var(--accent); display: flex; align-items: center; gap: 6px;
+  }
+  .demo-label.declined { color: var(--red); }
+  .demo-label .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; animation: blink 1.6s ease infinite; }
+  .demo-caption { font-size: 13px; color: var(--muted); margin: 10px 0 0; line-height: 1.5; }
+  @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+
+  .phone {
+    width: 250px; height: 410px; border-radius: 28px; overflow: hidden; position: relative;
+    border: 1.5px solid var(--line);
+    background: linear-gradient(180deg, var(--bg-top), var(--bg-bottom));
+    box-shadow: var(--shadow);
+    font-size: 13px;
+  }
+  .p-home { position: absolute; inset: 0; padding: 18px 14px; }
+  .p-title { font-weight: 800; font-size: 17px; letter-spacing: -0.01em; margin-bottom: 2px; }
+  .p-sub { font-size: 11px; color: var(--muted); margin-bottom: 14px; }
+  .p-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px 8px; text-align: center; }
+  .p-sprite { position: relative; font-size: 34px; line-height: 1.25; }
+  .p-sprite .p-name { display: block; font-size: 10px; color: var(--muted); }
+  .p-badge {
+    position: absolute; top: -4px; right: 12%; display: inline-grid;
+    background: var(--surface-solid); border: 1px solid var(--line); border-radius: 999px;
+    font-size: 10px; font-weight: 700; padding: 1px 6px; line-height: 1.4;
+  }
+  .p-badge span { grid-area: 1 / 1; }
+  .p-scanbtn {
+    position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
+    width: 48px; height: 48px; border-radius: 50%;
+    background: linear-gradient(180deg, #37985F, #25714A);
+    color: #fff; font-size: 22px; display: grid; place-items: center;
+  }
+  .p-sheet {
+    position: absolute; left: 0; right: 0; bottom: 0; top: 34px;
+    background: var(--surface-solid); border-radius: 18px 18px 0 0;
+    border: 1px solid var(--line); border-bottom: none;
+    padding: 14px 12px 12px; display: flex; flex-direction: column; gap: 0;
+  }
+  .p-sheet-title { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 650; margin-bottom: 6px; }
+  .p-row { display: flex; align-items: center; gap: 8px; padding: 9px 4px; border-bottom: 1px solid var(--line); }
+  .p-row-art { font-size: 22px; }
+  .p-row-main { flex: 1; min-width: 0; }
+  .p-row-name { font-weight: 600; font-size: 13px; }
+  .p-row-sub { font-size: 10px; color: var(--muted); }
+  .p-row-sub.merge { color: var(--accent); font-weight: 650; }
+  .p-chip { font-size: 10px; font-weight: 650; padding: 2px 7px; border-radius: 999px; white-space: nowrap; }
+  .p-chip.qty { background: var(--code-bg); }
+  .p-chip.date { background: var(--accent-soft); color: var(--accent); }
+  .p-chip.guess { background: var(--amber-soft); color: var(--amber); }
+  .p-cta {
+    margin-top: auto; background: linear-gradient(180deg, #37985F, #25714A); color: #fff;
+    text-align: center; font-weight: 700; font-size: 13px; border-radius: 12px; padding: 10px;
+    border: none; position: relative;
+  }
+  .p-banner {
+    display: flex; gap: 6px; background: var(--amber-soft); border-radius: 9px;
+    padding: 7px 9px; font-size: 10.5px; line-height: 1.4; margin-bottom: 8px;
+  }
+  .p-field {
+    background: var(--code-bg); border-radius: 10px; padding: 9px 11px; font-size: 13px;
+    display: flex; align-items: center; gap: 8px; margin-bottom: 10px;
+  }
+  .p-caret { display: inline-block; width: 1.5px; height: 14px; background: var(--accent); animation: caret 1s steps(1) infinite; }
+  @keyframes caret { 0%, 55% { opacity: 1; } 56%, 100% { opacity: 0; } }
+  .p-search {
+    background: var(--surface-solid); border: 1px solid var(--line); border-radius: 10px;
+    padding: 7px 11px; font-size: 13px; display: flex; align-items: center; gap: 7px;
+    color: var(--muted); margin-bottom: 14px;
+  }
+  .p-search .typed { color: var(--ink); font-weight: 600; }
+
+  /* --- Demo 1: chosen — silent merge at confirm (9s) --- */
+  .d1 .p-sheet { transform: translateY(108%); animation: d1-sheet 9s ease-in-out infinite; }
+  @keyframes d1-sheet { 0%, 18% { transform: translateY(0); } 28%, 100% { transform: translateY(108%); } }
+  .d1 .p-cta { animation: d1-press 9s ease infinite; }
+  @keyframes d1-press { 0%, 13% { transform: scale(1); filter: none; } 15% { transform: scale(0.95); filter: brightness(0.85); } 17%, 100% { transform: scale(1); filter: none; } }
+  .d1 .egg-new { animation: d1-egg 9s ease infinite; }
+  @keyframes d1-egg { 0%, 30% { opacity: 0; transform: scale(0.5); } 38% { opacity: 1; transform: scale(1.1); } 42%, 100% { opacity: 1; transform: scale(1); } }
+  .d1 .q-old { opacity: 0; animation: d1-qold 9s ease infinite; }
+  @keyframes d1-qold { 0%, 30% { opacity: 1; } 34%, 100% { opacity: 0; } }
+  .d1 .q-new { animation: d1-qnew 9s ease infinite; }
+  @keyframes d1-qnew { 0%, 30% { opacity: 0; } 34%, 100% { opacity: 1; } }
+  .d1 .milk-badge { animation: d1-pulse 9s ease infinite; }
+  @keyframes d1-pulse { 0%, 32% { transform: scale(1); } 37% { transform: scale(1.35); } 42%, 100% { transform: scale(1); } }
+
+  /* --- Demo 2: declined — badged review (7s) --- */
+  .d2 .p-banner { animation: d2-banner 7s ease infinite; }
+  @keyframes d2-banner { 0%, 8% { opacity: 0; transform: translateY(-5px); } 16%, 100% { opacity: 1; transform: translateY(0); } }
+  .d2 .p-row-sub.merge { animation: d2-sub 7s ease infinite; }
+  @keyframes d2-sub { 0%, 14% { opacity: 0; } 22%, 100% { opacity: 1; } }
+
+  /* --- Demo 3: manual add — one edit page with quick-fill chips (12s) --- */
+  .p-chips { display: flex; gap: 6px; overflow: hidden; margin-bottom: 10px; }
+  .p-chipq {
+    display: inline-flex; align-items: center; gap: 4px; background: var(--accent-soft);
+    color: var(--accent); font-size: 11px; font-weight: 650; padding: 4px 10px;
+    border-radius: 999px; white-space: nowrap;
+  }
+  .p-name-layers { display: inline-grid; }
+  .p-name-layers > span { grid-area: 1 / 1; justify-self: start; white-space: nowrap; }
+  .p-chip.stack { display: inline-grid; }
+  .p-chip.stack span { grid-area: 1 / 1; }
+
+  .d3 .p-sheet { transform: translateY(108%); animation: d3-sheet 12s ease-in-out infinite; }
+  @keyframes d3-sheet { 0%, 56% { transform: translateY(0); } 64%, 100% { transform: translateY(108%); } }
+  .d3 .t1 { opacity: 0; animation: d3-t1 12s steps(1) infinite; }
+  .d3 .t2 { opacity: 0; animation: d3-t2 12s steps(1) infinite; }
+  .d3 .t3 { opacity: 0; animation: d3-t3 12s steps(1) infinite; }
+  @keyframes d3-t1 { 0%, 6% { opacity: 0; } 7%, 29% { opacity: 1; } 30%, 100% { opacity: 0; } }
+  @keyframes d3-t2 { 0%, 9% { opacity: 0; } 10%, 29% { opacity: 1; } 30%, 100% { opacity: 0; } }
+  @keyframes d3-t3 { 0%, 12% { opacity: 0; } 13%, 29% { opacity: 1; } 30%, 100% { opacity: 0; } }
+  .d3 .full-name { animation: d3-full 12s steps(1) infinite; }
+  @keyframes d3-full { 0%, 29% { opacity: 0; } 30%, 100% { opacity: 1; } }
+  .d3 .field-art { animation: d3-fart 12s ease infinite; }
+  @keyframes d3-fart { 0%, 29% { opacity: 0; transform: scale(0.5); } 35% { opacity: 1; transform: scale(1.15); } 39%, 100% { opacity: 1; transform: scale(1); } }
+  .d3 .p-chips { animation: d3-chips 12s ease infinite; }
+  @keyframes d3-chips { 0%, 16% { opacity: 0; transform: translateY(5px); } 22%, 100% { opacity: 1; transform: translateY(0); } }
+  .d3 .chip-tap { animation: d3-chiptap 12s ease infinite; }
+  @keyframes d3-chiptap { 0%, 26% { transform: scale(1); } 29% { transform: scale(0.9); } 32%, 100% { transform: scale(1); } }
+  .d3 .p-details { animation: d3-details 12s ease infinite; }
+  @keyframes d3-details { 0%, 29% { opacity: 0; } 35%, 100% { opacity: 1; } }
+  .d3 .qy-old { opacity: 0; animation: d3-qyold 12s steps(1) infinite; }
+  @keyframes d3-qyold { 0%, 45% { opacity: 1; } 46%, 100% { opacity: 0; } }
+  .d3 .qy-new { animation: d3-qynew 12s steps(1) infinite; }
+  @keyframes d3-qynew { 0%, 45% { opacity: 0; } 46%, 100% { opacity: 1; } }
+  .d3 .qty-chip { animation: d3-qtypulse 12s ease infinite; }
+  @keyframes d3-qtypulse { 0%, 44% { transform: scale(1); } 48% { transform: scale(1.2); } 52%, 100% { transform: scale(1); } }
+  .d3 .p-cta { animation: d3-press 12s ease infinite; }
+  @keyframes d3-press { 0%, 52% { transform: scale(1); filter: none; } 54% { transform: scale(0.95); filter: brightness(0.85); } 56%, 100% { transform: scale(1); filter: none; } }
+  .d3 .q-old { opacity: 0; animation: d3-qold 12s steps(1) infinite; }
+  @keyframes d3-qold { 0%, 67% { opacity: 1; } 68%, 100% { opacity: 0; } }
+  .d3 .q-new { animation: d3-qnew 12s steps(1) infinite; }
+  @keyframes d3-qnew { 0%, 67% { opacity: 0; } 68%, 100% { opacity: 1; } }
+  .d3 .pepper-badge { animation: d3-pulse 12s ease infinite; }
+  @keyframes d3-pulse { 0%, 66% { transform: scale(1); } 71% { transform: scale(1.35); } 76%, 100% { transform: scale(1); } }
+
+  /* --- Demo 4: home search (9s) --- */
+  .d4 .p-search { animation: d4-bar 9s ease infinite; }
+  @keyframes d4-bar { 0%, 6% { opacity: 0; transform: translateY(-8px); } 14%, 100% { opacity: 1; transform: translateY(0); } }
+  .d4 .s1 { animation: d4-s1 9s steps(1) infinite; }
+  .d4 .s2 { animation: d4-s2 9s steps(1) infinite; }
+  @keyframes d4-s1 { 0%, 22% { opacity: 0; } 23%, 100% { opacity: 1; } }
+  @keyframes d4-s2 { 0%, 27% { opacity: 0; } 28%, 100% { opacity: 1; } }
+  .d4 .dimmed { opacity: 0.14; transform: scale(0.92); animation: d4-dim 9s ease infinite; }
+  @keyframes d4-dim { 0%, 32% { opacity: 1; transform: scale(1); } 42%, 100% { opacity: 0.14; transform: scale(0.92); } }
+
+  /* --- Auto-art strip (7s) --- */
+  .art-strip {
+    display: flex; align-items: center; gap: 12px; background: var(--surface-solid);
+    border: 1px solid var(--line); border-radius: 14px; padding: 14px 18px;
+    box-shadow: var(--shadow); max-width: 420px; margin: 14px 0 6px; font-size: 16px;
+  }
+  .art-slot { font-size: 28px; display: inline-grid; }
+  .art-slot span { grid-area: 1 / 1; }
+  .art-old { opacity: 0; animation: art-old 7s ease infinite; }
+  @keyframes art-old { 0%, 52% { opacity: 0.4; } 56%, 100% { opacity: 0; } }
+  .art-new { animation: art-new 7s ease infinite; }
+  @keyframes art-new { 0%, 52% { opacity: 0; transform: scale(0.5); } 60% { opacity: 1; transform: scale(1.15); } 66%, 100% { opacity: 1; transform: scale(1); } }
+  .type-word {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace; font-weight: 600;
+    overflow: hidden; white-space: nowrap; display: inline-block; width: 6ch;
+    animation: type-word 7s steps(6, end) infinite;
+  }
+  @keyframes type-word { 0%, 10% { width: 0ch; } 45%, 100% { width: 6ch; } }
+  .art-strip .p-caret { height: 18px; }
+
+  /* --- No-match art fallback strip (10s) --- */
+  .art-strip.tall { flex-direction: column; align-items: flex-start; gap: 12px; }
+  .type-word2 {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace; font-weight: 600;
+    overflow: hidden; white-space: nowrap; display: inline-block; width: 8ch;
+    animation: type-word2 10s steps(8, end) infinite;
+  }
+  @keyframes type-word2 { 0%, 6% { width: 0ch; } 36%, 100% { width: 8ch; } }
+  .art2-ring {
+    border: 1.5px dashed transparent; border-radius: 10px; padding: 3px;
+    animation: art2-ring 10s ease infinite;
+  }
+  @keyframes art2-ring {
+    0%, 38% { border-color: transparent; box-shadow: none; }
+    42% { border-color: var(--amber); box-shadow: 0 0 0 4px var(--amber-soft); }
+    47% { box-shadow: none; }
+    52% { box-shadow: 0 0 0 4px var(--amber-soft); }
+    57%, 72% { border-color: var(--amber); box-shadow: none; }
+    78%, 100% { border-color: transparent; box-shadow: none; }
+  }
+  .art2-old { opacity: 0; animation: art2-old 10s ease infinite; }
+  @keyframes art2-old { 0%, 36% { opacity: 0; } 40%, 72% { opacity: 0.55; } 76%, 100% { opacity: 0; } }
+  .art2-new { animation: art2-new 10s ease infinite; }
+  @keyframes art2-new { 0%, 72% { opacity: 0; transform: scale(0.5); } 79% { opacity: 1; transform: scale(1.15); } 84%, 100% { opacity: 1; transform: scale(1); } }
+  .art2-picker {
+    display: flex; gap: 10px; font-size: 24px; background: var(--code-bg);
+    border-radius: 10px; padding: 6px 12px;
+    animation: art2-picker 10s ease infinite;
+  }
+  @keyframes art2-picker { 0%, 48% { opacity: 0; transform: translateY(4px); } 54%, 70% { opacity: 1; transform: translateY(0); } 76%, 100% { opacity: 0; transform: translateY(4px); } }
+  .art2-pick { animation: art2-pick 10s ease infinite; }
+  @keyframes art2-pick { 0%, 62% { transform: scale(1); } 65% { transform: scale(0.8); } 68%, 100% { transform: scale(1); } }
+
+  @media (prefers-reduced-motion: reduce) {
+    .demo *, .art-strip * { animation: none !important; }
+  }
+</style>
+
+<div class="page">
+
+<p class="eyebrow">Tridge · Design — revision 2</p>
+<h1>Grouping rescanned items &amp; searching by name</h1>
+<p class="meta">
+  Resolves <a href="https://github.com/JINGBANZ/Tridge/issues/26">#26 — Rescanning a receipt duplicates items instead of grouping them</a>
+  &nbsp;·&nbsp; adds inventory search, quick-add &amp; auto art &nbsp;·&nbsp; 2026-07-11 &nbsp;·&nbsp; status: <strong>owner-reviewed, ready to implement</strong>
+</p>
+
+<div class="callout">
+  <strong>Locked by owner review (2026-07-11):</strong> merge silently at confirm — the review page stays,
+  but with no merge badges or rescan banners; the matching key is the <strong>name alone</strong> (storage dropped);
+  manual add is <strong>one edit page</strong> — suggestion chips on top for quick fill, art assigned
+  automatically and consistently from the name (no-match names fall back to a one-tap pick that is
+  remembered), quantity/expiry still editable after a fill, one <strong>Add</strong> button confirms;
+  the deployment floor is <strong>iOS&nbsp;18+</strong>; the product/batch model (old Option&nbsp;C) is
+  skipped as too complicated for now.
+</div>
+
+<nav class="toc">
+  <ol>
+    <li><a href="#problem">Problem &amp; goals</a></li>
+    <li><a href="#research">What others do</a></li>
+    <li><a href="#foundation">Foundation: identity &amp; auto art</a></li>
+    <li><a href="#options">The chosen flow, animated</a></li>
+    <li><a href="#rules">Merge rules (spec)</a></li>
+    <li><a href="#search">Search &amp; quick-add suggestions</a></li>
+    <li><a href="#schema">Data schema &amp; migration</a></li>
+    <li><a href="#questions">Answers to #26's open questions</a></li>
+    <li><a href="#testing">Testing &amp; build order</a></li>
+    <li><a href="#refs">References</a></li>
+  </ol>
+</nav>
+
+<h2 id="problem"><span class="num">1</span>Problem &amp; goals</h2>
+
+<p>Both save paths insert unconditionally. <code>ScanFlowModel.confirm</code>
+(<code>Tridge/Views/Scan/ScanFlowModel.swift:150–176</code>) maps every review row into a fresh
+<code>FridgeItem</code> and calls <code>context.insert</code>; <code>ManualAddSheet.add</code>
+(<code>ManualAddSheet.swift:81–98</code>) does the same. Nothing ever queries the existing active
+inventory, so a double-scan or a re-purchase shows two "Milk" sprites on the home grid. There is
+also no name normalization anywhere, and LLM names vary between runs ("Jalapeño Pepper" vs
+"Jalapeño Peppers").</p>
+
+<p>Four user-facing outcomes, sharing one foundation (a canonical name key):</p>
+<ol>
+  <li><strong>No duplicates</strong> — scanning the same receipt twice, or re-buying an item, quietly bumps the existing entry's quantity instead of creating a twin (#26).</li>
+  <li><strong>Lookup</strong> — find an item in the inventory by typing part of its name.</li>
+  <li><strong>Quick add</strong> — while typing a name in manual add, matching existing/past items appear; one tap adds (+1 an item already in the fridge, or re-add a past item with everything prefilled).</li>
+  <li><strong>Minimal input</strong> — manual add needs only a name: art is inferred automatically and consistently from it, everything else defaults.</li>
+</ol>
+
+<p><strong>Non-goals:</strong> fuzzy auto-merging ("2% Milk" ≠ "Whole Milk" — §2), barcode identity,
+units/measures (quantity stays an integer count 1–99), per-batch expiry tracking (skipped with the
+old Option&nbsp;C), and any server involvement — all of this is on-device.</p>
+
+<h2 id="research"><span class="num">2</span>What others do (research)</h2>
+
+<div class="table-wrap"><table>
+  <tr><th>App / source</th><th>Pattern</th><th>Take-away for Tridge</th></tr>
+  <tr>
+    <td><strong>AnyList</strong></td>
+    <td>Silently auto-combines same-named list items and sums quantities. Autocompletes from your own past items; tapping a suggestion re-adds it with remembered details.</td>
+    <td>Closest to the chosen design — silent grouping plus suggestion-with-remembered-details quick-add.</td>
+  </tr>
+  <tr>
+    <td><strong>Grocy</strong></td>
+    <td>Splits <em>product</em> from per-purchase <em>stock entries</em>, each with its own best-before date; consumes first-expiring-first-out.</td>
+    <td>The fully general model. Skipped for now (owner call), but the stored name key below is exactly its future product key, so the door stays open.</td>
+  </tr>
+  <tr>
+    <td><strong>Plan to Eat</strong> (postmortem)</td>
+    <td>Moved away from silent pantry automation because users couldn't tell why things changed.</td>
+    <td>The risk to manage in a silent merge: mitigated here because the <em>review page</em> is still an explicit confirmation step, and merging only ever <em>adds quantity</em> — it never deletes or reschedules anything.</td>
+  </tr>
+  <tr>
+    <td><strong>Expensify / Zoho / Klippa</strong></td>
+    <td>Duplicate-receipt detection fingerprints <em>parsed content</em>, never image pixels.</td>
+    <td>Kept as a possible future guard; not in scope now (no banners, per owner).</td>
+  </tr>
+</table></div>
+
+<p>Platform findings that shaped the design:</p>
+<ul>
+  <li><strong>Comparison:</strong> <code>.lowercased()</code> equality is a documented anti-pattern (Turkish&nbsp;I, ß). Use
+      <code>String.folding(options: [.caseInsensitive, .diacriticInsensitive], locale:)</code> to <em>precompute a stored canonical key</em>.</li>
+  <li><strong>Merging:</strong> exact-normalized-match only. A false merge (silently absorbing a distinct item) is worse than a duplicate; fuzzy signals belong only where a human confirms (suggestions).</li>
+  <li><strong>Search scale:</strong> tens-to-hundreds of rows — a full in-memory scan of short strings is sub-millisecond, so no FTS or trigram machinery. With the floor now at iOS&nbsp;18, the stored key also gets a real SQLite index for free: <code>#Index&lt;FridgeItem&gt;([\.normalizedName])</code>.</li>
+  <li><strong>Autocomplete ranking</strong> (industry consensus): exact &gt; whole-string prefix &gt; word-boundary prefix ("mi" → "Whole <u>Mi</u>lk") &gt; substring; tie-break by recency/frequency. No debounce needed for a local dataset this small.</li>
+</ul>
+
+<h2 id="foundation"><span class="num">3</span>Foundation: identity &amp; auto art</h2>
+
+<p>Three pure-logic pieces, all in <code>Tridge/Core/</code> so they compile into the
+<code>FridgeCore</code> package and run under <code>swift test</code> on Linux
+(<code>FridgeItem</code> itself is not in the package, so all of them operate on plain values).</p>
+
+<h3>3.1 The canonical name key</h3>
+
+<pre><code>// Tridge/Core/NameKey.swift  (FridgeCore — Linux-testable)
+enum NameKey {
+    /// Canonical form used for identity and search: case- and
+    /// diacritic-folded, trimmed, inner whitespace collapsed.
+    /// "  Jalapeño  Pepper " → "jalapeno pepper"
+    static func normalize(_ name: String) -&gt; String {
+        name.folding(options: [.caseInsensitive, .diacriticInsensitive],
+                     locale: Locale(identifier: "en_US_POSIX"))
+            .split(whereSeparator: \.isWhitespace)
+            .joined(separator: " ")
+    }
+}</code></pre>
+
+<p>The folding locale is <strong>pinned</strong>, not <code>.current</code>: keys are persisted, so
+the same typed name must fold identically forever — a device-locale change must never silently stop
+items matching their own history.</p>
+
+<p>The key is <strong>persisted</strong> as a new indexed <code>normalizedName</code> property on
+<code>FridgeItem</code> (§7) rather than recomputed per comparison. Deliberately excluded: plural
+folding (naive "-s" stripping breaks "Grapes", "Hummus") — #25's bare-name prompt rule already
+reduces plural variance, and a residual "Pepper" vs "Peppers" pair is a visible, user-fixable miss
+rather than a silent wrong merge.</p>
+
+<h3>3.2 The matching key: the name, alone</h3>
+
+<p>Two rows are "the same item" iff their normalized names are equal. Per owner review, storage is
+<strong>not</strong> part of the key — one name means one thing in a household, and it simplifies
+the design: the planner drops a parameter, and a merge simply keeps the existing item where it
+already lives (a rescanned "Milk" tops up the fridge Milk regardless of the current storage
+default). The one behavior to know about: the same name split across fridge and freezer on purpose
+("Bread" in both) will always group; the natural escape is naming them apart ("Frozen bread"),
+which matches how people actually label things. <code>artKey</code> also stays out of identity —
+with art now <em>derived from the name</em> (§3.3), it carries no independent signal.</p>
+
+<h3>3.3 Automatic, consistent art — <code>ArtInference</code></h3>
+
+<p>Manual add currently makes the user hand-pick art from the <code>ItemID</code> grid. That input
+is removed: art resolves automatically, through a tiered lookup where the household's own history
+always outranks the rules —</p>
+
+<div class="table-wrap"><table>
+  <tr><th>Tier</th><th>Rule</th><th>Example</th></tr>
+  <tr><td><strong>0 · Remembered</strong></td><td>This <code>normalizedName</code> was saved before → reuse its <code>artKey</code> (latest row wins). The user's own pick outranks every rule below, forever.</td><td>you once set "Mooncake" → 🥮; every future Mooncake is 🥮</td></tr>
+  <tr><td>1 · Exact</td><td>Name equals a vocabulary display name or rawValue.</td><td>"milk", "ice cream", "green onion"</td></tr>
+  <tr><td>2 · Synonym</td><td>Small curated table.</td><td>"scallion" → greenOnion, "yoghurt" → yogurt</td></tr>
+  <tr><td>3 · Token</td><td>A word of the name hits 1–2; last matching token wins (head-noun heuristic).</td><td>"chocolate milk" → milk</td></tr>
+  <tr><td>4 · Typo</td><td>Edit distance ≤ 1 per token against 1–3 — safe here because art is cosmetic and previewed live before saving (a wrong guess is visible, not silent).</td><td>"bannana" → banana</td></tr>
+  <tr><td>5 · Unknown</td><td>🛒 — and the art slot itself becomes the invitation to fix it (below).</td><td>"Leftover curry base"</td></tr>
+</table></div>
+
+<pre><code>// Tridge/Core/ArtInference.swift  (FridgeCore — Linux-testable)
+enum ArtInference {
+    /// Tiers 1–5 for names never seen before: exact → synonym →
+    /// token → typo(≤1/token) → .unknown. Pure function of the
+    /// normalized name — no randomness, no context.
+    static func itemID(for name: String) -&gt; ItemID
+}
+// Tier 0 (remembered art) is a history lookup by normalizedName,
+// done by the caller — no new schema: the memory IS the saved rows.</code></pre>
+
+<p><strong>The no-match flow.</strong> When resolution bottoms out at 🛒, the live art slot next to
+the name field shows the 🛒 with a dashed ring — the design's single, quiet "this needs you"
+affordance. Tapping it opens the existing ArtPicker; the choice saves with the item and, via
+tier 0, is remembered for every future add of that name. Ignoring it is also fine: the item saves
+as 🛒, honest and findable by name, fixable any time in the detail sheet (which also updates the
+remembered art). This is what keeps the design scalable <em>and</em> minimalist: zero prompts when
+inference works, exactly one optional tap when it doesn't, and the household's vocabulary grows
+organically without the curated <code>ItemID</code> enum ever needing to.</p>
+
+<ul>
+  <li><strong>Scan path:</strong> unchanged — the LLM already returns a schema-enforced <code>ItemID</code>, which stays authoritative for scanned rows.</li>
+  <li><strong>Manual add:</strong> the ArtPicker row disappears; the resolved emoji fills the sheet's hero art live as the user types (animated in §6). Suggestion chips carry their remembered <code>artKey</code> — tier 0 by construction.</li>
+  <li><strong>Consistency guarantee:</strong> same name → same art, always: tier 0 makes the user's correction sticky; tiers 1–5 are a pure function of the name. Changing art never affects identity.</li>
+</ul>
+
+<h2 id="options"><span class="num">4</span>The chosen flow, animated</h2>
+
+<p>Owner review resolved the original three options: the <strong>silent merge</strong> ships, the
+badged review sheet is declined (too much chrome for a minimalist app), and the product/batch model
+is skipped. Both remaining variants are animated below so the difference is visible; demos loop
+(reduced-motion viewers see the end state).</p>
+
+<div class="demo-row">
+  <div class="demo">
+    <p class="demo-label"><span class="dot"></span>Chosen — silent merge at confirm</p>
+    <div class="phone d1" aria-hidden="true">
+      <div class="p-home">
+        <div class="p-title">Tridge</div>
+        <div class="p-sub">4 items · 2 need attention</div>
+        <div class="p-grid">
+          <div class="p-sprite">🥛<span class="p-badge milk-badge"><span class="q-old">×2</span><span class="q-new">×3</span></span><span class="p-name">Milk</span></div>
+          <div class="p-sprite">🧀<span class="p-name">Cheese</span></div>
+          <div class="p-sprite">🥦<span class="p-name">Broccoli</span></div>
+          <div class="p-sprite egg-new">🥚<span class="p-name">Eggs</span></div>
+        </div>
+        <div class="p-scanbtn">＋</div>
+      </div>
+      <div class="p-sheet">
+        <div class="p-sheet-title">Jul 11 · 2 items found</div>
+        <div class="p-row">
+          <span class="p-row-art">🥛</span>
+          <div class="p-row-main"><div class="p-row-name">Milk</div><div class="p-row-sub">from "2% MILK 1GAL"</div></div>
+          <span class="p-chip qty">×1</span><span class="p-chip date">Jul 18</span>
+        </div>
+        <div class="p-row">
+          <span class="p-row-art">🥚</span>
+          <div class="p-row-main"><div class="p-row-name">Eggs</div><div class="p-row-sub">from "LG EGGS 12CT"</div></div>
+          <span class="p-chip qty">×1</span><span class="p-chip guess">Jul 25 · Guess</span>
+        </div>
+        <button class="p-cta">Add 2 items to Fridge</button>
+      </div>
+    </div>
+    <p class="demo-caption">The review page is untouched — same rows, same chips, same button. On
+    confirm, Milk (already in the fridge) ticks <strong>×2 → ×3</strong> on the home grid; Eggs is
+    genuinely new and appears as its own sprite. No badges, no banners — the grid simply stays
+    truthful.</p>
+  </div>
+
+  <div class="demo">
+    <p class="demo-label declined"><span class="dot"></span>Declined — badged review</p>
+    <div class="phone d2" aria-hidden="true">
+      <div class="p-sheet" style="top: 22px;">
+        <div class="p-banner">⚠️ <span><strong>Looks like a rescan.</strong> 1 of 2 items is already in your fridge.</span></div>
+        <div class="p-sheet-title">Jul 11 · 2 items found</div>
+        <div class="p-row">
+          <span class="p-row-art">🥛</span>
+          <div class="p-row-main"><div class="p-row-name">Milk</div><div class="p-row-sub merge">In fridge ×2 · becomes ×3 — tap to keep separate</div></div>
+          <span class="p-chip qty">×1</span><span class="p-chip date">Jul 18</span>
+        </div>
+        <div class="p-row">
+          <span class="p-row-art">🥚</span>
+          <div class="p-row-main"><div class="p-row-name">Eggs</div><div class="p-row-sub">from "LG EGGS 12CT"</div></div>
+          <span class="p-chip qty">×1</span><span class="p-chip guess">Jul 25 · Guess</span>
+        </div>
+        <button class="p-cta">Add 1 · update 1</button>
+      </div>
+    </div>
+    <p class="demo-caption">The alternative surfaced every impending merge inline plus a rescan
+    banner. Declined: three extra UI elements to explain an outcome the user can already see on the
+    grid — against the app's minimalism. Kept here for the record.</p>
+  </div>
+</div>
+
+<p>Why the silent merge is safe enough without the badges: the review page remains an explicit
+confirmation of <em>what</em> was scanned; matching is exact on the normalized name, so "confident
+match" is built into the rule; and a merge is purely additive — it increments one integer and
+never touches expiry, art, storage, or notifications' correctness. The worst wrong outcome is a
+quantity one tap high, fixable in the detail sheet — strictly better than today's duplicate
+sprite.</p>
+
+<h2 id="rules"><span class="num">5</span>Merge rules — spec</h2>
+
+<pre><code>// Tridge/Core/MergePlanner.swift  (FridgeCore — Linux-testable)
+
+/// Value snapshot of an active inventory row (FridgeItem is not in
+/// the package, so the planner never touches the @Model type).
+struct MergeCandidate: Sendable {
+    let id: UUID
+    let normalizedName: String
+    let quantity: Int
+    let isExpired: Bool
+    let purchaseDate: Date
+}
+
+enum MergeDecision: Equatable, Sendable {
+    case insert
+    case merge(into: UUID, resultingQuantity: Int)
+}
+
+enum MergePlanner {
+    /// Exact normalized-name match against active items; expired
+    /// items never absorb a new purchase (a fresh buy is a new
+    /// batch). Ties → most recent purchase.
+    static func decide(name: String, quantity: Int,
+                       existing: [MergeCandidate]) -&gt; MergeDecision {
+        let key = NameKey.normalize(name)
+        guard !key.isEmpty,
+              let match = existing
+                  .filter({ $0.normalizedName == key &amp;&amp; !$0.isExpired })
+                  .max(by: { $0.purchaseDate &lt; $1.purchaseDate })
+        else { return .insert }
+        return .merge(into: match.id,
+                      resultingQuantity: min(match.quantity + quantity, 99))
+    }
+}</code></pre>
+
+<p>Behavioral rules, in order:</p>
+<ol>
+  <li><strong>Candidates:</strong> active items only (<code>statusRaw == "active"</code>). Consumed history never absorbs new purchases.</li>
+  <li><strong>Eligibility:</strong> expired items are skipped — a new purchase of something already past its date is a fresh batch and inserts as its own row. This is also what keeps "old expiry wins" from ever hiding fresh food behind a red sprite. The threshold is deliberately just <code>isExpired</code>, not "near expiry": near-expiry matches are exactly the double-scan case we <em>do</em> want to group.</li>
+  <li><strong>On merge:</strong> <code>existing.quantity = resultingQuantity</code>; <code>expiryDate</code>/<code>expirySource</code> untouched (#26's settled decision — user-set dates are never overwritten); storage untouched (the item stays where it lives); <code>receiptText</code> refreshed to the newer line; notifications left as scheduled (expiry didn't change, and <code>NotificationService.schedule</code> is idempotent if re-run).</li>
+  <li><strong>Within one receipt:</strong> rows that match <em>each other</em> (the LLM emitted "Milk" twice) coalesce into one review row at parse time, quantities summed. Review-time renames can re-create a collision after that, so the multi-row save runs through <code>MergePlanner.plan</code>, which sequences the whole batch: a colliding row stacks onto the earlier row's insert (or onto the same existing item, quantities accumulating) — it can never be dropped or duplicated. This sequencing is pure and Linux-tested.</li>
+  <li><strong>Both paths:</strong> <code>ScanFlowModel.confirm</code> runs the planner per row at save; <code>ManualAddSheet</code> runs it once when <strong>Add</strong> is tapped. One manual-add nuance: because the edit page shows an expiry field (prefilled from the existing item when a chip was used), a merge applies the expiry <em>only if the user changed it from the prefill</em> — then it's a deliberate edit and saves as <code>.userSet</code>. Untouched, the existing item's date and source stay exactly as they are. The invariant holds: only an explicit user action can overwrite a date, never a default or a guess.</li>
+</ol>
+
+<h2 id="search"><span class="num">6</span>Search &amp; quick-add suggestions</h2>
+
+<p>Both features are read-side consumers of the same stored key and one shared ranking helper:</p>
+
+<pre><code>// Tridge/Core/NameSearch.swift  (FridgeCore — Linux-testable)
+
+struct SearchEntry: Sendable {
+    let normalizedName: String
+    let lastUsed: Date      // most recent purchaseDate
+    let useCount: Int       // times this name was added
+}
+
+enum NameSearch {
+    /// Rank: exact &gt; whole-string prefix &gt; word-boundary prefix
+    /// ("mi" → "whole milk") &gt; substring; ties by lastUsed,
+    /// then useCount. Query is normalized with NameKey first.
+    static func rank(query: String, in entries: [SearchEntry],
+                     limit: Int) -&gt; [SearchEntry]
+}</code></pre>
+
+<p>All matching happens on <code>normalizedName</code>, so "jala" finds "Jalapeño Peppers". At this
+scale ranking runs in memory per keystroke with no debounce; the <code>#Index</code> on the column
+(§7) keeps the backing fetches cheap as history grows.</p>
+
+<h3>6.1 Manual add: one edit page, chips for quick fill</h3>
+
+<p>One page serves every case — brand-new item or re-add — so there is never a fork in the flow
+(owner call). The page is the familiar editor (name · quantity · expiry · Add), with a single
+addition: a row of <strong>suggestion chips</strong> sitting directly above the name input box.
+Before typing, the chips show
+the most recently/frequently added items; typing re-ranks them through <code>NameSearch</code>.
+Tapping a chip <em>fills the form</em> — it never commits anything: name and art fill in, and
+expiry prefills with the existing item's current date (in-fridge chip) or today + that item's
+typical shelf life (past-item chip).
+Quantity always means "how many I'm adding" and defaults to 1. Everything stays editable after a
+fill; the single <strong>Add</strong> button confirms. The hero art atop the page is its one
+silent control: it fills itself (§3.3), invites a tap only when resolution lands on 🛒, and a tap
+there opens the picker without adding any standing chrome. The name row itself is a standard
+label-left / input-right form row, matching Quantity and Expires.</p>
+
+<div class="demo-row">
+  <div class="demo">
+    <p class="demo-label"><span class="dot"></span>Chip fill → edit → Add</p>
+    <div class="phone d3" aria-hidden="true">
+      <div class="p-home">
+        <div class="p-title">Tridge</div>
+        <div class="p-sub">5 items · 2 need attention</div>
+        <div class="p-grid">
+          <div class="p-sprite">🥛<span class="p-badge">×3</span><span class="p-name">Milk</span></div>
+          <div class="p-sprite">🧀<span class="p-name">Cheese</span></div>
+          <div class="p-sprite">🌶️<span class="p-badge pepper-badge"><span class="q-old">×2</span><span class="q-new">×4</span></span><span class="p-name">Jalapeno…</span></div>
+          <div class="p-sprite">🥚<span class="p-name">Eggs</span></div>
+        </div>
+        <div class="p-scanbtn">＋</div>
+      </div>
+      <div class="p-sheet">
+        <div class="p-sheet-title">Type to add</div>
+        <div style="text-align: center; font-size: 32px; padding: 2px 0 6px;">
+          <span class="art-slot"><span class="field-art">🌶️</span></span>
+        </div>
+        <div class="p-chips">
+          <span class="p-chipq chip-tap">🌶️ Jalapeno Peppers</span>
+          <span class="p-chipq">🫙 Jalapeno Salsa</span>
+        </div>
+        <div class="p-field">
+          <span style="color: var(--muted);">Name</span>
+          <span style="margin-left: auto; display: inline-flex; align-items: center;">
+            <span class="p-name-layers">
+              <span><span class="t1">J</span><span class="t2">a</span><span class="t3">l</span></span>
+              <span class="full-name">Jalapeno Peppers</span>
+            </span>
+            <span class="p-caret"></span>
+          </span>
+        </div>
+        <div class="p-details">
+          <div class="p-row">
+            <div class="p-row-main"><div class="p-row-name">Quantity</div><div class="p-row-sub">adding to ×2 in fridge</div></div>
+            <span class="p-chip qty stack qty-chip"><span class="qy-old">×1</span><span class="qy-new">×2</span></span>
+          </div>
+          <div class="p-row">
+            <div class="p-row-main"><div class="p-row-name">Expires</div><div class="p-row-sub">kept from the fridge item</div></div>
+            <span class="p-chip date">Jul 16</span>
+          </div>
+        </div>
+        <button class="p-cta">Add to Fridge</button>
+      </div>
+    </div>
+    <p class="demo-caption">Typing "Jal" ranks the chips; tapping the <strong>Jalapeno Peppers</strong>
+    chip fills name, art and expiry (Jul 16, from the fridge item). The user still edits quantity
+    (×1 → ×2 here), then taps <strong>Add</strong> — the grid badge ticks ×2 → ×4. A brand-new name
+    skips the chips entirely: type it, art infers, defaults apply, Add inserts.</p>
+  </div>
+
+  <div class="demo">
+    <p class="demo-label"><span class="dot"></span>Auto art while typing</p>
+    <div class="art-strip" aria-hidden="true">
+      <span class="art-slot"><span class="art-old">🛒</span><span class="art-new">🍌</span></span>
+      <span><span class="type-word">Banana</span><span class="p-caret"></span></span>
+    </div>
+    <p class="demo-caption"><code>ArtInference</code> resolves the name as it's typed — "Banana"
+    lands on 🍌 the moment the word completes, with no picker and no extra tap. Same name, same
+    art, always.</p>
+  </div>
+
+  <div class="demo">
+    <p class="demo-label"><span class="dot"></span>No match? One tap, remembered</p>
+    <div class="art-strip tall" aria-hidden="true">
+      <div style="display: flex; align-items: center; gap: 12px;">
+        <span class="art-slot art2-ring"><span class="art2-old">🛒</span><span class="art2-new">🥮</span></span>
+        <span><span class="type-word2">Mooncake</span><span class="p-caret"></span></span>
+      </div>
+      <div class="art2-picker"><span class="art2-pick">🥮</span><span>🍰</span><span>🍪</span><span>🥠</span></div>
+    </div>
+    <p class="demo-caption">"Mooncake" matches nothing in the vocabulary, so the slot falls back to
+    🛒 with a dashed ring — the flow's only nudge. Tapping it opens the picker; the pick saves with
+    the item and is <strong>remembered</strong>: every future "Mooncake" auto-fills 🥮 (tier 0).
+    Ignoring the nudge is fine too — the item saves as 🛒 and stays fixable in the detail sheet.</p>
+  </div>
+</div>
+
+<h3>6.2 Inventory lookup (home screen)</h3>
+
+<div class="demo-row">
+  <div class="demo">
+    <p class="demo-label"><span class="dot"></span>Search the grid</p>
+    <div class="phone d4" aria-hidden="true">
+      <div class="p-home">
+        <div class="p-title">Tridge</div>
+        <div class="p-sub" style="margin-bottom:8px;">6 items</div>
+        <div class="p-search">🔍 <span class="typed"><span class="s1">m</span><span class="s2">i</span></span><span class="p-caret"></span></div>
+        <div class="p-grid">
+          <div class="p-sprite">🥛<span class="p-badge">×3</span><span class="p-name">Milk</span></div>
+          <div class="p-sprite dimmed">🧀<span class="p-name">Cheese</span></div>
+          <div class="p-sprite dimmed">🥦<span class="p-name">Broccoli</span></div>
+          <div class="p-sprite dimmed">🌶️<span class="p-badge">×3</span><span class="p-name">Jalapeno…</span></div>
+          <div class="p-sprite dimmed">🥚<span class="p-name">Eggs</span></div>
+          <div class="p-sprite dimmed">🍌<span class="p-name">Banana</span></div>
+        </div>
+      </div>
+    </div>
+    <p class="demo-caption"><code>.searchable</code> on the home stack — the field is hidden until
+    pulled down, so the spec's single-control home screen keeps its face. Typing filters the
+    already-fetched grid in memory through <code>NameSearch</code>; clearing restores everything.
+    Diacritic-blind: "jala" finds "Jalapeño Peppers".</p>
+  </div>
+</div>
+
+<h3>6.3 Where suggestions come from</h3>
+
+<p>Derived from history, no new entities: group all <code>FridgeItem</code> rows (any status — consumed
+rows stay in the store forever) by <code>normalizedName</code> at sheet-open; the latest row wins for
+art and storage, medians give the typical shelf life. For years of solo use (~1–2k rows) this is
+milliseconds. A dedicated catalog entity was considered and rejected: it's a denormalized cache to
+keep correct on every insert/merge/rename — the classic drift-bug surface — and its real payoff only
+arrives with the (skipped) product/batch model.</p>
+
+<h2 id="schema"><span class="num">7</span>Data schema &amp; migration</h2>
+
+<p><code>FridgeItem</code> after this change — one added property, one added index, everything else
+untouched:</p>
+
+<pre><code>@Model
+final class FridgeItem {
+    #Index&lt;FridgeItem&gt;([\.normalizedName])   // iOS 18 floor (owner call)
+
+    var id: UUID = UUID()
+    var name: String = ""
+    var normalizedName: String = ""   // NEW — NameKey.normalize(name)
+    var receiptText: String?
+    var artKey: String = ItemID.unknown.rawValue
+    var quantity: Int = 1
+    var storageRaw: String = StorageLocation.fridge.rawValue
+    var purchaseDate: Date = Date()
+    var expiryDate: Date = Date()
+    var expirySourceRaw: String = ExpirySource.llmEstimate.rawValue
+    var statusRaw: String = ItemStatus.active.rawValue
+    var consumedDate: Date?
+    // computed accessors unchanged
+}</code></pre>
+
+<div class="table-wrap"><table>
+  <tr><th>Property</th><th>Change</th><th>Role in this design</th></tr>
+  <tr><td><code>normalizedName</code></td><td><strong>new</strong>, indexed, default <code>""</code></td><td>The identity + search key. Default keeps the schema CloudKit-compatible (repo invariant).</td></tr>
+  <tr><td><code>name</code></td><td>unchanged</td><td>Display form. Every write goes through a <code>setName(_:)</code> helper that updates the pair atomically.</td></tr>
+  <tr><td><code>artKey</code></td><td>unchanged type; <strong>now auto-assigned</strong> on manual add via <code>ArtInference</code></td><td>Cosmetic only — never part of identity.</td></tr>
+  <tr><td><code>quantity</code></td><td>unchanged</td><td>Merge adds into it, clamped 1…99.</td></tr>
+  <tr><td><code>storageRaw</code></td><td>unchanged</td><td>Not in the matching key (owner call); a merge keeps the existing item's storage.</td></tr>
+  <tr><td><code>expiryDate</code> / <code>expirySourceRaw</code></td><td>unchanged</td><td><strong>Never modified by a merge</strong> (#26's settled decision).</td></tr>
+  <tr><td><code>statusRaw</code>, <code>purchaseDate</code>, <code>consumedDate</code>, <code>receiptText</code>, <code>id</code></td><td>unchanged</td><td>Active-only candidacy; merge keeps the existing purchase date, refreshes <code>receiptText</code>.</td></tr>
+</table></div>
+
+<ul>
+  <li><strong>Migration:</strong> lightweight (added property with a default — SwiftData migrates in place; adding <code>#Index</code> is also a lightweight change). One-time backfill at launch: fetch rows where <code>normalizedName == ""</code> and recompute from <code>name</code>. Idempotent, milliseconds, becomes a no-op.</li>
+  <li><strong>No new entities.</strong> If the product/batch model is ever revisited, <code>normalizedName</code> is exactly the future product key — this schema is a strict subset of that one.</li>
+  <li><strong>New Core files</strong> (all Linux-testable): <code>NameKey.swift</code>, <code>ArtInference.swift</code>, <code>MergePlanner.swift</code>, <code>NameSearch.swift</code>.</li>
+</ul>
+
+<h2 id="questions"><span class="num">8</span>Answers to #26's open questions</h2>
+
+<div class="table-wrap"><table>
+  <tr><th>Open question</th><th>Resolution</th></tr>
+  <tr>
+    <td>Matching key: name + storage enough, or should <code>artKey</code>/ItemID participate?</td>
+    <td><strong>Normalized name alone</strong> (owner call). Storage adds nothing — one name means one thing in a household, and a merge keeps the item where it lives. <code>artKey</code> is now <em>derived from</em> the name, so it carries no independent identity signal; its generic buckets would only block correct merges.</td>
+  </tr>
+  <tr>
+    <td>Should the review sheet surface impending merges?</td>
+    <td><strong>No</strong> (owner call — minimalism). The review page remains the explicit confirmation of what was scanned; the merge itself is silent and shows up as the grid staying truthful (×2 → ×3, no twin sprite). The badged variant was designed, animated (§4), and declined.</td>
+  </tr>
+  <tr>
+    <td>Skip merging when the existing item is near/past expiry?</td>
+    <td>Skip only when <strong>expired</strong> (§5 rule 2). Near-expiry matches are usually the double-scan we want to group. The threshold lives in one pure function if it ever needs tuning.</td>
+  </tr>
+  <tr>
+    <td>Whole-receipt double-scan detection?</td>
+    <td><strong>Not now</strong> (owner call — no banners). If ever wanted: fingerprint the parsed <code>(normalizedName, quantity)</code> set, never the image (the expense-app pattern, §2). Purely additive later.</td>
+  </tr>
+  <tr>
+    <td><em>(settled in #26)</em> Expiry conflict</td>
+    <td>Preserved: the existing item's <code>expiryDate</code>/<code>expirySource</code> always win; a merge never overwrites them.</td>
+  </tr>
+</table></div>
+
+<h2 id="testing"><span class="num">9</span>Testing &amp; build order</h2>
+
+<p>All decision logic is pure and Linux-testable in <code>Tests/FridgeCoreTests/</code> (Gate:
+<code>swift test</code>):</p>
+<ul>
+  <li><code>NameKeyTests</code> — folding ("Jalapeño"→"jalapeno"), trim/collapse, case rules beyond ASCII, empty/whitespace names.</li>
+  <li><code>ArtInferenceTests</code> — exact hits, synonym hits, token fallback ("chocolate milk"→milk), multi-token head-noun choice, typo tolerance ("bannana"→banana; two edits ⇒ no match), unknown fallback, determinism (same input ⇒ same id). Tier-0 precedence (remembered art beats inference) is exercised where the history lookup lives, with a value-level test on the "latest row wins" grouping.</li>
+  <li><code>MergePlannerTests</code> — match hit/miss, expired-candidate skip, multi-candidate tie → most recent purchase, quantity clamp at 99, within-receipt row coalescing.</li>
+  <li><code>NameSearchTests</code> — tier ordering (exact &gt; prefix &gt; word-prefix &gt; contains), diacritic-blind queries, recency/frequency tie-breaks, limit.</li>
+</ul>
+<p>UI behavior (silent merge outcome, +1 suggestion, auto art, searchable filter) lands on the
+spec's acceptance-criteria checklist and is exercised on Appetize per the existing flow.</p>
+
+<ol>
+  <li><strong>Foundation</strong> — <code>NameKey</code> + <code>normalizedName</code> property + <code>#Index</code> + backfill + <code>setName</code> write discipline. Invisible, independently shippable.</li>
+  <li><strong>Merge at confirm</strong> — <code>MergePlanner</code> wired into <code>ScanFlowModel.confirm</code> and <code>ManualAddSheet.add</code>. Closes #26.</li>
+  <li><strong>Manual add, minimized</strong> — <code>ArtInference</code> replaces the ArtPicker; <code>NameSearch</code> drives the quick-fill chips row; merge-aware <strong>Add</strong> with the prefill-vs-edited expiry rule.</li>
+  <li><strong>Inventory lookup</strong> — <code>.searchable</code> on the home grid.</li>
+</ol>
+<p>Steps 2–4 are separately reviewable PRs on the same foundation; none blocks another after
+step 1. On implementation, the owner calls recorded here (silent merge, name-only key, auto art,
+iOS 18 floor) go into <code>wiki/decisions.md</code> per repo convention.</p>
+
+<h2 id="refs"><span class="num">10</span>References</h2>
+<ul class="refs">
+  <li>AnyList auto-combine &amp; suggestion patterns — <a href="https://apps.apple.com/us/app/anylist-grocery-shopping-list/id522167641">App Store</a>, <a href="https://help.anylist.com/articles/remove-single-ingredient-from-list/">AnyList help</a>, <a href="https://thesweetsetup.com/apps/anylist-favorite-grocery-shopping-app/">The Sweet Setup</a></li>
+  <li>Grocy stock/product model — <a href="https://github.com/grocy/grocy-docs/blob/master/tutorials/food.md">grocy-docs food tutorial</a>, <a href="https://github.com/grocy/grocy/issues/332">grocy#332</a></li>
+  <li>Plan to Eat on silent pantry automation — <a href="https://learn.plantoeat.com/help/a-digital-pantry-inventory-does-it-really-help">learn.plantoeat.com</a></li>
+  <li>String folding vs <code>lowercased()</code> — <a href="https://www.swiftwithvincent.com/blog/bad-practice-using-lowercased-to-compare-strings">Swift with Vincent</a>, <a href="https://nemecek.be/blog/11/advanced-string-comparison-and-sorting-in-swift">Nemeček</a>, <a href="https://nilcoalescing.com/blog/CaseInsensitiveStringComparisonInSwift/">Nil Coalescing</a></li>
+  <li>Fuzzy-match false-positive risk — <a href="https://redis.io/blog/what-is-fuzzy-matching/">Redis</a>, <a href="https://www.yugabyte.com/blog/fuzzy-matching-in-yugabytedb/">Yugabyte</a></li>
+  <li>SwiftData predicates, search &amp; <code>#Index</code> — <a href="https://www.hackingwithswift.com/quick-start/swiftdata/how-to-filter-swiftdata-results-with-predicates">Hacking with Swift</a>, <a href="https://useyourloaf.com/blog/swiftdata-indexes/">Use Your Loaf</a>, <a href="https://developer.apple.com/videos/play/wwdc2024/10137/">WWDC24 — What's new in SwiftData</a></li>
+  <li>searchSuggestions / search UX — <a href="https://developer.apple.com/documentation/swiftui/view/searchsuggestions(_:)">Apple docs</a>, <a href="https://danielsaidi.com/blog/2025/01/08/creating-a-debounced-search-context-for-performant-swiftui-searches">Daniel Saidi</a></li>
+  <li>Duplicate-receipt fingerprinting (future reference) — <a href="https://help.expensify.com/articles/new-expensify/reports-and-expenses/How-to-Find-and-Resolve-Flagged-Duplicate-Expenses">Expensify</a>, <a href="https://www.klippa.com/en/blog/information/how-to-detect-duplicate-receipts/">Klippa</a></li>
+</ul>
+
+</div>

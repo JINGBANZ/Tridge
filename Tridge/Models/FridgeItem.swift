@@ -6,8 +6,13 @@ import SwiftData
 /// stays CloudKit-compatible; urgency is computed, never stored.
 @Model
 final class FridgeItem {
+    #Index<FridgeItem>([\.normalizedName])
+
     var id: UUID = UUID()
     var name: String = ""
+    /// `NameKey.normalize(name)` — the identity key for merge matching and
+    /// search. Kept in lockstep with `name` via `setName`; never shown.
+    var normalizedName: String = ""
     var receiptText: String?
     /// An ItemID rawValue; resolved to art via `Artwork`.
     var artKey: String = ItemID.unknown.rawValue
@@ -29,6 +34,7 @@ final class FridgeItem {
          expiryDate: Date,
          expirySource: ExpirySource = .llmEstimate) {
         self.name = name
+        self.normalizedName = NameKey.normalize(name)
         self.receiptText = receiptText
         self.artKey = artKey
         self.quantity = quantity
@@ -36,6 +42,12 @@ final class FridgeItem {
         self.purchaseDate = purchaseDate
         self.expiryDate = expiryDate
         self.expirySourceRaw = expirySource.rawValue
+    }
+
+    /// The only sanctioned way to rename: keeps `normalizedName` in lockstep.
+    func setName(_ newName: String) {
+        name = newName
+        normalizedName = NameKey.normalize(newName)
     }
 
     var storage: StorageLocation {
@@ -67,5 +79,11 @@ final class FridgeItem {
 
     var pillLabel: String {
         UrgencyRules.pillLabel(daysLeft: daysLeft)
+    }
+
+    /// Value snapshot handed to the Linux-testable `MergePlanner`.
+    var mergeCandidate: MergeCandidate {
+        MergeCandidate(id: id, normalizedName: normalizedName, quantity: quantity,
+                       isExpired: isExpired, purchaseDate: purchaseDate)
     }
 }

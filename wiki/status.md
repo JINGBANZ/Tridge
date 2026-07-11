@@ -44,28 +44,36 @@ worker + isolated key.
   schema, LLM contract, acceptance criteria).
 - `Package.swift` + `Tridge/Core/` — Linux-testable FridgeCore: LLM receipt-JSON parsing
   (`ReceiptParsing.swift`), the curated `ItemID` vocabulary + shared enums (`Types.swift`), urgency
-  rules (`Urgency.swift`), date-label regex (`DateLabelParser.swift`). The scan-API client
+  rules (`Urgency.swift`), date-label regex (`DateLabelParser.swift`), the item-identity key
+  (`NameKey.swift`), merge decisions (`MergePlanner.swift`), search ranking (`NameSearch.swift`),
+  and name→art inference (`ArtInference.swift`). The scan-API client
   (`../Services/ProxyLLMService.swift`) lives here too so the smoke test can drive it on Linux.
 - `Tests/FridgeCoreTests/` — parsing (incl. fenced/prose-wrapped output), urgency
-  thresholds, date-regex tests; all pass via `swift test`.
+  thresholds, date-regex, name-key, merge-planner, art-inference, and search-ranking tests; all
+  pass via `swift test`.
 - `Tests/ReceiptScanSmokeTests/` — live regression harness: fixture receipt images +
   fuzzy `expected.json` inventories (see its `Fixtures/README.md`), sent through the deployed
   worker via `ProxyLLMService`; local-only — the bearer token comes from the environment or a
   gitignored `.env` (copy `env.sample`, `SCAN_API_TOKEN`; override the target with `BACKEND_URL`),
   skips without one, and is never run in CI. Ships three synthetic fixtures (clean, faded-thermal,
   crooked low-res photo); gitignored `Fixtures/private/` for personal receipts.
-- `Tridge/` — the app: `App/` (entry, `AppTheme.swift` design tokens, preview seed),
+- `Tridge/` — the app (iOS 18+): `App/` (entry with the one-time `normalizedName` backfill,
+  `AppTheme.swift` design tokens, preview seed),
   a single-tap add menu on the scan button (camera scan where a document camera exists ·
   photo-library import · "Type to add" manual entry via `Views/Home/ManualAddSheet.swift`, which
   needs no scan at all; debug builds add `Resources/SampleReceipt.jpg` and a "Seed the App" action
   that inserts the preset `PreviewData` inventory with no LLM call), `Core/AppLog.swift` +
   Settings → Copy diagnostics as the tester feedback loop,
-  `Models/` (`FridgeItem.swift` SwiftData model, `Artwork.swift` artKey lookup), `Services/`
+  `Models/` (`FridgeItem.swift` SwiftData model with the indexed `normalizedName` identity key,
+  `Artwork.swift` artKey lookup), `Services/`
   (`LLMService.swift` protocol + errors, `ProxyLLMService.swift` scan-API client with a pluggable
   `ScanRequestAuthorizer`, `AppAttestAuthorizer.swift` on-device App Attest, `ScanAPIConfig.swift`
   single worker URL (build-config Debug/Release split deferred until a prod worker exists), `ReceiptScanner.swift` VisionKit
   camera, `DateLabelScanner.swift` Vision OCR, `NotificationService.swift`, `Haptics.swift`), `Views/`
-  (Home grid + drag-to-consume, scan flow + review sheet, item detail + art picker, settings).
+  (Home grid + drag-to-consume + pull-down name search, scan flow + review sheet, item detail +
+  art picker, settings). Saving — scanned or typed — merges into a matching active item by
+  normalized name instead of duplicating it (`design/item-grouping-search.html`); manual add has
+  quick-fill history chips above the name field and automatic art (remembered → inferred → tap-to-pick).
 - `Tridge.xcodeproj` — hand-written project (synchronized folder group) + shared scheme;
   see the decision log for why it's hand-authored.
 - `.github/workflows/ci.yml` — Linux `swift test`; server typecheck + Vitest;

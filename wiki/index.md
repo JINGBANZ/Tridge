@@ -21,6 +21,11 @@
   layers, API contract, test-vs-production posture, migration plan, and the hosting research
   that picked Workers. Deployment state lives in [status.md](./status.md); the *why* lives in
   [decisions.md](./decisions.md) → *2026-07-07* entries.
+- [../design/item-grouping-search.html](../design/item-grouping-search.html) — the **item
+  grouping & search design doc**: merge-at-confirm for rescanned/re-bought items (issue #26),
+  the name-key identity model, name search, manual-add quick-fill chips, and tiered automatic
+  art — with animated flow mocks and the competitor/platform research. The *why* lives in
+  [decisions.md](./decisions.md) → *2026-07-11* entry.
 
 ## Decisions
 

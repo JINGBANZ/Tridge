@@ -38,7 +38,7 @@ struct ItemDetailSheet: View {
                 }
 
                 Section {
-                    TextField("Name", text: $item.name)
+                    TextField("Name", text: nameBinding)
                     LabeledContent("Quantity") {
                         TextField("1", value: quantityBinding, format: .number)
                             .keyboardType(.numberPad)
@@ -113,6 +113,11 @@ struct ItemDetailSheet: View {
     }
 
     // MARK: Bindings
+
+    /// Renames go through `setName` so the merge/search key stays in sync.
+    private var nameBinding: Binding<String> {
+        Binding(get: { item.name }, set: { item.setName($0) })
+    }
 
     private var storageBinding: Binding<StorageLocation> {
         Binding(get: { item.storage }, set: { item.storage = $0 })
