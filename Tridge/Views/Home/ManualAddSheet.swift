@@ -41,7 +41,11 @@ struct ManualAddSheet: View {
 
                 Section {
                     TextField("Name (e.g. Milk)", text: $name)
-                    Stepper("Quantity  ×\(quantity)", value: $quantity, in: 1...99)
+                    LabeledContent("Quantity") {
+                        TextField("1", value: quantityBinding, format: .number)
+                            .keyboardType(.numberPad)
+                            .multilineTextAlignment(.trailing)
+                    }
                     DatePicker("Expires", selection: $expiryDate, displayedComponents: .date)
                 }
             }
@@ -66,6 +70,12 @@ struct ManualAddSheet: View {
 
     private var trimmedName: String {
         name.trimmingCharacters(in: .whitespaces)
+    }
+
+    /// Typed quantities are kept in the stepper's old 1...99 bounds.
+    private var quantityBinding: Binding<Int> {
+        Binding(get: { quantity },
+                set: { quantity = min(max($0, 1), 99) })
     }
 
     private func add() {
