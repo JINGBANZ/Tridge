@@ -81,8 +81,8 @@ struct HomeView: View {
                 }
             } else {
                 scrollingContent
-                searchBarOverlay
                 headerOccluder
+                searchBarOverlay
                 headerBar
             }
 
@@ -524,15 +524,17 @@ struct HomeView: View {
             .allowsHitTesting(!searchActive)
     }
 
-    /// A copy of the chilled background masked to the status-bar + header band,
-    /// painted above the scroll content. Because it renders identically to the
-    /// base background, content sliding under the header is hidden seamlessly —
-    /// gradient, glow, and all. Shrinks to just the status bar in search mode.
+    /// A copy of the chilled background masked to the whole top band — status
+    /// bar + header + the bar's current height — painted above the scroll
+    /// content and *below* the capsule. Because it renders identically to the
+    /// base background, any grid content in that band (e.g. a first row that
+    /// momentarily lags the reveal animation) is hidden seamlessly — gradient,
+    /// glow, and all — so items can never overlap the bar.
     private var headerOccluder: some View {
         AppTheme.ChillBackground()
             .mask(alignment: .top) {
                 Rectangle()
-                    .frame(height: searchActive ? safeTop : safeTop + headerContentHeight)
+                    .frame(height: headerReserve + insetBarSpace)
             }
             .allowsHitTesting(false)
             .ignoresSafeArea()
