@@ -92,6 +92,8 @@ enum AppTheme {
     /// Home's "nothing matches" ghost under an active filter.
     static let ghostSpacing: CGFloat = 10
     static let ghostArtOpacity: Double = 0.5
+    /// Drops the no-match ghost below the search bar rather than centering it.
+    static let noMatchTopPad: CGFloat = 90
     /// The ✕ inside Home's active-filter tags sits slightly quieter than its label.
     static let filterTagDismissOpacity: Double = 0.75
     static let gridColumns = 4
@@ -104,10 +106,22 @@ enum AppTheme {
     static let scanButtonClearance: CGFloat = scanButtonSize + 40
     static let dropZoneHeight: CGFloat = 78
     static let dropZoneRadius: CGFloat = 20
-    /// Home search field (item-grouping-search.html §6.2, owner-revised
-    /// 2026-07-11): a full-bleed band under the header, no border or radius.
-    static let searchFieldPadding = (h: CGFloat(20), v: CGFloat(10))
-    static let searchFieldIconGap: CGFloat = 7
+    /// Home search field (Apple Music–style, item-grouping-search.html §6.2,
+    /// owner-revised 2026-07-12): a rounded capsule parked below the header
+    /// that scrolls up and tucks under it. A muted fill reads as a distinct
+    /// field over the chilled background.
+    static let searchFieldFill = Color(light: 0xDBE2DD, dark: 0x1E2A23)
+    /// Padding inside the capsule, around the icon/text row.
+    static let searchFieldPadding = (h: CGFloat(14), v: CGFloat(10))
+    static let searchFieldIconGap: CGFloat = 8
+    /// Vertical rhythm of the capsule row within the scroll content.
+    static let searchBarPadding = (top: CGFloat(2), bottom: CGFloat(10))
+    /// The circular ✕ cancel button that slides in to the right on focus.
+    static let searchCancelSize: CGFloat = 34
+    static let searchCancelGap: CGFloat = 8
+    /// When focused, content rises so the capsule sits this far below the
+    /// status bar (the header having faded away).
+    static let searchFocusTopGap: CGFloat = 4
 
     // MARK: Type
 
@@ -130,6 +144,8 @@ enum AppTheme {
     static let searchFont = Font.system(size: 13, weight: .semibold)
     /// The ⓧ clear button inside the search field.
     static let searchClearFont = Font.system(size: 14)
+    /// The ✕ inside the circular cancel button.
+    static let searchCancelFont = Font.system(size: 13, weight: .semibold)
 
     // MARK: Effects
 

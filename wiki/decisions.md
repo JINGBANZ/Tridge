@@ -500,6 +500,9 @@
   auto-focusing the field on reveal (presenting the keyboard mid-drag fights
   `scrollDismissesKeyboard` — the same drag instantly dismisses it — which made the reveal stutter
   and left a focused-field race that swallowed the auto-hide crossing, freezing the bar shown).
+- **Superseded by:** *2026-07-12 — Home search adopts the Apple Music capsule + scroll-under-header
+  model* — the pull-to-reveal band gives way to an always-present capsule that tucks under the
+  header on scroll; the no-`NavigationStack` / no-`.searchable` and `Equatable`-gated-cell parts stand.
 
 ### 2026-07-11 — One shared item form; the date-label OCR scan is removed
 
@@ -547,3 +550,33 @@
 - **Supersedes:** the surviving per-PR Appetize browser preview from *2026-07-05 — Browser test
   builds via Appetize.io, not TestFlight* and *2026-07-09 — TestFlight for on-device testing;
   SideStore rejected*.
+
+### 2026-07-12 — Home search adopts the Apple Music capsule + scroll-under-header model
+
+- **Chose:** The home search field is a rounded capsule (`AppTheme.searchFieldFill`, muted over the
+  chilled background) parked as the grid's first scrolling row, so it slides up and tucks *under* an
+  opaque header on scroll — no per-frame scroll math, pure layout. The header is an overlay above the
+  scroll content; behind it, `headerOccluder` paints a copy of `ChillBackground` masked to the
+  status-bar + header band, so content sliding under is hidden seamlessly (gradient, glow, and all).
+  Focusing the field enters a `searchActive` "search mode" (distinct from `searchFocused`/the
+  keyboard, so scroll-to-dismiss drops the keyboard without leaving search mode): the header fades,
+  a circular ✕ **cancel button** slides in to the right, and the capsule rises to just below the
+  status bar via a top-padding shrink (`contentTopPad`). Cancel clears the query and restores rest.
+  This matches iOS 26 Apple Music's Library → Songs search, which is the reference the owner asked to
+  reproduce. The `HomeView` measures the header (`onGeometryChange`) to size the occluder and the
+  rest/focus offsets; the pull-to-reveal machinery (`searchShown`, `scrolledIntoList`, rubber-band
+  reveal, idle auto-hide, the paired `onScrollGeometryChange`/`onScrollPhaseChange` observers) is
+  deleted as dead weight.
+- **Why:** The prior full-bleed pull-to-reveal band (superseded entry above) was a deliberate
+  minimal take, but the owner wants the familiar Apple Music interaction — visible-at-rest capsule,
+  scroll-under-header, a cancel affordance, and the focus choreography. Native `.searchable` is the
+  only way to get that *for free*, but it is inseparable from `NavigationStack` nav-bar chrome,
+  cannot host under the custom header, gives no custom field style, and on iOS 26 defaults to a
+  bottom-floating placement — all re-imposing the scroll-linked relayout the prior entry rejected.
+  Hand-rolling over the existing custom-header architecture keeps that decision intact and the
+  interaction jank-free (the occlusion is z-order, not offset tracking).
+- **Rejected:** `NavigationStack` + native `.searchable` restyled (loses the custom header, no custom
+  capsule, reintroduces the scroll-linked relayout, iOS-26 bottom-search default); keeping the
+  pull-to-reveal band (owner reversed it); a text "Cancel" label instead of the circular ✕ (the
+  iOS 26 reference uses the circular glass button); translating the bar via `onScrollGeometryChange`
+  to fake scrolling (per-frame work the z-order occlusion avoids entirely).
