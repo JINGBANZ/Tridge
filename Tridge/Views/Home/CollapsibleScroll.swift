@@ -18,9 +18,10 @@ import UIKit
 /// continuously under the finger while the grid rises to meet it (no gap).
 ///
 /// `topInset` reserves the header band (constant — reading the offset never
-/// feeds back into it). `locked` pins the scroll to the fully-revealed position
-/// (used while the field is focused). On release the scroll snaps to fully
-/// hidden or fully revealed.
+/// feeds back into it). `locked` (search mode) pins the bar open: it scrolls to
+/// the fully-revealed position and suspends the snap, but scrolling itself
+/// stays live so the results can be browsed and the keyboard scroll-dismissed.
+/// On release the scroll snaps to fully hidden or fully revealed.
 struct CollapsibleScroll<Content: View>: UIViewControllerRepresentable {
     var topInset: CGFloat
     var bottomInset: CGFloat
@@ -61,6 +62,20 @@ final class ScrollHost: UIViewController, UIScrollViewDelegate {
     private var hiddenOffsetY: CGFloat { -topInset + revealHeight }
     private var revealedOffsetY: CGFloat { -topInset }
 
+    /// The lowest offset the content can rest at after any bounce settles;
+    /// short content rests at the fully-revealed position itself.
+    private var maxRestOffsetY: CGFloat {
+        max(scrollView.contentSize.height + scrollView.contentInset.bottom
+                - scrollView.bounds.height,
+            revealedOffsetY)
+    }
+
+    /// Whether the content is tall enough for the bar to rest tucked away.
+    /// When it isn't, the bar simply stays revealed (search always reachable on
+    /// a lightly stocked fridge) and the snap logic stands down — UIKit's own
+    /// bounce is the only sensible rest behavior.
+    private var canRestHidden: Bool { maxRestOffsetY >= hiddenOffsetY }
+
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .clear
@@ -68,6 +83,11 @@ final class ScrollHost: UIViewController, UIScrollViewDelegate {
         scrollView.showsVerticalScrollIndicator = false
         scrollView.contentInsetAdjustmentBehavior = .never
         scrollView.keyboardDismissMode = .onDrag
+        // Without this, content shorter than the viewport has no scrollable
+        // range at all: the pan gesture never engages, the screen feels frozen,
+        // and the pull-to-reveal search bar is unreachable. True keeps the pan
+        // (and the reveal) alive at any inventory size.
+        scrollView.alwaysBounceVertical = true
         scrollView.backgroundColor = .clear
         scrollView.frame = view.bounds
         scrollView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
@@ -100,20 +120,25 @@ final class ScrollHost: UIViewController, UIScrollViewDelegate {
         self.topInset = topInset
 
         // Focusing pins the bar fully open; releasing focus leaves it as-is.
+        // Scrolling stays enabled throughout: disabling it froze the whole list
+        // for the duration of search mode (results couldn't be browsed and the
+        // .onDrag keyboard dismissal never fired). The bar can't collapse while
+        // locked anyway — SearchBarView pins its progress to 1 in search mode.
         if locked, !self.locked {
             scrollView.setContentOffset(CGPoint(x: 0, y: revealedOffsetY), animated: true)
         }
         self.locked = locked
-        scrollView.isScrollEnabled = !locked
     }
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-        // Start hidden — the reveal spacer scrolled up under the header. Must
-        // wait for a real content size or the offset is clamped back to the top.
-        if needsInitialOffset, scrollView.contentSize.height > topInset + revealHeight {
+        // Start hidden — the reveal spacer scrolled up under the header — or,
+        // when the content is too short to rest there, fully revealed (which is
+        // also every short fridge's natural rest position, so nothing drifts).
+        // Must wait for a real content size or the offset is clamped back.
+        if needsInitialOffset, scrollView.contentSize.height > 0 {
             needsInitialOffset = false
-            scrollView.contentOffset.y = hiddenOffsetY
+            scrollView.contentOffset.y = canRestHidden ? hiddenOffsetY : revealedOffsetY
         }
     }
 
@@ -124,7 +149,7 @@ final class ScrollHost: UIViewController, UIScrollViewDelegate {
     // Snap the bar fully open or shut on release, so it never rests half-revealed.
     func scrollViewWillEndDragging(_ sv: UIScrollView, withVelocity velocity: CGPoint,
                                    targetContentOffset: UnsafeMutablePointer<CGPoint>) {
-        guard !locked else { return }
+        guard !locked, canRestHidden else { return }
         let projectedTop = targetContentOffset.pointee.y + sv.contentInset.top
         // Only snap within the reveal band; past it, let the list scroll freely.
         guard projectedTop < revealHeight else { return }
@@ -141,7 +166,7 @@ final class ScrollHost: UIViewController, UIScrollViewDelegate {
     func scrollViewDidEndScrollingAnimation(_ sv: UIScrollView) { snapIfInBand(sv) }
 
     private func snapIfInBand(_ sv: UIScrollView) {
-        guard !locked else { return }
+        guard !locked, canRestHidden else { return }
         let top = sv.contentOffset.y + sv.contentInset.top
         guard top > 0.5, top < revealHeight - 0.5 else { return }
         let target = top < revealHeight / 2 ? revealedOffsetY : hiddenOffsetY
