@@ -10,6 +10,11 @@ struct HomeView: View {
         count: AppTheme.gridColumns
     )
 
+    /// Rubber-band overscroll (pt) past the top that reveals the hidden search
+    /// capsule, and the scroll depth past which an idle, empty field hides.
+    private static let searchRevealPull: CGFloat = 60
+    private static let searchHideDrift: CGFloat = 8
+
     @Environment(\.modelContext) private var context
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -30,10 +35,15 @@ struct HomeView: View {
     /// from `searchFocused` (the keyboard) so scrolling the results can dismiss
     /// the keyboard without leaving search mode, as in Apple Music.
     @State private var searchActive = false
+    /// Pull-to-reveal: the capsule is parked under the header (hidden) at rest
+    /// and slides out below it when the grid is overscrolled downward; it hides
+    /// again once the user scrolls back up with an empty, unfocused field.
+    @State private var searchRevealed = false
+    @State private var scrolledIntoList = false
     @FocusState private var searchFocused: Bool
-    /// Measured from the header so the grid rests just beneath it and the
-    /// occluder band covers exactly the status bar + header. Seeded with
-    /// typical values to avoid a first-frame jump.
+    /// Measured so the grid rests just beneath the header and the occluder
+    /// covers exactly the status bar + header. Seeded with typical values to
+    /// avoid a first-frame jump.
     @State private var safeTop: CGFloat = 59
     @State private var headerContentHeight: CGFloat = 48
     @State private var animatedItemIDs: Set<UUID> = []
@@ -125,6 +135,8 @@ struct HomeView: View {
             if empty {
                 clearFilters()
                 exitSearch()
+                searchRevealed = false
+                scrolledIntoList = false
             }
         }
     }
@@ -348,14 +360,16 @@ struct HomeView: View {
         }
     }
 
-    /// The full-screen scroll region behind the header: the search capsule,
-    /// then the filter tags, then the grid (or the empty-match ghost). Its top
-    /// padding parks the capsule just under the header at rest and lifts it to
-    /// the top when focused.
+    /// The full-screen scroll region behind the header. The grid scrolls under
+    /// the opaque header; the revealable capsule lives in the scroll view's top
+    /// safe-area inset (not the content), so revealing/hiding it changes only
+    /// the content inset — never the scroll view's frame — keeping the
+    /// offset-vs-inset rest point stable (an in-flight drag never sees a
+    /// resize). A clear spacer reserves the header band above the capsule; the
+    /// header draws on top of it.
     private var scrollingContent: some View {
         ScrollView {
             VStack(spacing: 0) {
-                searchBar
                 if hasActiveFilter {
                     activeFilterBar
                 }
@@ -365,17 +379,46 @@ struct HomeView: View {
                     gridBody
                 }
             }
-            // At rest this parks the capsule below the header; on focus it
-            // shrinks (header faded) so the capsule rises to just below the
-            // status bar — the "lift" is a plain padding change, no scrolling.
-            .padding(.top, contentTopPad)
             .padding(.bottom, AppTheme.scanButtonClearance)
+        }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            VStack(spacing: 0) {
+                Color.clear.frame(height: headerReserve)
+                if searchRevealed || searchActive {
+                    searchBar
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
+            }
         }
         .scrollIndicators(.hidden)
         .scrollDismissesKeyboard(.immediately)
-        // The scroll view fills the screen behind the header; the header
-        // (an opaque layer above) occludes whatever scrolls under it.
+        // The scroll view fills the screen behind the header, which occludes
+        // whatever scrolls under it.
         .ignoresSafeArea(.container, edges: .top)
+        // Overscrolling the grid downward past the threshold reveals the
+        // capsule; scrolling back up latches it away again. Both observers map
+        // the offset to a Bool, so actions fire only on threshold crossings —
+        // no per-scroll-frame work.
+        .onScrollGeometryChange(for: Bool.self) { geometry in
+            geometry.contentOffset.y + geometry.contentInsets.top < -Self.searchRevealPull
+        } action: { _, pulledDown in
+            if pulledDown && !searchRevealed && !searchActive {
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                    searchRevealed = true
+                }
+            }
+        }
+        .onScrollGeometryChange(for: Bool.self) { geometry in
+            geometry.contentOffset.y + geometry.contentInsets.top > Self.searchHideDrift
+        } action: { _, isInList in
+            scrolledIntoList = isInList
+        }
+        // Hide only latches here and acts at a scroll-phase boundary, keeping
+        // the layout change out of an active drag.
+        .onScrollPhaseChange { oldPhase, newPhase in
+            if oldPhase == .interacting || newPhase == .idle { hideSearchIfIdle() }
+        }
+        .onChange(of: searchText) { hideSearchIfIdle() }
         .onChange(of: searchFocused) { _, focused in
             // Focusing enters search mode; blur (e.g. scroll-to-dismiss) keeps
             // search mode until Cancel, matching Apple Music.
@@ -383,6 +426,16 @@ struct HomeView: View {
             withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
                 searchActive = true
             }
+        }
+    }
+
+    /// The auto-hide condition, re-checked on every input that can complete it
+    /// (scroll depth, text). Only hides an idle, empty, unfocused field the user
+    /// has scrolled up past — never while typing or in search mode.
+    private func hideSearchIfIdle() {
+        guard scrolledIntoList, searchRevealed, searchText.isEmpty, !searchActive else { return }
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+            searchRevealed = false
         }
     }
 
@@ -399,10 +452,10 @@ struct HomeView: View {
         .padding(.top, AppTheme.screenMargin)
     }
 
-    /// Distance from the screen top to the grid's first row. At rest it clears
-    /// the status bar and header; focused, the header has faded so the capsule
-    /// rises to just below the status bar.
-    private var contentTopPad: CGFloat {
+    /// Height of the clear spacer that reserves room above the capsule (behind
+    /// the header). At rest it clears the status bar + header; focused, the
+    /// header has faded so the capsule rises to just below the status bar.
+    private var headerReserve: CGFloat {
         searchActive
             ? safeTop + AppTheme.searchFocusTopGap
             : safeTop + headerContentHeight
