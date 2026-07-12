@@ -50,10 +50,11 @@ struct HomeView: View {
     @State private var filterCategory: FoodCategory?
     @State private var showFilterSheet = false
 
-    // Drag-to-consume state
+    // Drag-to-consume state. The item changes once per drag and may drive
+    // `body`; the live position/scale change every frame and live in `drag`
+    // (isolated like `RevealModel`) so only the ghost and drop bar re-render.
     @State private var draggedItem: FridgeItem?
-    @State private var dragLocation: CGPoint = .zero
-    @State private var dragScale: CGFloat = 1.3
+    @State private var drag = DragModel()
     @State private var zoneFrames: [DropZone: CGRect] = [:]
 
     // No NavigationStack: nothing navigates, and a system search drawer is
@@ -84,7 +85,7 @@ struct HomeView: View {
             }
 
             bottomArea
-            draggedGhost
+            DragGhostView(drag: drag, item: draggedItem, emojiFree: emojiFreeMode)
 
             if scanFlow.phase == .processing {
                 ScanProgressView()
@@ -327,32 +328,39 @@ struct HomeView: View {
             locked: searchActive,
             onScroll: { top in
                 let clamped = min(max(top, 0), AppTheme.searchRevealHeight)
-                reveal.progress = 1 - clamped / AppTheme.searchRevealHeight
+                let progress = 1 - clamped / AppTheme.searchRevealHeight
+                // Same-value writes still notify @Observable observers, so
+                // skip them — otherwise every frame of ordinary scrolling
+                // (progress pinned at 0) re-renders the bar and occluder.
+                if reveal.progress != progress { reveal.progress = progress }
             }
         ) {
+            // Evaluated once per body pass; reading `visibleItems` in each
+            // branch would re-filter the inventory per access.
+            let visible = visibleItems
             VStack(spacing: 0) {
                 Color.clear.frame(height: AppTheme.searchRevealHeight)
                 if hasActiveFilter {
                     activeFilterBar
                 }
-                if visibleItems.isEmpty {
+                if visible.isEmpty {
                     noMatchView
                 } else if emojiFreeMode {
-                    listBody
+                    listBody(visible)
                 } else {
-                    gridBody
+                    gridBody(visible)
                 }
             }
         }
         .ignoresSafeArea(.container, edges: .top)
     }
 
-    private var gridBody: some View {
+    private func gridBody(_ visible: [FridgeItem]) -> some View {
         LazyVGrid(
             columns: Self.gridLayout,
             spacing: AppTheme.gridRowGap
         ) {
-            ForEach(Array(visibleItems.enumerated()), id: \.element.persistentModelID) { index, item in
+            ForEach(Array(visible.enumerated()), id: \.element.persistentModelID) { index, item in
                 slot(for: item, index: index)
             }
         }
@@ -362,9 +370,9 @@ struct HomeView: View {
 
     /// Emoji-free mode's stand-in for the grid: one name row per item, same
     /// order, same tap-to-edit and drag-to-consume gestures.
-    private var listBody: some View {
+    private func listBody(_ visible: [FridgeItem]) -> some View {
         LazyVStack(spacing: 0) {
-            ForEach(Array(visibleItems.enumerated()), id: \.element.persistentModelID) { index, item in
+            ForEach(Array(visible.enumerated()), id: \.element.persistentModelID) { index, item in
                 slot(for: item, index: index)
             }
         }
@@ -411,9 +419,9 @@ struct HomeView: View {
             onDragChanged: { location in
                 if draggedItem == nil {
                     draggedItem = item
-                    dragScale = 1.3
+                    drag.scale = 1.3
                 }
-                dragLocation = location
+                drag.location = location
             },
             onDragEnded: { location in
                 if let location { endDrag(at: location) } else { clearDrag() }
@@ -429,46 +437,6 @@ struct HomeView: View {
 
     // MARK: Drag to consume
 
-    /// The ghost is placed on a full-screen layer that ignores the safe area,
-    /// so `.position` here resolves in global coordinates — the same space as
-    /// the drag location and the drop-zone frames (global so hit-testing keeps
-    /// working once the grid is hosted in a `UIScrollView`).
-    @ViewBuilder
-    private var draggedGhost: some View {
-        Color.clear
-            .ignoresSafeArea()
-            .allowsHitTesting(false)
-            .overlay {
-                if let item = draggedItem, dragLocation != .zero {
-                    ghostArt(for: item)
-                        .scaleEffect(dragScale)
-                        .rotationEffect(.degrees(-4))
-                        .shadow(color: .black.opacity(0.4), radius: 9, y: 16)
-                        .position(dragLocation)
-                        .allowsHitTesting(false)
-                }
-            }
-    }
-
-    /// What travels under the finger: the item's art, or its name when
-    /// emoji-free mode is on.
-    @ViewBuilder
-    private func ghostArt(for item: FridgeItem) -> some View {
-        if emojiFreeMode {
-            Text(item.name)
-                .font(AppTheme.listRowNameFont)
-                .foregroundStyle(AppTheme.ink)
-        } else {
-            Text(Artwork.artwork(for: item))
-                .font(.system(size: AppTheme.artPointSize))
-        }
-    }
-
-    private var hotZone: DropZone? {
-        guard draggedItem != nil else { return nil }
-        return zoneFrames.first { $0.value.contains(dragLocation) }?.key
-    }
-
     private func endDrag(at location: CGPoint) {
         guard let item = draggedItem else { return }
         guard let zone = zoneFrames.first(where: { $0.value.contains(location) })?.key else {
@@ -482,9 +450,9 @@ struct HomeView: View {
         } else {
             // Shrink the ghost into the zone before the grid updates.
             withAnimation(.easeIn(duration: 0.2)) {
-                dragLocation = CGPoint(x: zoneFrames[zone]?.midX ?? location.x,
-                                       y: zoneFrames[zone]?.midY ?? location.y)
-                dragScale = 0.15
+                drag.location = CGPoint(x: zoneFrames[zone]?.midX ?? location.x,
+                                        y: zoneFrames[zone]?.midY ?? location.y)
+                drag.scale = 0.15
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
                 consume(item, into: zone)
@@ -495,8 +463,8 @@ struct HomeView: View {
 
     private func clearDrag() {
         draggedItem = nil
-        dragLocation = .zero
-        dragScale = 1.3
+        drag.location = .zero
+        drag.scale = 1.3
     }
 
     /// ×N items decrement one unit and stay until the count hits zero.
@@ -521,7 +489,7 @@ struct HomeView: View {
                     .padding(.bottom, 10)
                     .transition(.opacity)
             } else {
-                DropZoneBar(hotZone: hotZone)
+                DropZoneBarHost(drag: drag, zoneFrames: zoneFrames)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
@@ -620,6 +588,69 @@ private extension View {
             .contentShape(Rectangle())
             .padding(.horizontal, -AppTheme.headerButtonHitPad.h)
             .padding(.vertical, -AppTheme.headerButtonHitPad.v)
+    }
+}
+
+/// The live drag position and ghost scale, updated every frame of a
+/// drag-to-consume. Isolated in its own observable (like `RevealModel`) so
+/// per-frame finger moves re-render only the ghost overlay and the drop-zone
+/// bar — never `HomeView`'s body, which would rebuild the whole grid tree.
+@Observable
+private final class DragModel {
+    /// `.zero` means the long-press hasn't produced a live position yet.
+    var location: CGPoint = .zero
+    var scale: CGFloat = 1.3
+}
+
+/// The ghost travelling under the finger — the item's art, or its name in
+/// emoji-free mode. Placed on a full-screen layer that ignores the safe area,
+/// so `.position` resolves in global coordinates — the same space as the drag
+/// location and the drop-zone frames (global so hit-testing keeps working once
+/// the grid is hosted in a `UIScrollView`). Its own view so only it re-renders
+/// as `drag` changes each frame.
+private struct DragGhostView: View {
+    let drag: DragModel
+    let item: FridgeItem?
+    let emojiFree: Bool
+
+    var body: some View {
+        Color.clear
+            .ignoresSafeArea()
+            .allowsHitTesting(false)
+            .overlay {
+                if let item, drag.location != .zero {
+                    ghostArt(for: item)
+                        .scaleEffect(drag.scale)
+                        .rotationEffect(.degrees(-4))
+                        .shadow(color: .black.opacity(0.4), radius: 9, y: 16)
+                        .position(drag.location)
+                        .allowsHitTesting(false)
+                }
+            }
+    }
+
+    @ViewBuilder
+    private func ghostArt(for item: FridgeItem) -> some View {
+        if emojiFree {
+            Text(item.name)
+                .font(AppTheme.listRowNameFont)
+                .foregroundStyle(AppTheme.ink)
+        } else {
+            Text(Artwork.artwork(for: item))
+                .font(.system(size: AppTheme.artPointSize))
+        }
+    }
+}
+
+/// Hit-tests the live drag position against the zone frames and feeds the
+/// result to `DropZoneBar`. Its own view for the same reason as the ghost:
+/// only it re-renders per drag frame.
+private struct DropZoneBarHost: View {
+    let drag: DragModel
+    let zoneFrames: [DropZone: CGRect]
+
+    var body: some View {
+        DropZoneBar(hotZone: zoneFrames.first { $0.value.contains(drag.location) }?.key)
     }
 }
 
@@ -740,10 +771,10 @@ private struct HeaderOccluderView: View {
 
 /// One grid cell, `Equatable`-gated so the closures it carries (which SwiftUI
 /// can't diff) don't force a re-evaluation of every cell on each `HomeView`
-/// body pass — during a drag, `dragLocation` changes per frame and only the
-/// ghost should re-render, not the whole grid. Item *content* changes still
-/// propagate: the SwiftData model is `@Observable`-backed, so `ItemSprite`
-/// tracks the properties it reads directly, past this gate.
+/// body pass — e.g. the passes at drag start/end, or a search keystroke. Item
+/// *content* changes still propagate: the SwiftData model is
+/// `@Observable`-backed, so `ItemSprite` tracks the properties it reads
+/// directly, past this gate.
 private struct GridSlot: View, Equatable {
     let item: FridgeItem
     let emojiFree: Bool
