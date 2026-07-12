@@ -51,11 +51,12 @@ struct HomeView: View {
     @State private var showFilterSheet = false
 
     // Drag-to-consume state. The item changes once per drag and may drive
-    // `body`; the live position/scale change every frame and live in `drag`
-    // (isolated like `RevealModel`) so only the ghost and drop bar re-render.
+    // `body`; the live position/scale/zone-frames change every frame and live
+    // in `drag` (isolated like `RevealModel`) so only the ghost and drop bar
+    // re-render. `body` must never *read* `drag`'s properties — only pass the
+    // reference — or the observation dependency defeats the isolation.
     @State private var draggedItem: FridgeItem?
     @State private var drag = DragModel()
-    @State private var zoneFrames: [DropZone: CGRect] = [:]
 
     // No NavigationStack: nothing navigates, and a system search drawer is
     // scroll-linked — it resizes the bar area every frame while the grid
@@ -92,7 +93,8 @@ struct HomeView: View {
                     .transition(.opacity)
             }
         }
-        .onPreferenceChange(DropZoneFramesKey.self) { zoneFrames = $0 }
+        .onAppear(perform: finishPopIns)
+        .onPreferenceChange(DropZoneFramesKey.self) { drag.zoneFrames = $0 }
         .animation(AppTheme.searchSpring, value: draggedItem == nil)
         .sheet(item: $selectedItem) { item in
             ItemDetailSheet(item: item)
@@ -128,7 +130,10 @@ struct HomeView: View {
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { updateBadge() }
         }
-        .onChange(of: items.count) { updateBadge() }
+        .onChange(of: items.count) {
+            updateBadge()
+            finishPopIns() // newly scanned/added items pop in too
+        }
         .onChange(of: items.isEmpty) { _, empty in
             // Filters and search don't outlive the inventory: the last item
             // leaving also removes the search bar, so nothing could clear a
@@ -414,7 +419,6 @@ struct HomeView: View {
                 && index < AppTheme.popInItemLimit
                 && !animatedItemIDs.contains(item.id),
             opacity: slotOpacity(for: item),
-            onPopInFinished: { animatedItemIDs.insert(item.id) },
             onTap: { selectedItem = item },
             onDragChanged: { location in
                 if draggedItem == nil {
@@ -435,11 +439,31 @@ struct HomeView: View {
         return item === draggedItem ? 0.25 : 0.4
     }
 
+    /// One deferred `animatedItemIDs` write for the whole pop-in wave. Each
+    /// cell scheduling its own completion meant up to 16 full body passes,
+    /// one every 30ms, during the launch animation; marking every eligible id
+    /// at the *last* cell's deadline is visually identical (cells hold their
+    /// finished pose until the branch swap) and costs a single @State write.
+    private func finishPopIns() {
+        guard !reduceMotion else { return } // Reduce Motion never pops in
+        let wave = visibleItems.prefix(AppTheme.popInItemLimit).enumerated()
+            .filter { !animatedItemIDs.contains($0.element.id) }
+        // Deadline mirrors PopIn's per-cell timing for the highest index, so
+        // no spring is cut short even when earlier slots are already marked.
+        guard let lastIndex = wave.map(\.offset).max() else { return }
+        let ids = wave.map(\.element.id)
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + 0.5 + Double(lastIndex) * AppTheme.popInDelayPerItem
+        ) {
+            animatedItemIDs.formUnion(ids)
+        }
+    }
+
     // MARK: Drag to consume
 
     private func endDrag(at location: CGPoint) {
         guard let item = draggedItem else { return }
-        guard let zone = zoneFrames.first(where: { $0.value.contains(location) })?.key else {
+        guard let zone = drag.zoneFrames.first(where: { $0.value.contains(location) })?.key else {
             clearDrag() // released outside a zone cancels
             return
         }
@@ -450,8 +474,8 @@ struct HomeView: View {
         } else {
             // Shrink the ghost into the zone before the grid updates.
             withAnimation(.easeIn(duration: 0.2)) {
-                drag.location = CGPoint(x: zoneFrames[zone]?.midX ?? location.x,
-                                        y: zoneFrames[zone]?.midY ?? location.y)
+                drag.location = CGPoint(x: drag.zoneFrames[zone]?.midX ?? location.x,
+                                        y: drag.zoneFrames[zone]?.midY ?? location.y)
                 drag.scale = 0.15
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
@@ -489,7 +513,7 @@ struct HomeView: View {
                     .padding(.bottom, 10)
                     .transition(.opacity)
             } else {
-                DropZoneBarHost(drag: drag, zoneFrames: zoneFrames)
+                DropZoneBarHost(drag: drag)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
@@ -600,6 +624,11 @@ private final class DragModel {
     /// `.zero` means the long-press hasn't produced a live position yet.
     var location: CGPoint = .zero
     var scale: CGFloat = 1.3
+    /// The drop zones' global frames. Held here rather than on `@State`
+    /// because `DropZoneBar`'s enter/exit transition re-emits the frame
+    /// preference every animation frame (~0.35s at drag start *and* end); a
+    /// `@State` write would re-run the whole `HomeView` body per frame.
+    var zoneFrames: [DropZone: CGRect] = [:]
 }
 
 /// The ghost travelling under the finger — the item's art, or its name in
@@ -644,13 +673,14 @@ private struct DragGhostView: View {
 
 /// Hit-tests the live drag position against the zone frames and feeds the
 /// result to `DropZoneBar`. Its own view for the same reason as the ghost:
-/// only it re-renders per drag frame.
+/// only it re-renders per drag frame — and per frame-preference emission
+/// during the bar's enter/exit transition, since it alone reads
+/// `drag.zoneFrames`.
 private struct DropZoneBarHost: View {
     let drag: DragModel
-    let zoneFrames: [DropZone: CGRect]
 
     var body: some View {
-        DropZoneBar(hotZone: zoneFrames.first { $0.value.contains(drag.location) }?.key)
+        DropZoneBar(hotZone: drag.zoneFrames.first { $0.value.contains(drag.location) }?.key)
     }
 }
 
@@ -781,7 +811,6 @@ private struct GridSlot: View, Equatable {
     let index: Int
     let popInEnabled: Bool
     let opacity: Double
-    let onPopInFinished: () -> Void
     let onTap: () -> Void
     let onDragChanged: (CGPoint) -> Void
     /// `nil` means the long-press never matured into a drag — cancel.
@@ -803,7 +832,7 @@ private struct GridSlot: View, Equatable {
                 ItemSprite(item: item)
             }
         }
-        .modifier(PopIn(index: index, enabled: popInEnabled, onFinished: onPopInFinished))
+        .modifier(PopIn(index: index, enabled: popInEnabled))
         .opacity(opacity)
         .onTapGesture(perform: onTap)
         .gesture(consumeGesture)
@@ -827,11 +856,11 @@ private struct GridSlot: View, Equatable {
 }
 
 /// Staggered pop-in on load: scale 0.7 → 1 spring, 0.03s per item; disabled
-/// under Reduce Motion.
+/// under Reduce Motion. Completion is *not* reported per cell — HomeView's
+/// `finishPopIns` marks the whole wave done in one deferred write.
 private struct PopIn: ViewModifier {
     let index: Int
     let enabled: Bool
-    let onFinished: () -> Void
     @State private var shown = false
 
     @ViewBuilder
@@ -846,9 +875,6 @@ private struct PopIn: ViewModifier {
                         .delay(Double(index) * AppTheme.popInDelayPerItem)) {
                         shown = true
                     }
-                    DispatchQueue.main.asyncAfter(
-                        deadline: .now() + 0.5 + Double(index) * AppTheme.popInDelayPerItem,
-                        execute: onFinished)
                 }
         } else {
             // Lazy grid cells appear during scrolling. Leaving them unmodified

@@ -78,10 +78,11 @@ struct SettingsSheet: View {
 
     private func clearAllItems() {
         Haptics.warning()
-        for item in items {
-            NotificationService.cancel(for: item.id)
-            context.delete(item)
-        }
+        // One batch delete + blanket notification cancel: the previous
+        // per-item loop froze the main thread for seconds once the eaten/
+        // tossed history reached thousands of rows.
+        try? context.delete(model: FridgeItem.self)
+        NotificationService.cancelAll()
         NotificationService.updateBadge(expiredCount: 0)
     }
 
