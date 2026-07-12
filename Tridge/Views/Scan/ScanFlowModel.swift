@@ -46,7 +46,10 @@ final class ScanFlowModel {
     var reviewItems: [ReviewItem] = []
 
     /// Kept so a failed LLM call can be retried without re-photographing.
-    private var pendingImage: UIImage?
+    /// The already-encoded JPEG (~1MB), not the decoded capture (~45MB) —
+    /// cleared the moment a scan succeeds, so nothing heavyweight outlives
+    /// the LLM roundtrip or the review sheet.
+    private var pendingJPEG: Data?
 
     func startScan(from source: Source = .automatic) {
         switch source {
@@ -99,13 +102,12 @@ final class ScanFlowModel {
             phase = .idle
             return
         }
-        pendingImage = image
         process(image)
     }
 
     func retry() {
-        if let pendingImage {
-            process(pendingImage)
+        if let pendingJPEG {
+            submit(pendingJPEG) // already encoded — skip straight to the API
         } else {
             startScan()
         }
@@ -113,34 +115,52 @@ final class ScanFlowModel {
 
     func reset() {
         phase = .idle
-        pendingImage = nil
+        pendingJPEG = nil
         reviewItems = []
     }
 
     private func process(_ image: UIImage) {
+        phase = .processing
+        Task {
+            // The downscale + JPEG encode costs hundreds of ms for a camera
+            // capture; a plain `Task` inherits this model's main-actor
+            // isolation, so detach or the progress UI freezes.
+            guard let jpeg = await Task.detached(priority: .userInitiated,
+                                                 operation: { image.receiptJPEGData() }).value
+            else {
+                fail(with: LLMError.unparseable)
+                return
+            }
+            AppLog.scan.info("Scanning \(Int(image.size.width))×\(Int(image.size.height)) image, \(jpeg.count / 1024) KB JPEG")
+            // From here only the JPEG is retained; this task ending releases
+            // the full-resolution UIImage.
+            pendingJPEG = jpeg
+            submit(jpeg)
+        }
+    }
+
+    private func submit(_ jpeg: Data) {
         let service = ScanAPIConfig.service
         phase = .processing
         Task {
             do {
-                // The downscale + JPEG encode costs hundreds of ms for a camera
-                // capture; a plain `Task` inherits this model's main-actor
-                // isolation, so detach or the progress UI freezes.
-                guard let jpeg = await Task.detached(priority: .userInitiated,
-                                                     operation: { image.receiptJPEGData() }).value
-                else { throw LLMError.unparseable }
-                AppLog.scan.info("Scanning \(Int(image.size.width))×\(Int(image.size.height)) image, \(jpeg.count / 1024) KB JPEG")
                 let receipt = try await service.parseReceipt(jpegData: jpeg)
                 AppLog.scan.info("Review ready: \(receipt.items.count) items")
                 load(receipt, capturedOn: Date())
+                pendingJPEG = nil // success — nothing left to retry
                 phase = .review
             } catch {
-                let message = (error as? LLMError)?.errorDescription
-                    ?? LLMError.network(underlying: error).errorDescription
-                    ?? "Something went wrong."
-                AppLog.scan.error("Scan failed: \(message)")
-                phase = .failed(message)
+                fail(with: error)
             }
         }
+    }
+
+    private func fail(with error: Error) {
+        let message = (error as? LLMError)?.errorDescription
+            ?? LLMError.network(underlying: error).errorDescription
+            ?? "Something went wrong."
+        AppLog.scan.error("Scan failed: \(message)")
+        phase = .failed(message)
     }
 
     func load(_ receipt: ParsedReceipt, capturedOn purchase: Date) {
