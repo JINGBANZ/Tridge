@@ -70,7 +70,8 @@ isolated key.
   `ScanRequestAuthorizer`, `AppAttestAuthorizer.swift` on-device App Attest, `ScanAPIConfig.swift`
   single worker URL (build-config Debug/Release split deferred until a prod worker exists), `ReceiptScanner.swift` VisionKit
   camera, `NotificationService.swift`, `Haptics.swift`), `Views/`
-  (Home grid + drag-to-consume + pull-down name search + the header filter button/sheet — Storage +
+  (Home grid + drag-to-consume + Apple Music–style capsule name search, hidden at rest and revealed
+  by pulling the grid down + the header filter button/sheet — Storage +
   Food Category filters via `Views/Home/FilterSheet.swift`, hidden on an empty fridge, search
   applying on top of the filters — scan flow + review sheet with per-row Food Category/Storage
   chips, item detail + art picker, settings). Saving — scanned or typed — merges into a matching
