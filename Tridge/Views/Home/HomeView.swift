@@ -1,6 +1,7 @@
 import SwiftUI
 import SwiftData
 import PhotosUI
+import UIKit
 
 /// The whole app on one screen: frameless item grid on the chilled background,
 /// one scan button, drag-to-consume.
@@ -807,23 +808,51 @@ private struct GridSlot: View, Equatable {
         .modifier(PopIn(index: index, enabled: popInEnabled, onFinished: onPopInFinished))
         .opacity(opacity)
         .onTapGesture(perform: onTap)
-        .gesture(consumeGesture)
+        .gesture(ConsumeGesture(onChanged: onDragChanged, onEnded: onDragEnded))
+    }
+}
+
+/// A UIKit long press explicitly allowed to recognize beside the hosting
+/// scroll view's pan. SwiftUI's sequenced long-press/drag gesture cancelled the
+/// pan when it matured, making slow grid scrolling rebound and letting
+/// full-width emoji-free rows block scrolling entirely.
+private struct ConsumeGesture: UIGestureRecognizerRepresentable {
+    let onChanged: (CGPoint) -> Void
+    let onEnded: (CGPoint?) -> Void
+
+    func makeCoordinator(converter: CoordinateSpaceConverter) -> Coordinator {
+        Coordinator()
     }
 
-    private var consumeGesture: some Gesture {
-        LongPressGesture(minimumDuration: 0.3)
-            .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .global))
-            .onChanged { value in
-                guard case .second(true, let drag?) = value else { return }
-                onDragChanged(drag.location)
-            }
-            .onEnded { value in
-                if case .second(true, let drag?) = value {
-                    onDragEnded(drag.location)
-                } else {
-                    onDragEnded(nil)
-                }
-            }
+    func makeUIGestureRecognizer(context: Context) -> UILongPressGestureRecognizer {
+        let recognizer = UILongPressGestureRecognizer()
+        recognizer.minimumPressDuration = 0.3
+        recognizer.cancelsTouchesInView = false
+        recognizer.delegate = context.coordinator
+        return recognizer
+    }
+
+    func handleUIGestureRecognizerAction(_ recognizer: UILongPressGestureRecognizer,
+                                         context: Context) {
+        let location = context.converter.location(in: .global)
+        switch recognizer.state {
+        case .began, .changed:
+            onChanged(location)
+        case .ended:
+            onEnded(location)
+        case .cancelled:
+            onEnded(nil)
+        default:
+            break
+        }
+    }
+
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                               shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer)
+            -> Bool {
+            true
+        }
     }
 }
 
