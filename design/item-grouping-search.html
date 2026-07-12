@@ -811,14 +811,14 @@ label-left / input-right form row, matching Quantity and Expires.</p>
       </div>
     </div>
     <p class="demo-caption">A rounded capsule matching Apple Music's Library&nbsp;→&nbsp;Songs search:
-    <strong>hidden at rest, revealed by overscrolling the grid downward</strong>, and hidden again on
-    scrolling back up. It lives in the scroll view's top safe-area inset (not the content), so
-    revealing it never re-frames the scroll view; the grid scrolls <em>under</em> the opaque header
-    via an occluder layer (not the system <code>.searchable</code> drawer — that drawer's
-    scroll-linked bar re-layouts the grid every frame; see the decision log, 2026-07-12). Focusing
-    fades the header away, lifts the capsule to the top, and slides in a circular&nbsp;✕ cancel
-    button; Cancel restores rest. Typing filters the already-fetched grid in memory through
-    <code>NameSearch</code>; clearing restores everything.
+    <strong>hidden at rest; overscrolling the grid down expands it, scrolling back up collapses it</strong>
+    (a spring on its height, growing/shrinking in place rather than sliding out of the header). It is
+    drawn as an overlay <em>above</em> the grid, so items never overlap it, while the grid scrolls
+    <em>under</em> the opaque header via an occluder layer (not the system <code>.searchable</code>
+    drawer — that drawer's scroll-linked bar re-layouts the grid every frame; see the decision log,
+    2026-07-12). Focusing fades the header away, lifts the capsule to the top, and slides in a
+    circular&nbsp;✕ cancel button; Cancel restores rest. Typing filters the already-fetched grid in
+    memory through <code>NameSearch</code>; clearing restores everything.
     Diacritic-blind: "jala" finds "Jalapeño Peppers".</p>
   </div>
 </div>

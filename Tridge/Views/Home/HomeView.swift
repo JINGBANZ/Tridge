@@ -10,10 +10,10 @@ struct HomeView: View {
         count: AppTheme.gridColumns
     )
 
-    /// Rubber-band overscroll (pt) past the top that reveals the hidden search
-    /// capsule, and the scroll depth past which an idle, empty field hides.
-    private static let searchRevealPull: CGFloat = 60
-    private static let searchHideDrift: CGFloat = 8
+    /// Overscroll (pt) past the top that expands the bar, and the scroll-up
+    /// drift past which an idle, empty bar collapses again.
+    private static let searchRevealPull: CGFloat = 44
+    private static let searchHideDrift: CGFloat = 12
 
     @Environment(\.modelContext) private var context
     @Environment(\.scenePhase) private var scenePhase
@@ -35,10 +35,13 @@ struct HomeView: View {
     /// from `searchFocused` (the keyboard) so scrolling the results can dismiss
     /// the keyboard without leaving search mode, as in Apple Music.
     @State private var searchActive = false
-    /// Pull-to-reveal: the capsule is parked under the header (hidden) at rest
-    /// and slides out below it when the grid is overscrolled downward; it hides
-    /// again once the user scrolls back up with an empty, unfocused field.
+    /// Pull-to-reveal: the capsule is hidden at rest and expands (spring) when
+    /// the grid is overscrolled past the threshold, collapsing again on
+    /// scroll-up. `searchRevealed` is the latched state; `revealAmount` (0…1) is
+    /// its animated companion that drives the bar's height and the reserved
+    /// grid space so both move together.
     @State private var searchRevealed = false
+    @State private var revealAmount: CGFloat = 0
     @State private var scrolledIntoList = false
     @FocusState private var searchFocused: Bool
     /// Measured so the grid rests just beneath the header and the occluder
@@ -78,6 +81,7 @@ struct HomeView: View {
                 }
             } else {
                 scrollingContent
+                searchBarOverlay
                 headerOccluder
                 headerBar
             }
@@ -134,8 +138,11 @@ struct HomeView: View {
             // stale filter or query afterward.
             if empty {
                 clearFilters()
-                exitSearch()
+                searchFocused = false
+                searchText = ""
+                searchActive = false
                 searchRevealed = false
+                revealAmount = 0
                 scrolledIntoList = false
             }
         }
@@ -278,9 +285,10 @@ struct HomeView: View {
     // MARK: Search
 
     /// The capsule search field (item-grouping-search.html §6.2, Apple
-    /// Music–style): the first scrolling row of the grid, so it slides up under
-    /// the header on scroll. Focusing slides in the circular cancel button on
-    /// the right and, via `searchActive`, fades the header away.
+    /// Music–style). Lives in `searchBarOverlay`, whose height tracks the pull
+    /// so the capsule expands/collapses with the scroll. Focusing slides in the
+    /// circular cancel button on the right and, via `searchActive`, fades the
+    /// header away.
     private var searchBar: some View {
         HStack(spacing: AppTheme.searchCancelGap) {
             HStack(spacing: AppTheme.searchFieldIconGap) {
@@ -337,13 +345,16 @@ struct HomeView: View {
         .animation(.spring(response: 0.35, dampingFraction: 0.8), value: searchText.isEmpty)
     }
 
-    /// Cancel leaves search mode entirely: drop the keyboard, clear the query,
-    /// and let the header fade back in / the capsule drop to its rest position.
+    /// Cancel leaves search mode: drop the keyboard, clear the query, fade the
+    /// header back in, and drop the capsule to its revealed rest position (still
+    /// shown below the header — scrolling up from here collapses it).
     private func exitSearch() {
         searchFocused = false
         searchText = ""
         withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
             searchActive = false
+            searchRevealed = true
+            revealAmount = 1
         }
     }
 
@@ -360,13 +371,11 @@ struct HomeView: View {
         }
     }
 
-    /// The full-screen scroll region behind the header. The grid scrolls under
-    /// the opaque header; the revealable capsule lives in the scroll view's top
-    /// safe-area inset (not the content), so revealing/hiding it changes only
-    /// the content inset — never the scroll view's frame — keeping the
-    /// offset-vs-inset rest point stable (an in-flight drag never sees a
-    /// resize). A clear spacer reserves the header band above the capsule; the
-    /// header draws on top of it.
+    /// The full-screen scroll region behind the header. A clear spacer in the
+    /// top safe-area inset reserves the header band plus the bar's current
+    /// height, so the grid sits below it. The reveal fires only on discrete
+    /// threshold crossings (Bool observers), never per scroll frame — a
+    /// per-frame state write read by this same body loops the layout.
     private var scrollingContent: some View {
         ScrollView {
             VStack(spacing: 0) {
@@ -382,39 +391,27 @@ struct HomeView: View {
             .padding(.bottom, AppTheme.scanButtonClearance)
         }
         .safeAreaInset(edge: .top, spacing: 0) {
-            VStack(spacing: 0) {
-                Color.clear.frame(height: headerReserve)
-                if searchRevealed || searchActive {
-                    searchBar
-                        .transition(.move(edge: .top).combined(with: .opacity))
-                }
-            }
+            Color.clear.frame(height: headerReserve + insetBarSpace)
         }
         .scrollIndicators(.hidden)
         .scrollDismissesKeyboard(.immediately)
         // The scroll view fills the screen behind the header, which occludes
         // whatever scrolls under it.
         .ignoresSafeArea(.container, edges: .top)
-        // Overscrolling the grid downward past the threshold reveals the
-        // capsule; scrolling back up latches it away again. Both observers map
-        // the offset to a Bool, so actions fire only on threshold crossings —
-        // no per-scroll-frame work.
+        // Both observers map the offset to a Bool, so actions fire only on
+        // threshold crossings — never per scroll frame (a per-frame state write
+        // read by this same body loops the layout). Overscrolling down past the
+        // threshold expands the bar; the hide latches at a scroll-phase boundary.
         .onScrollGeometryChange(for: Bool.self) { geometry in
             geometry.contentOffset.y + geometry.contentInsets.top < -Self.searchRevealPull
         } action: { _, pulledDown in
-            if pulledDown && !searchRevealed && !searchActive {
-                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                    searchRevealed = true
-                }
-            }
+            if pulledDown { setSearchRevealed(true) }
         }
         .onScrollGeometryChange(for: Bool.self) { geometry in
             geometry.contentOffset.y + geometry.contentInsets.top > Self.searchHideDrift
         } action: { _, isInList in
             scrolledIntoList = isInList
         }
-        // Hide only latches here and acts at a scroll-phase boundary, keeping
-        // the layout change out of an active drag.
         .onScrollPhaseChange { oldPhase, newPhase in
             if oldPhase == .interacting || newPhase == .idle { hideSearchIfIdle() }
         }
@@ -429,14 +426,21 @@ struct HomeView: View {
         }
     }
 
-    /// The auto-hide condition, re-checked on every input that can complete it
-    /// (scroll depth, text). Only hides an idle, empty, unfocused field the user
-    /// has scrolled up past — never while typing or in search mode.
+    /// Expands the bar with a spring — the overlay height and the reserved grid
+    /// space both animate off `revealAmount`, so the bar grows and the grid
+    /// slides down together.
+    private func setSearchRevealed(_ revealed: Bool) {
+        guard searchRevealed != revealed, !searchActive else { return }
+        withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
+            searchRevealed = revealed
+            revealAmount = revealed ? 1 : 0
+        }
+    }
+
+    /// Collapses an idle, empty, unfocused bar the user has scrolled up past.
     private func hideSearchIfIdle() {
         guard scrolledIntoList, searchRevealed, searchText.isEmpty, !searchActive else { return }
-        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-            searchRevealed = false
-        }
+        setSearchRevealed(false)
     }
 
     private var gridBody: some View {
@@ -452,13 +456,56 @@ struct HomeView: View {
         .padding(.top, AppTheme.screenMargin)
     }
 
-    /// Height of the clear spacer that reserves room above the capsule (behind
-    /// the header). At rest it clears the status bar + header; focused, the
-    /// header has faded so the capsule rises to just below the status bar.
+    /// Height of the clear spacer in the scroll view's top inset — the status
+    /// bar + header band, held constant so reading the scroll offset never
+    /// feeds back into itself. Focused, it shrinks so the capsule rises to just
+    /// below the status bar (the header having faded).
     private var headerReserve: CGFloat {
         searchActive
             ? safeTop + AppTheme.searchFocusTopGap
             : safeTop + headerContentHeight
+    }
+
+    /// 0…1 openness of the bar: 1 while focused, else the animated
+    /// `revealAmount`. Written only inside `withAnimation` on a latch, so it
+    /// interpolates over a finite spring — never a per-frame write that would
+    /// loop the layout.
+    private var barFraction: CGFloat {
+        searchActive ? 1 : revealAmount
+    }
+
+    /// Scroll space the grid reserves for the bar, animating in step with the
+    /// overlay so the grid slides down as the bar grows.
+    private var insetBarSpace: CGFloat {
+        AppTheme.searchRevealHeight * barFraction
+    }
+
+    // MARK: Search bar overlay
+
+    /// The capsule, drawn above the grid (so items can never overlap it) and
+    /// below the header (so it stays clear of it). Its height tracks
+    /// `barFraction` — expanding open on a pull, collapsing away on scroll-up.
+    /// Being a sibling of the scroll view, resizing it never disturbs the
+    /// scroll geometry.
+    private var searchBarOverlay: some View {
+        VStack(spacing: 0) {
+            Color.clear.frame(height: headerReserve)
+            // Laid out at its natural height (`fixedSize`), then clipped to the
+            // reveal window — clipping the window (rather than squashing the
+            // field toward zero height) keeps layout stable and lets the height
+            // animate open/closed.
+            searchBar
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(height: AppTheme.searchRevealHeight * barFraction,
+                       alignment: .bottom)
+                .clipped()
+                .opacity(barFraction)
+            Spacer(minLength: 0)
+        }
+        .ignoresSafeArea(.container, edges: .top)
+        // Only tappable once fully open, so a partly-revealed bar doesn't eat
+        // taps meant for the grid.
+        .allowsHitTesting(barFraction >= 0.99)
     }
 
     // MARK: Header overlay

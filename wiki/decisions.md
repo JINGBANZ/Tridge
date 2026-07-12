@@ -555,21 +555,20 @@
 
 - **Chose:** The home search field is a rounded capsule (`AppTheme.searchFieldFill`, muted over the
   chilled background), **hidden at rest and revealed by overscrolling the grid downward** (owner
-  request): it lives in the scroll view's top `safeAreaInset`, above a clear spacer that reserves the
-  header band, so revealing/hiding it changes only the content inset — never the scroll view's frame
-  — keeping the offset-vs-inset rest point stable (an in-flight drag never sees a resize). The header
-  is an opaque overlay above the scroll content; behind it, `headerOccluder` paints a copy of
-  `ChillBackground` masked to the status-bar + header band, so the grid slides under the header
-  seamlessly (gradient, glow, and all). An `onScrollGeometryChange` threshold on the rubber-band
-  overscroll reveals the capsule (`searchRevealed`); scrolling back up with an empty, unfocused field
-  latches it away at a scroll-phase boundary (`onScrollPhaseChange`). Focusing enters a `searchActive`
-  "search mode" (distinct from `searchFocused`/the keyboard, so scroll-to-dismiss drops the keyboard
-  without leaving search mode): the header fades, a circular ✕ **cancel button** slides in to the
-  right, and the capsule rises to just below the status bar as the reserved spacer shrinks
-  (`headerReserve`). Cancel clears the query and returns the capsule to its revealed rest position.
-  This matches iOS 26 Apple Music's Library → Songs search, the reference the owner asked to
-  reproduce. The `HomeView` measures the header (`onGeometryChange`) to size the occluder and the
-  spacer.
+  request). Overscrolling past `searchRevealPull` **expands** it and scrolling up **collapses** it —
+  a spring on `revealAmount` (0…1) that animates the capsule's height *and* the reserved grid space
+  together, so it grows/shrinks in place rather than sliding out of the header. The capsule is drawn
+  as an overlay **above the grid and below the header** (`searchBarOverlay`), so items can never
+  overlap it; the grid is pushed clear by a matching clear spacer in the scroll view's top
+  `safeAreaInset` (`headerReserve + insetBarSpace`). Behind the header, `headerOccluder` paints a copy
+  of `ChillBackground` masked to the status-bar + header band, so the grid slides under the header
+  seamlessly (gradient, glow, and all). Focusing enters a `searchActive` "search mode" (distinct from
+  `searchFocused`/the keyboard, so scroll-to-dismiss drops the keyboard without leaving search mode):
+  the header fades, a circular ✕ **cancel button** slides in to the right, and the capsule rises to
+  just below the status bar as the spacer shrinks (`headerReserve`). Cancel clears the query and
+  returns the capsule to its revealed rest position. This matches iOS 26 Apple Music's Library → Songs
+  search, the reference the owner asked to reproduce. The `HomeView` measures the header
+  (`onGeometryChange`) to size the occluder and the spacer.
 - **Why:** The prior full-bleed pull-to-reveal band (superseded entry above) was a deliberate
   minimal take, but the owner wants the familiar Apple Music interaction — a capsule hidden at rest
   and revealed by pull-down, scroll-under-header, a cancel affordance, and the focus choreography.
@@ -582,7 +581,13 @@
 - **Rejected:** `NavigationStack` + native `.searchable` restyled (loses the custom header, no custom
   capsule, reintroduces the scroll-linked relayout, iOS-26 bottom-search default); the prior
   full-bleed borderless band styling (owner reversed it for the capsule); a text "Cancel" label
-  instead of the circular ✕ (the iOS 26 reference uses the circular glass button); revealing the
-  capsule by mutating scroll-content top padding instead of the safe-area inset (the padding change
-  reads as an overscroll and re-fires the reveal — a feedback loop the inset's stable
-  offset-vs-inset rest point avoids).
+  instead of the circular ✕ (the iOS 26 reference uses the circular glass button); a **fully
+  finger-continuous** reveal that tracks the pull per frame — writing the reveal amount from
+  `onScrollGeometryChange` every frame and reading it back in the same body **hangs the view in a
+  layout cycle** (a blank screen — SwiftUI never completes the first layout). The reveal therefore
+  fires on discrete Bool threshold crossings and animates with a spring; the visual growth is a
+  finite animation, not a per-frame scroll binding. True finger-tracking would need a
+  `UIScrollView`-backed representable to sidestep the cycle. Also rejected: putting the capsule in
+  the `safeAreaInset` (it can render *behind* scrolling items — the overlap the overlay fixes) and
+  forcing the capsule's `TextField` toward zero height to collapse it (also hangs layout — clip the
+  reveal window over a `fixedSize` bar instead).

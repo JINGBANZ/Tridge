@@ -122,6 +122,10 @@ enum AppTheme {
     /// When focused, content rises so the capsule sits this far below the
     /// status bar (the header having faded away).
     static let searchFocusTopGap: CGFloat = 4
+    /// Full height of the revealable search bar (capsule + its vertical
+    /// padding). Overscrolling the grid by this much fully expands it; the
+    /// reveal amount tracks the pull continuously up to here.
+    static let searchRevealHeight: CGFloat = 52
 
     // MARK: Type
 
