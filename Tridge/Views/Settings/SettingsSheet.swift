@@ -3,6 +3,9 @@ import SwiftData
 import UIKit
 
 /// Notification hour and the copy-diagnostics feedback loop.
+/// Owner-picked "one card, danger apart" layout (2026-07-12): everyday rows
+/// share one section with emoji icon chips, the destructive action sits alone
+/// below, and a version line closes the sheet — no headers or footer prose.
 struct SettingsSheet: View {
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
@@ -16,28 +19,32 @@ struct SettingsSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Notifications") {
-                    Picker("Reminder hour", selection: $notificationHour) {
+                Section {
+                    Picker(selection: $notificationHour) {
                         ForEach(0..<24, id: \.self) { hour in
                             Text(hourLabel(hour)).tag(hour)
                         }
+                    } label: {
+                        row(icon: "🔔", "Expiry reminder")
                     }
                     .accessibilityIdentifier("settings.notificationHour")
-                }
 
-                Section("Fridge") {
-                    Button("Clear all items", role: .destructive) {
-                        showingClearConfirmation = true
-                    }
-                    .disabled(items.isEmpty)
-                }
-
-                Section("Diagnostics") {
                     Button(action: copyDiagnostics) {
-                        Label(diagnosticsLabel, systemImage: diagnosticsIcon)
+                        row(icon: "📋", diagnosticsLabel)
                     }
                     .disabled(collectingDiagnostics)
                     .accessibilityIdentifier("settings.copyDiagnostics")
+                }
+
+                Section {
+                    Button("Clear all items…", role: .destructive) {
+                        showingClearConfirmation = true
+                    }
+                    .frame(maxWidth: .infinity)
+                    .disabled(items.isEmpty)
+                } footer: {
+                    Text(versionLine)
+                        .frame(maxWidth: .infinity)
                 }
             }
             .navigationTitle("Settings")
@@ -69,14 +76,31 @@ struct SettingsSheet: View {
         NotificationService.updateBadge(expiredCount: 0)
     }
 
+    /// One settings row: emoji on a soft green chip, then the label in ink —
+    /// Buttons would otherwise tint the text like a link.
+    private func row(icon emoji: String, _ label: String) -> some View {
+        HStack(spacing: AppTheme.settingsRowIconGap) {
+            Text(emoji)
+                .font(AppTheme.settingsIconFont)
+                .frame(width: AppTheme.settingsIconChipSize,
+                       height: AppTheme.settingsIconChipSize)
+                .background(
+                    AppTheme.brandGreen.opacity(AppTheme.chipSoftOpacity),
+                    in: RoundedRectangle(cornerRadius: AppTheme.settingsIconChipRadius))
+            Text(label)
+                .foregroundStyle(AppTheme.ink)
+        }
+    }
+
+    private var versionLine: String {
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "?"
+        return "Tridge \(version) (\(build))"
+    }
+
     private var diagnosticsLabel: String {
         if collectingDiagnostics { return "Collecting…" }
         return copiedDiagnostics ? "Copied to clipboard" : "Copy diagnostics"
-    }
-
-    private var diagnosticsIcon: String {
-        if collectingDiagnostics { return "hourglass" }
-        return copiedDiagnostics ? "checkmark" : "doc.on.doc"
     }
 
     /// Reading the log store walks and decodes the whole session archive —

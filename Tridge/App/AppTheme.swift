@@ -108,6 +108,11 @@ enum AppTheme {
     /// 2026-07-11): a full-bleed band under the header, no border or radius.
     static let searchFieldPadding = (h: CGFloat(20), v: CGFloat(10))
     static let searchFieldIconGap: CGFloat = 7
+    /// Settings rows: emoji icon chips on a soft green square (owner-picked
+    /// "one card, danger apart" redesign, 2026-07-12).
+    static let settingsIconChipSize: CGFloat = 30
+    static let settingsIconChipRadius: CGFloat = 8
+    static let settingsRowIconGap: CGFloat = 12
 
     // MARK: Type
 
@@ -130,6 +135,8 @@ enum AppTheme {
     static let searchFont = Font.system(size: 13, weight: .semibold)
     /// The ⓧ clear button inside the search field.
     static let searchClearFont = Font.system(size: 14)
+    /// The emoji inside settings icon chips.
+    static let settingsIconFont = Font.system(size: 15)
 
     // MARK: Effects
 
