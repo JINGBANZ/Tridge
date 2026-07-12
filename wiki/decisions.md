@@ -606,3 +606,22 @@
 - **Rejected:** A fitted filter-style chip sheet (chips fix the reminder to preset hours); a fully
   custom themed panel on the chill gradient (most bespoke code — every future setting would need a
   designed card instead of a Form row).
+- **Superseded by:** *2026-07-12 — Add button is a plus glyph opening an action sheet; header
+  glyphs get real hit targets* (for the add-menu Cancel arrangement).
+
+### 2026-07-12 — Add button is a plus glyph opening an action sheet; header glyphs get real hit targets
+
+- **Chose:** The floating add button shows a white semibold `plus` glyph (owner request, replacing
+  the 🧾 emoji), and tapping it presents the add menu as a `confirmationDialog` (system action
+  sheet) instead of a `Menu` — the owner wants Cancel centered, and menu rows are always
+  leading-aligned with no alignment API, while an action sheet centers every option and detaches
+  Cancel at the bottom. This supersedes the divider + `.menuOrder(.fixed)` Cancel arrangement from
+  the entry above. Separately, the header filter/gear buttons pad their tappable area toward 44pt
+  (`AppTheme.headerButtonHitPad`, applied inside the label then pulled back with negative padding
+  so the layout and visuals are unchanged — see `headerHitTarget()` in `HomeView.swift`).
+- **Why:** The owner reported the filter button as unresponsive; the cause was the bare glyph's
+  hit area — a 20pt `line.3.horizontal.decrease` is only ~24×15pt tappable, so taps landing just
+  beside the thin lines fell through. Apple's minimum target is 44pt.
+- **Rejected:** Keeping the `Menu` with a centered Cancel (UIKit menus cannot center a row);
+  giving the header glyphs literal 44pt layout frames (widens the header gaps the owner just
+  tuned); enlarging the glyphs themselves (the 20pt size was owner-picked in the entry above).
