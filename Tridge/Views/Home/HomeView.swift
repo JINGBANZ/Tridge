@@ -525,7 +525,7 @@ struct HomeView: View {
             .accessibilityIdentifier("home.scanMenu.seed")
             #endif
             Divider()
-            Button("Cancel") {}
+            Button("Cancel", role: .cancel) {}
                 .accessibilityIdentifier("home.scanMenu.cancel")
         } label: {
             Text("🧾")
