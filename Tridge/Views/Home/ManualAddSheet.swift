@@ -31,6 +31,11 @@ struct ManualAddSheet: View {
     /// only an edited date overwrites the existing item's expiry.
     @State private var expiryEdited = false
     @State private var showArtPicker = false
+    /// History aggregates, built once at presentation: the history can't change
+    /// while the sheet is up (adding dismisses it), and regrouping every row
+    /// ever saved — with per-row `Calendar` math — on each keystroke would
+    /// hitch the keyboard once the household has a year of receipts.
+    @State private var history = History()
 
     var body: some View {
         NavigationStack {
@@ -76,6 +81,7 @@ struct ManualAddSheet: View {
         }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
+        .onAppear { history = Self.buildHistory(from: allItems) }
         .onChange(of: name) { resolveArt() }
         .sheet(isPresented: $showArtPicker) {
             ArtPicker(selection: artPickerBinding)
@@ -126,11 +132,23 @@ struct ManualAddSheet: View {
         var id: String { normalizedName }
     }
 
-    /// History grouped by name key, ranked against the typed name. Empty
-    /// input ranks by recency, so the chips double as "recently added".
-    private var suggestions: [Suggestion] {
+    /// The once-built aggregates `suggestions` and `resolveArt` rank against.
+    private struct History {
         var byKey: [String: Suggestion] = [:]
         var entries: [SearchEntry] = []
+    }
+
+    /// The cached history ranked against the typed name — the only per-keystroke
+    /// work. Empty input ranks by recency, so the chips double as "recently added".
+    private var suggestions: [Suggestion] {
+        NameSearch.rank(query: name, in: history.entries, limit: 6)
+            .compactMap { history.byKey[$0.normalizedName] }
+    }
+
+    /// History grouped by name key: latest display name/art, the current active
+    /// row's expiry, and the typical shelf life.
+    private static func buildHistory(from allItems: [FridgeItem]) -> History {
+        var history = History()
         let groups = Dictionary(grouping: allItems.filter { !$0.normalizedName.isEmpty },
                                 by: \.normalizedName)
         for (key, rows) in groups {
@@ -140,18 +158,17 @@ struct ManualAddSheet: View {
             let activeRow = rows
                 .filter { $0.status == .active && !$0.isExpired }
                 .max(by: { $0.purchaseDate < $1.purchaseDate })
-            byKey[key] = Suggestion(
+            history.byKey[key] = Suggestion(
                 normalizedName: key,
                 displayName: latest.name,
                 artKey: latest.artKey,
                 activeExpiry: activeRow?.expiryDate,
-                typicalShelfLifeDays: Self.typicalShelfLife(of: rows))
-            entries.append(SearchEntry(normalizedName: key,
-                                       lastUsed: latest.purchaseDate,
-                                       useCount: rows.count))
+                typicalShelfLifeDays: typicalShelfLife(of: rows))
+            history.entries.append(SearchEntry(normalizedName: key,
+                                               lastUsed: latest.purchaseDate,
+                                               useCount: rows.count))
         }
-        return NameSearch.rank(query: name, in: entries, limit: 6)
-            .compactMap { byKey[$0.normalizedName] }
+        return history
     }
 
     /// Median of the item's past purchase→expiry spans, in days.
@@ -191,9 +208,8 @@ struct ManualAddSheet: View {
         let key = NameKey.normalize(name)
         if let chosen = artChosenForKey, chosen == key { return }
         artChosenForKey = nil
-        if let remembered = allItems
-            .filter({ $0.normalizedName == key && !key.isEmpty })
-            .max(by: { $0.purchaseDate < $1.purchaseDate })?.artKey {
+        // The cached aggregate already carries the latest row's art per key.
+        if let remembered = history.byKey[key]?.artKey {
             artKey = remembered
         } else {
             artKey = ArtInference.itemID(for: name).rawValue
