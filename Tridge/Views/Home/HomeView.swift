@@ -24,6 +24,7 @@ struct HomeView: View {
     @State private var selectedItem: FridgeItem?
     @State private var showSettings = false
     @State private var showManualAdd = false
+    @State private var showAddMenu = false
     @State private var pickedPhoto: PhotosPickerItem?
     @State private var searchText = ""
     /// Search "mode": true from first focus until Cancel is tapped — distinct
@@ -249,6 +250,7 @@ struct HomeView: View {
                     Image(systemName: "gearshape")
                         .font(.system(size: AppTheme.headerGlyphSize))
                         .foregroundStyle(AppTheme.mutedInk)
+                        .headerHitTarget()
                 }
                 .accessibilityLabel("Settings")
                 .accessibilityIdentifier("home.settingsButton")
@@ -277,6 +279,7 @@ struct HomeView: View {
                             .offset(x: AppTheme.filterDotOffset.x, y: AppTheme.filterDotOffset.y)
                     }
                 }
+                .headerHitTarget()
         }
         .accessibilityLabel(hasActiveFilter ? "Filter (active)" : "Filter")
         .accessibilityIdentifier("home.filterButton")
@@ -497,65 +500,45 @@ struct HomeView: View {
 
     /// One tap opens the add menu: scan (camera where it exists, album
     /// anywhere) or type an item in by hand. Still the home screen's single
-    /// control — no hidden long-press.
+    /// control — no hidden long-press. An action sheet rather than a `Menu`:
+    /// menu rows are always leading-aligned, and the owner wants Cancel
+    /// centered, action-sheet style.
     private var scanButton: some View {
-        Menu {
-            if DocumentCameraView.isCameraSupported {
-                Button {
-                    scanFlow.startScan(from: .camera)
-                } label: {
-                    Label("Scan with camera", systemImage: "doc.viewfinder")
-                }
-                .accessibilityIdentifier("home.scanMenu.camera")
-            }
-            Button {
-                scanFlow.startScan(from: .photoLibrary)
-            } label: {
-                Label("Choose from library", systemImage: "photo.on.rectangle")
-            }
-            .accessibilityIdentifier("home.scanMenu.library")
-            Button {
-                showManualAdd = true
-            } label: {
-                Label("Type to add", systemImage: "square.and.pencil")
-            }
-            .accessibilityIdentifier("home.scanMenu.manualAdd")
-            #if DEBUG
-            Button {
-                scanFlow.scanSampleReceipt()
-            } label: {
-                Label("Try sample receipt", systemImage: "testtube.2")
-            }
-            .accessibilityIdentifier("home.scanMenu.sample")
-            Button {
-                PreviewData.seed(into: context)
-            } label: {
-                Label("Seed the App", systemImage: "sparkles")
-            }
-            .accessibilityIdentifier("home.scanMenu.seed")
-            #endif
-            Divider()
-            Button("Cancel", role: .cancel) {}
-                .accessibilityIdentifier("home.scanMenu.cancel")
+        Button {
+            showAddMenu = true
         } label: {
-            Text("🧾")
-                .font(.system(size: 25))
+            Image(systemName: "plus")
+                .font(.system(size: 25, weight: .semibold))
+                .foregroundStyle(.white)
                 .frame(width: AppTheme.scanButtonSize, height: AppTheme.scanButtonSize)
                 .background(
                     LinearGradient(colors: [AppTheme.scanTop, AppTheme.scanBottom],
                                    startPoint: .top, endPoint: .bottom),
                     in: Circle())
                 .overlay(Circle().strokeBorder(.white.opacity(0.35), lineWidth: 1))
-                // Confine the tap target and the menu's highlight platter to the
-                // circle — without this the platter fills the square label frame
-                // and shows as a rounded square behind the round button on tap.
+                // Confine the tap target to the circle, not the square label frame.
                 .contentShape(Circle())
                 .shadow(color: AppTheme.brandGreen.opacity(0.45), radius: 10, y: 8)
         }
-        // The menu opens upward; automatic ordering would flip it and put
-        // Cancel on top. Fixed order keeps Cancel at the bottom, action-sheet
-        // style, nearest the button.
-        .menuOrder(.fixed)
+        .buttonStyle(.plain)
+        .confirmationDialog("Add items", isPresented: $showAddMenu) {
+            if DocumentCameraView.isCameraSupported {
+                Button("Scan with camera") { scanFlow.startScan(from: .camera) }
+                    .accessibilityIdentifier("home.scanMenu.camera")
+            }
+            Button("Choose from library") { scanFlow.startScan(from: .photoLibrary) }
+                .accessibilityIdentifier("home.scanMenu.library")
+            Button("Type to add") { showManualAdd = true }
+                .accessibilityIdentifier("home.scanMenu.manualAdd")
+            #if DEBUG
+            Button("Try sample receipt") { scanFlow.scanSampleReceipt() }
+                .accessibilityIdentifier("home.scanMenu.sample")
+            Button("Seed the App") { PreviewData.seed(into: context) }
+                .accessibilityIdentifier("home.scanMenu.seed")
+            #endif
+            Button("Cancel", role: .cancel) {}
+                .accessibilityIdentifier("home.scanMenu.cancel")
+        }
         .accessibilityLabel("Add items")
         .accessibilityIdentifier("home.scanButton")
     }
@@ -593,6 +576,21 @@ struct HomeView: View {
 
     private func updateBadge() {
         NotificationService.updateBadge(expiredCount: items.filter(\.isExpired).count)
+    }
+}
+
+private extension View {
+    /// The bare header glyphs are well under the 44pt hit minimum (the filter
+    /// lines are ~15pt tall), so taps beside them fell through. Pad the
+    /// tappable area out, then pull the layout back in so the header keeps its
+    /// glyph-sized spacing — padding never clips, so the padded shape still
+    /// hit-tests.
+    func headerHitTarget() -> some View {
+        padding(.horizontal, AppTheme.headerButtonHitPad.h)
+            .padding(.vertical, AppTheme.headerButtonHitPad.v)
+            .contentShape(Rectangle())
+            .padding(.horizontal, -AppTheme.headerButtonHitPad.h)
+            .padding(.vertical, -AppTheme.headerButtonHitPad.v)
     }
 }
 

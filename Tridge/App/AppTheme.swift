@@ -89,6 +89,10 @@ enum AppTheme {
     static let filterDotOffset = (x: CGFloat(4), y: CGFloat(-4))
     /// Header glyph size (filter and gear).
     static let headerGlyphSize: CGFloat = 20
+    /// Pads the bare header glyphs' tappable area toward the 44pt minimum —
+    /// the glyphs alone are ~15–20pt tall and easy to miss. Horizontal pad is
+    /// capped at half the glyph spacing so neighboring targets don't overlap.
+    static let headerButtonHitPad = (h: CGFloat(5), v: CGFloat(14))
     /// Home's "nothing matches" ghost under an active filter.
     static let ghostSpacing: CGFloat = 10
     static let ghostArtOpacity: Double = 0.5
