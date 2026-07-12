@@ -142,7 +142,7 @@ struct HomeView: View {
             // Cancel leaves it. Coupled here because the scroll is locked while
             // focused, so the keyboard can't be scroll-dismissed.
             guard focused, !searchActive else { return }
-            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+            withAnimation(AppTheme.searchSpring) {
                 searchActive = true
             }
         }
@@ -683,7 +683,7 @@ private struct SearchBarView: View {
         .padding(.horizontal, AppTheme.screenMargin)
         .padding(.top, AppTheme.searchBarPadding.top)
         .padding(.bottom, AppTheme.searchBarPadding.bottom)
-        .animation(.spring(response: 0.35, dampingFraction: 0.8), value: searchText.isEmpty)
+        .animation(AppTheme.searchSpring, value: searchText.isEmpty)
     }
 }
 
