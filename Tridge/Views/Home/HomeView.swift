@@ -142,8 +142,9 @@ struct HomeView: View {
         }
         .onChange(of: searchFocused) { _, focused in
             // Focusing enters search mode (pins the bar open, fades the header);
-            // Cancel leaves it. Coupled here because the scroll is locked while
-            // focused, so the keyboard can't be scroll-dismissed.
+            // Cancel leaves it. Scrolling stays live throughout — dragging the
+            // results dismisses the keyboard (keyboardDismissMode .onDrag)
+            // without leaving search mode, as in Apple Music.
             guard focused, !searchActive else { return }
             withAnimation(AppTheme.searchSpring) {
                 searchActive = true
