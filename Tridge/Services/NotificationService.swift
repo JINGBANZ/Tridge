@@ -42,6 +42,12 @@ enum NotificationService {
             withIdentifiers: ["\(id.uuidString)-pre", "\(id.uuidString)-day"])
     }
 
+    /// Every pending request is one of ours, so "Clear all items" can drop
+    /// them wholesale instead of cancelling two ids per deleted item.
+    static func cancelAll() {
+        UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
+    }
+
     /// App icon badge = count of expired active items.
     static func updateBadge(expiredCount: Int) {
         UNUserNotificationCenter.current().setBadgeCount(expiredCount)
