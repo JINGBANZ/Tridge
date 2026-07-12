@@ -524,6 +524,9 @@ struct HomeView: View {
             }
             .accessibilityIdentifier("home.scanMenu.seed")
             #endif
+            Divider()
+            Button("Cancel", role: .cancel) {}
+                .accessibilityIdentifier("home.scanMenu.cancel")
         } label: {
             Text("🧾")
                 .font(.system(size: 25))
@@ -539,6 +542,10 @@ struct HomeView: View {
                 .contentShape(Circle())
                 .shadow(color: AppTheme.brandGreen.opacity(0.45), radius: 10, y: 8)
         }
+        // The menu opens upward; automatic ordering would flip it and put
+        // Cancel on top. Fixed order keeps Cancel at the bottom, action-sheet
+        // style, nearest the button.
+        .menuOrder(.fixed)
         .accessibilityLabel("Add items")
         .accessibilityIdentifier("home.scanButton")
     }

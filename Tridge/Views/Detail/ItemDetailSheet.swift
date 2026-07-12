@@ -28,8 +28,6 @@ struct ItemDetailSheet: View {
                                   storage: storageBinding,
                                   expiryDate: expiryBinding)
                     LabeledContent("Food Category", value: item.foodCategory.label)
-                } footer: {
-                    Text("Category follows the artwork — change the art to recategorize.\n\(expiryFootnote)")
                 }
 
                 Section {
@@ -75,14 +73,6 @@ struct ItemDetailSheet: View {
                     item.expirySource = .userSet
                     NotificationService.schedule(for: item, hour: notificationHour)
                 })
-    }
-
-    private var expiryFootnote: String {
-        switch item.expirySource {
-        case .llmEstimate: "Expiry guessed by AI — tap to correct."
-        case .userSet: "Expiry set by you."
-        case .scannedLabel: "Expiry read from the printed label."
-        }
     }
 
     // MARK: Actions
