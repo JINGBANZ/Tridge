@@ -10,15 +10,12 @@ struct HomeView: View {
         count: AppTheme.gridColumns
     )
 
-    /// Rubber-band pull (pt) past the top that reveals the search field, and
-    /// the scroll depth past which an idle, empty field hides again.
-    private static let searchRevealPull: CGFloat = 60
-    private static let searchHideDrift: CGFloat = 8
-
     @Environment(\.modelContext) private var context
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage("notificationHour") private var notificationHour = 9
+    /// Settings → Emoji-free mode: items render as name rows, no art anywhere.
+    @AppStorage("emojiFreeMode") private var emojiFreeMode = false
 
     // Soonest-expiring first puts expired items at the very top.
     @Query(filter: #Predicate<FridgeItem> { $0.statusRaw == "active" },
@@ -29,11 +26,23 @@ struct HomeView: View {
     @State private var selectedItem: FridgeItem?
     @State private var showSettings = false
     @State private var showManualAdd = false
+    @State private var showAddMenu = false
     @State private var pickedPhoto: PhotosPickerItem?
     @State private var searchText = ""
-    @State private var searchShown = false
-    @State private var scrolledIntoList = false
+    /// Search "mode": true from first focus until Cancel is tapped — distinct
+    /// from `searchFocused` (the keyboard) so scrolling the results can dismiss
+    /// the keyboard without leaving search mode, as in Apple Music.
+    @State private var searchActive = false
+    /// The bar's live 0…1 openness, driven continuously by the UIKit scroll
+    /// offset. Isolated so scrolling re-renders only the bar overlay + occluder,
+    /// never `body` (which hosts the grid).
+    @State private var reveal = RevealModel()
     @FocusState private var searchFocused: Bool
+    /// Measured so the grid rests just beneath the header and the occluder
+    /// covers exactly the status bar + header. Seeded with typical values to
+    /// avoid a first-frame jump.
+    @State private var safeTop: CGFloat = 59
+    @State private var headerContentHeight: CGFloat = 48
     @State private var animatedItemIDs: Set<UUID> = []
 
     // Filter state: nil = "All" on that axis.
@@ -49,30 +58,31 @@ struct HomeView: View {
 
     // No NavigationStack: nothing navigates, and a system search drawer is
     // scroll-linked — it resizes the bar area every frame while the grid
-    // scrolls, re-laying-out the whole screen. The header is a plain pinned
-    // view above the ScrollView; the search field lives in the grid's top
-    // safe-area inset so revealing it never re-frames the scroll view.
+    // scrolls, re-laying-out the whole screen. Instead the grid fills the
+    // screen behind an opaque header layer; the search capsule is the grid's
+    // first scrolling row, so it tucks *under* the header on scroll by plain
+    // layout — no per-frame scroll math (Apple Music's Library → Songs search).
     var body: some View {
-        ZStack {
+        ZStack(alignment: .top) {
             AppTheme.ChillBackground()
 
-            VStack(spacing: 0) {
-                header
-                if items.isEmpty {
+            if items.isEmpty {
+                VStack(spacing: 0) {
+                    header
                     EmptyStateView()
                         .padding(.bottom, AppTheme.scanButtonClearance)
                         .accessibilityIdentifier("home.emptyState")
-                } else {
-                    if hasActiveFilter {
-                        activeFilterBar
-                    }
-                    if filteredItems.isEmpty {
-                        noMatchView
-                    } else {
-                        grid
-                    }
                 }
+            } else {
+                collapsibleGrid
+                HeaderOccluderView(reveal: reveal, searchActive: searchActive,
+                                   headerReserve: headerReserve)
+                SearchBarView(reveal: reveal, searchActive: searchActive,
+                              headerReserve: headerReserve, searchText: $searchText,
+                              searchFocused: $searchFocused, onCancel: exitSearch)
+                headerBar
             }
+
             bottomArea
             draggedGhost
 
@@ -81,9 +91,8 @@ struct HomeView: View {
                     .transition(.opacity)
             }
         }
-        .coordinateSpace(name: "fridge")
         .onPreferenceChange(DropZoneFramesKey.self) { zoneFrames = $0 }
-        .animation(.spring(response: 0.35, dampingFraction: 0.8), value: draggedItem == nil)
+        .animation(AppTheme.searchSpring, value: draggedItem == nil)
         .sheet(item: $selectedItem) { item in
             ItemDetailSheet(item: item)
         }
@@ -121,11 +130,23 @@ struct HomeView: View {
         .onChange(of: items.count) { updateBadge() }
         .onChange(of: items.isEmpty) { _, empty in
             // Filters and search don't outlive the inventory: the last item
-            // leaving also removes the filter button and the grid's hide
-            // observer, so nothing could clear a stale filter or query.
+            // leaving also removes the search bar, so nothing could clear a
+            // stale filter or query afterward.
             if empty {
                 clearFilters()
-                setSearchShown(false)
+                searchFocused = false
+                searchText = ""
+                searchActive = false
+                reveal.progress = 0
+            }
+        }
+        .onChange(of: searchFocused) { _, focused in
+            // Focusing enters search mode (pins the bar open, fades the header);
+            // Cancel leaves it. Coupled here because the scroll is locked while
+            // focused, so the keyboard can't be scroll-dismissed.
+            guard focused, !searchActive else { return }
+            withAnimation(AppTheme.searchSpring) {
+                searchActive = true
             }
         }
     }
@@ -189,11 +210,14 @@ struct HomeView: View {
             Text("🕳️")
                 .font(AppTheme.ghostArtFont)
                 .opacity(AppTheme.ghostArtOpacity)
-            Text("Nothing matches — remove a filter")
+            Text(searchText.isEmpty
+                 ? "Nothing matches — remove a filter"
+                 : "No items match your search")
                 .font(AppTheme.ghostTextFont)
                 .foregroundStyle(AppTheme.mutedInk)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(maxWidth: .infinity)
+        .padding(.top, AppTheme.noMatchTopPad)
         .padding(.bottom, AppTheme.scanButtonClearance)
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("home.noMatch")
@@ -228,6 +252,7 @@ struct HomeView: View {
                     Image(systemName: "gearshape")
                         .font(.system(size: AppTheme.headerGlyphSize))
                         .foregroundStyle(AppTheme.mutedInk)
+                        .headerHitTarget()
                 }
                 .accessibilityLabel("Settings")
                 .accessibilityIdentifier("home.settingsButton")
@@ -256,6 +281,7 @@ struct HomeView: View {
                             .offset(x: AppTheme.filterDotOffset.x, y: AppTheme.filterDotOffset.y)
                     }
                 }
+                .headerHitTarget()
         }
         .accessibilityLabel(hasActiveFilter ? "Filter (active)" : "Filter")
         .accessibilityIdentifier("home.filterButton")
@@ -263,57 +289,15 @@ struct HomeView: View {
 
     // MARK: Search
 
-    /// The spec's search field (item-grouping-search.html §6.2): pinned under
-    /// the header, hidden until the user pulls down on the grid.
-    private var searchField: some View {
-        HStack(spacing: AppTheme.searchFieldIconGap) {
-            Image(systemName: "magnifyingglass")
-                .font(AppTheme.searchFont)
-                .foregroundStyle(AppTheme.mutedInk)
-            TextField("Search your fridge", text: $searchText)
-                .font(AppTheme.searchFont)
-                .foregroundStyle(AppTheme.ink)
-                .focused($searchFocused)
-                .submitLabel(.search)
-                .autocorrectionDisabled()
-                .accessibilityIdentifier("home.search.field")
-            if !searchText.isEmpty {
-                Button {
-                    searchText = ""
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(AppTheme.searchClearFont)
-                        .foregroundStyle(AppTheme.mutedInk)
-                }
-                .accessibilityLabel("Clear search")
-                .accessibilityIdentifier("home.search.clearButton")
-            }
+    /// Cancel leaves search mode: drop the keyboard, clear the query, and fade
+    /// the header back in. The capsule stays at its current (revealed) openness
+    /// — scrolling up from here collapses it.
+    private func exitSearch() {
+        searchFocused = false
+        searchText = ""
+        withAnimation(AppTheme.searchSpring) {
+            searchActive = false
         }
-        .padding(.horizontal, AppTheme.searchFieldPadding.h)
-        .padding(.vertical, AppTheme.searchFieldPadding.v)
-        .background(AppTheme.surfaceSolid)
-    }
-
-    /// Reveal never focuses the field: presenting the keyboard mid-drag fights
-    /// `scrollDismissesKeyboard` (the same drag dismisses it again) and its
-    /// inset churn is what made the reveal stutter. The user taps to type,
-    /// as in the system pull-down search.
-    private func setSearchShown(_ shown: Bool) {
-        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-            searchShown = shown
-        }
-        if !shown {
-            searchFocused = false
-            searchText = ""
-        }
-    }
-
-    /// The auto-hide condition, re-checked on every input that can complete it
-    /// (scroll depth, focus, text) — a threshold crossing that happens while
-    /// the field is still focused must not swallow the hide for good.
-    private func hideSearchIfIdle() {
-        guard scrolledIntoList, searchShown, searchText.isEmpty, !searchFocused else { return }
-        setSearchShown(false)
     }
 
     // MARK: Grid
@@ -329,58 +313,94 @@ struct HomeView: View {
         }
     }
 
-    private var grid: some View {
-        ScrollView {
-            LazyVGrid(
-                columns: Self.gridLayout,
-                spacing: AppTheme.gridRowGap
-            ) {
-                ForEach(Array(visibleItems.enumerated()), id: \.element.persistentModelID) { index, item in
-                    slot(for: item, index: index)
+    /// The scrollable grid, hosted in a `UIScrollView` (`CollapsibleScroll`) so
+    /// the search bar can expand/collapse continuously with the scroll without a
+    /// SwiftUI layout cycle. The content leads with a transparent spacer the
+    /// height of the bar: it scrolls naturally with the grid, so the grid rises
+    /// to meet the bar as it collapses (no gap). The visible capsule is drawn by
+    /// `SearchBarView`, sized from the live scroll offset published to `reveal`.
+    private var collapsibleGrid: some View {
+        CollapsibleScroll(
+            topInset: headerReserve,
+            bottomInset: AppTheme.scanButtonClearance,
+            revealHeight: AppTheme.searchRevealHeight,
+            locked: searchActive,
+            onScroll: { top in
+                let clamped = min(max(top, 0), AppTheme.searchRevealHeight)
+                reveal.progress = 1 - clamped / AppTheme.searchRevealHeight
+            }
+        ) {
+            VStack(spacing: 0) {
+                Color.clear.frame(height: AppTheme.searchRevealHeight)
+                if hasActiveFilter {
+                    activeFilterBar
+                }
+                if visibleItems.isEmpty {
+                    noMatchView
+                } else if emojiFreeMode {
+                    listBody
+                } else {
+                    gridBody
                 }
             }
-            .padding(.horizontal, AppTheme.screenMargin)
-            .padding(.top, AppTheme.screenMargin)
-            .padding(.bottom, AppTheme.scanButtonClearance)
         }
-        .scrollIndicators(.hidden)
-        .scrollDismissesKeyboard(.immediately)
-        // The field sits in the scroll view's safe-area inset, not the outer
-        // VStack: revealing it grows the top content inset instead of
-        // re-framing the scroll view, so an in-flight drag never sees its
-        // viewport resize. The offset-vs-inset sums below stay stable across
-        // the inset change — the rest position is always offset == -inset.
-        .safeAreaInset(edge: .top, spacing: 0) {
-            if searchShown {
-                searchField
-                    .transition(.move(edge: .top).combined(with: .opacity))
+        .ignoresSafeArea(.container, edges: .top)
+    }
+
+    private var gridBody: some View {
+        LazyVGrid(
+            columns: Self.gridLayout,
+            spacing: AppTheme.gridRowGap
+        ) {
+            ForEach(Array(visibleItems.enumerated()), id: \.element.persistentModelID) { index, item in
+                slot(for: item, index: index)
             }
         }
-        // Both observers map the offset to a Bool, so the action only runs on
-        // threshold crossings — nothing happens per scroll frame. The reveal
-        // fires mid-pull (it must feel live); the hide only latches here and
-        // acts at a scroll-phase boundary, keeping layout mutations out of an
-        // active drag.
-        .onScrollGeometryChange(for: Bool.self) { geometry in
-            geometry.contentOffset.y + geometry.contentInsets.top < -Self.searchRevealPull
-        } action: { _, isPulledDown in
-            if isPulledDown && !searchShown { setSearchShown(true) }
+        .padding(.horizontal, AppTheme.screenMargin)
+        .padding(.top, AppTheme.screenMargin)
+    }
+
+    /// Emoji-free mode's stand-in for the grid: one name row per item, same
+    /// order, same tap-to-edit and drag-to-consume gestures.
+    private var listBody: some View {
+        LazyVStack(spacing: 0) {
+            ForEach(Array(visibleItems.enumerated()), id: \.element.persistentModelID) { index, item in
+                slot(for: item, index: index)
+            }
         }
-        .onScrollGeometryChange(for: Bool.self) { geometry in
-            geometry.contentOffset.y + geometry.contentInsets.top > Self.searchHideDrift
-        } action: { _, isInList in
-            scrolledIntoList = isInList
-        }
-        .onScrollPhaseChange { oldPhase, newPhase in
-            if oldPhase == .interacting || newPhase == .idle { hideSearchIfIdle() }
-        }
-        .onChange(of: searchFocused) { hideSearchIfIdle() }
-        .onChange(of: searchText) { hideSearchIfIdle() }
+        .padding(.top, AppTheme.screenMargin)
+    }
+
+    /// Distance from the screen top to the bar (and the grid's reveal spacer):
+    /// status bar + header at rest; focused, the header has faded so the capsule
+    /// rises to just below the status bar. No scroll dependency, so `body` never
+    /// re-renders mid-scroll.
+    private var headerReserve: CGFloat {
+        searchActive
+            ? safeTop + AppTheme.searchFocusTopGap
+            : safeTop + headerContentHeight
+    }
+
+    // MARK: Header overlay
+
+    /// The pinned header, drawn above the scroll content so the search capsule
+    /// tucks under it. Measures its own height (and the safe-area top) so the
+    /// grid can park just beneath it. Fades away in search mode.
+    private var headerBar: some View {
+        header
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { rect in
+                safeTop = rect.minY
+                headerContentHeight = rect.height
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .opacity(searchActive ? 0 : 1)
+            .allowsHitTesting(!searchActive)
     }
 
     private func slot(for item: FridgeItem, index: Int) -> some View {
         GridSlot(
             item: item,
+            emojiFree: emojiFreeMode,
             index: index,
             popInEnabled: !reduceMotion
                 && index < AppTheme.popInItemLimit
@@ -409,16 +429,38 @@ struct HomeView: View {
 
     // MARK: Drag to consume
 
+    /// The ghost is placed on a full-screen layer that ignores the safe area,
+    /// so `.position` here resolves in global coordinates — the same space as
+    /// the drag location and the drop-zone frames (global so hit-testing keeps
+    /// working once the grid is hosted in a `UIScrollView`).
     @ViewBuilder
     private var draggedGhost: some View {
-        if let item = draggedItem, dragLocation != .zero {
+        Color.clear
+            .ignoresSafeArea()
+            .allowsHitTesting(false)
+            .overlay {
+                if let item = draggedItem, dragLocation != .zero {
+                    ghostArt(for: item)
+                        .scaleEffect(dragScale)
+                        .rotationEffect(.degrees(-4))
+                        .shadow(color: .black.opacity(0.4), radius: 9, y: 16)
+                        .position(dragLocation)
+                        .allowsHitTesting(false)
+                }
+            }
+    }
+
+    /// What travels under the finger: the item's art, or its name when
+    /// emoji-free mode is on.
+    @ViewBuilder
+    private func ghostArt(for item: FridgeItem) -> some View {
+        if emojiFreeMode {
+            Text(item.name)
+                .font(AppTheme.listRowNameFont)
+                .foregroundStyle(AppTheme.ink)
+        } else {
             Text(Artwork.artwork(for: item))
                 .font(.system(size: AppTheme.artPointSize))
-                .scaleEffect(dragScale)
-                .rotationEffect(.degrees(-4))
-                .shadow(color: .black.opacity(0.4), radius: 9, y: 16)
-                .position(dragLocation)
-                .allowsHitTesting(false)
         }
     }
 
@@ -487,65 +529,45 @@ struct HomeView: View {
 
     /// One tap opens the add menu: scan (camera where it exists, album
     /// anywhere) or type an item in by hand. Still the home screen's single
-    /// control — no hidden long-press.
+    /// control — no hidden long-press. An action sheet rather than a `Menu`:
+    /// menu rows are always leading-aligned, and the owner wants Cancel
+    /// centered, action-sheet style.
     private var scanButton: some View {
-        Menu {
-            if DocumentCameraView.isCameraSupported {
-                Button {
-                    scanFlow.startScan(from: .camera)
-                } label: {
-                    Label("Scan with camera", systemImage: "doc.viewfinder")
-                }
-                .accessibilityIdentifier("home.scanMenu.camera")
-            }
-            Button {
-                scanFlow.startScan(from: .photoLibrary)
-            } label: {
-                Label("Choose from library", systemImage: "photo.on.rectangle")
-            }
-            .accessibilityIdentifier("home.scanMenu.library")
-            Button {
-                showManualAdd = true
-            } label: {
-                Label("Type to add", systemImage: "square.and.pencil")
-            }
-            .accessibilityIdentifier("home.scanMenu.manualAdd")
-            #if DEBUG
-            Button {
-                scanFlow.scanSampleReceipt()
-            } label: {
-                Label("Try sample receipt", systemImage: "testtube.2")
-            }
-            .accessibilityIdentifier("home.scanMenu.sample")
-            Button {
-                PreviewData.seed(into: context)
-            } label: {
-                Label("Seed the App", systemImage: "sparkles")
-            }
-            .accessibilityIdentifier("home.scanMenu.seed")
-            #endif
-            Divider()
-            Button("Cancel", role: .cancel) {}
-                .accessibilityIdentifier("home.scanMenu.cancel")
+        Button {
+            showAddMenu = true
         } label: {
-            Text("🧾")
-                .font(.system(size: 25))
+            Image(systemName: "plus")
+                .font(.system(size: 25, weight: .semibold))
+                .foregroundStyle(AppTheme.chipSelectedLabel)
                 .frame(width: AppTheme.scanButtonSize, height: AppTheme.scanButtonSize)
                 .background(
                     LinearGradient(colors: [AppTheme.scanTop, AppTheme.scanBottom],
                                    startPoint: .top, endPoint: .bottom),
                     in: Circle())
                 .overlay(Circle().strokeBorder(.white.opacity(0.35), lineWidth: 1))
-                // Confine the tap target and the menu's highlight platter to the
-                // circle — without this the platter fills the square label frame
-                // and shows as a rounded square behind the round button on tap.
+                // Confine the tap target to the circle, not the square label frame.
                 .contentShape(Circle())
                 .shadow(color: AppTheme.brandGreen.opacity(0.45), radius: 10, y: 8)
         }
-        // The menu opens upward; automatic ordering would flip it and put
-        // Cancel on top. Fixed order keeps Cancel at the bottom, action-sheet
-        // style, nearest the button.
-        .menuOrder(.fixed)
+        .buttonStyle(.plain)
+        .confirmationDialog("Add items", isPresented: $showAddMenu) {
+            if DocumentCameraView.isCameraSupported {
+                Button("Scan with camera") { scanFlow.startScan(from: .camera) }
+                    .accessibilityIdentifier("home.scanMenu.camera")
+            }
+            Button("Choose from library") { scanFlow.startScan(from: .photoLibrary) }
+                .accessibilityIdentifier("home.scanMenu.library")
+            Button("Type to add") { showManualAdd = true }
+                .accessibilityIdentifier("home.scanMenu.manualAdd")
+            #if DEBUG
+            Button("Try sample receipt") { scanFlow.scanSampleReceipt() }
+                .accessibilityIdentifier("home.scanMenu.sample")
+            Button("Seed the App") { PreviewData.seed(into: context) }
+                .accessibilityIdentifier("home.scanMenu.seed")
+            #endif
+            Button("Cancel", role: .cancel) {}
+                .accessibilityIdentifier("home.scanMenu.cancel")
+        }
         .accessibilityLabel("Add items")
         .accessibilityIdentifier("home.scanButton")
     }
@@ -586,6 +608,136 @@ struct HomeView: View {
     }
 }
 
+private extension View {
+    /// The bare header glyphs are well under the 44pt hit minimum (the filter
+    /// lines are ~15pt tall), so taps beside them fell through. Pad the
+    /// tappable area out, then pull the layout back in so the header keeps its
+    /// glyph-sized spacing — padding never clips, so the padded shape still
+    /// hit-tests.
+    func headerHitTarget() -> some View {
+        padding(.horizontal, AppTheme.headerButtonHitPad.h)
+            .padding(.vertical, AppTheme.headerButtonHitPad.v)
+            .contentShape(Rectangle())
+            .padding(.horizontal, -AppTheme.headerButtonHitPad.h)
+            .padding(.vertical, -AppTheme.headerButtonHitPad.v)
+    }
+}
+
+/// The capsule search field, drawn as an overlay above the grid (so items can
+/// never overlap it) and below the header. Its height tracks the live scroll
+/// `reveal.progress`, so it expands/collapses continuously with the finger.
+/// Kept a separate view so only it re-renders each scroll frame — not
+/// `HomeView`'s body, which hosts the grid.
+private struct SearchBarView: View {
+    let reveal: RevealModel
+    let searchActive: Bool
+    let headerReserve: CGFloat
+    @Binding var searchText: String
+    var searchFocused: FocusState<Bool>.Binding
+    let onCancel: () -> Void
+
+    /// 1 while focused (pinned open); otherwise the live scroll openness.
+    private var progress: CGFloat { searchActive ? 1 : reveal.progress }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Color.clear.frame(height: headerReserve)
+            // Laid out at natural height (`fixedSize`), then clipped to the
+            // reveal window — clipping keeps layout stable while the height
+            // tracks the scroll.
+            capsule
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(height: AppTheme.searchRevealHeight * progress, alignment: .bottom)
+                .clipped()
+                .opacity(progress)
+            Spacer(minLength: 0)
+        }
+        .ignoresSafeArea(.container, edges: .top)
+        // Only tappable once fully open, so a partly-revealed bar doesn't eat
+        // taps meant for the grid.
+        .allowsHitTesting(progress >= 0.99)
+    }
+
+    private var capsule: some View {
+        HStack(spacing: AppTheme.searchCancelGap) {
+            HStack(spacing: AppTheme.searchFieldIconGap) {
+                Image(systemName: "magnifyingglass")
+                    .font(AppTheme.searchFont)
+                    .foregroundStyle(AppTheme.mutedInk)
+                TextField("Search your fridge", text: $searchText)
+                    .font(AppTheme.searchFont)
+                    .foregroundStyle(AppTheme.ink)
+                    .tint(AppTheme.brandGreen)
+                    .focused(searchFocused)
+                    .submitLabel(.search)
+                    .autocorrectionDisabled()
+                    .accessibilityIdentifier("home.search.field")
+                if !searchText.isEmpty {
+                    Button {
+                        searchText = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(AppTheme.searchClearFont)
+                            .foregroundStyle(AppTheme.mutedInk)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Clear search")
+                    .accessibilityIdentifier("home.search.clearButton")
+                    .transition(.opacity.combined(with: .scale))
+                }
+            }
+            .padding(.horizontal, AppTheme.searchFieldPadding.h)
+            .padding(.vertical, AppTheme.searchFieldPadding.v)
+            .background(AppTheme.searchFieldFill, in: Capsule())
+            .contentShape(Capsule())
+            .onTapGesture { searchFocused.wrappedValue = true }
+
+            if searchActive {
+                Button(action: onCancel) {
+                    Image(systemName: "xmark")
+                        .font(AppTheme.searchCancelFont)
+                        .foregroundStyle(AppTheme.mutedInk)
+                        .frame(width: AppTheme.searchCancelSize,
+                               height: AppTheme.searchCancelSize)
+                        .background(AppTheme.searchFieldFill, in: Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Cancel search")
+                .accessibilityIdentifier("home.search.cancelButton")
+                .transition(.move(edge: .trailing).combined(with: .opacity))
+            }
+        }
+        .padding(.horizontal, AppTheme.screenMargin)
+        .padding(.top, AppTheme.searchBarPadding.top)
+        .padding(.bottom, AppTheme.searchBarPadding.bottom)
+        .animation(AppTheme.searchSpring, value: searchText.isEmpty)
+    }
+}
+
+/// A copy of the chilled background masked to the whole top band — status bar +
+/// header + the bar's current height — painted above the grid and below the
+/// capsule. Rendering identically to the base background, it hides any grid
+/// content in that band (including a first row that lags the scroll), so items
+/// can never overlap the bar. Its own view so it, too, re-renders per scroll
+/// frame without touching `HomeView`'s body.
+private struct HeaderOccluderView: View {
+    let reveal: RevealModel
+    let searchActive: Bool
+    let headerReserve: CGFloat
+
+    private var progress: CGFloat { searchActive ? 1 : reveal.progress }
+
+    var body: some View {
+        AppTheme.ChillBackground()
+            .mask(alignment: .top) {
+                Rectangle()
+                    .frame(height: headerReserve + AppTheme.searchRevealHeight * progress)
+            }
+            .allowsHitTesting(false)
+            .ignoresSafeArea()
+    }
+}
+
 /// One grid cell, `Equatable`-gated so the closures it carries (which SwiftUI
 /// can't diff) don't force a re-evaluation of every cell on each `HomeView`
 /// body pass — during a drag, `dragLocation` changes per frame and only the
@@ -594,6 +746,7 @@ struct HomeView: View {
 /// tracks the properties it reads directly, past this gate.
 private struct GridSlot: View, Equatable {
     let item: FridgeItem
+    let emojiFree: Bool
     let index: Int
     let popInEnabled: Bool
     let opacity: Double
@@ -605,22 +758,29 @@ private struct GridSlot: View, Equatable {
 
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.item === rhs.item
+            && lhs.emojiFree == rhs.emojiFree
             && lhs.index == rhs.index
             && lhs.popInEnabled == rhs.popInEnabled
             && lhs.opacity == rhs.opacity
     }
 
     var body: some View {
-        ItemSprite(item: item)
-            .modifier(PopIn(index: index, enabled: popInEnabled, onFinished: onPopInFinished))
-            .opacity(opacity)
-            .onTapGesture(perform: onTap)
-            .gesture(consumeGesture)
+        Group {
+            if emojiFree {
+                ItemRow(item: item)
+            } else {
+                ItemSprite(item: item)
+            }
+        }
+        .modifier(PopIn(index: index, enabled: popInEnabled, onFinished: onPopInFinished))
+        .opacity(opacity)
+        .onTapGesture(perform: onTap)
+        .gesture(consumeGesture)
     }
 
     private var consumeGesture: some Gesture {
         LongPressGesture(minimumDuration: 0.3)
-            .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .named("fridge")))
+            .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .global))
             .onChanged { value in
                 guard case .second(true, let drag?) = value else { return }
                 onDragChanged(drag.location)

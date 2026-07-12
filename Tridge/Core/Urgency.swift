@@ -41,4 +41,13 @@ public enum UrgencyRules {
         case .expired: "✕ \(-daysLeft)d"
         }
     }
+
+    /// Spoken freshness for accessibility labels.
+    public static func spokenFreshness(daysLeft: Int) -> String {
+        switch urgency(daysLeft: daysLeft) {
+        case .fresh, .soon: "expires in \(daysLeft) days"
+        case .today: "expires today"
+        case .expired: "expired \(-daysLeft) days ago"
+        }
+    }
 }

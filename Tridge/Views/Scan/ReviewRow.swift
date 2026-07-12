@@ -5,13 +5,16 @@ import SwiftUI
 /// a type-in quantity chip, and a tappable expiry-date chip.
 struct ReviewRow: View {
     @Binding var item: ScanFlowModel.ReviewItem
+    @AppStorage("emojiFreeMode") private var emojiFreeMode = false
     @State private var showDatePicker = false
 
     var body: some View {
         HStack(spacing: 9) {
-            Text(item.emoji)
-                .font(.system(size: 24))
-                .shadow(color: .black.opacity(0.2), radius: 1.5, y: 2)
+            if !emojiFreeMode {
+                Text(item.emoji)
+                    .font(.system(size: 24))
+                    .shadow(color: .black.opacity(0.2), radius: 1.5, y: 2)
+            }
 
             VStack(alignment: .leading, spacing: AppTheme.reviewRowNameSpacing) {
                 TextField("Name", text: $item.name)

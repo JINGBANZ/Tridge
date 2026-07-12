@@ -2,7 +2,7 @@ import SwiftUI
 import SwiftData
 import UIKit
 
-/// Notification hour and the copy-diagnostics feedback loop.
+/// Notification hour, emoji-free mode, and the copy-diagnostics feedback loop.
 /// Owner-picked "one card, danger apart" layout (2026-07-12): everyday rows
 /// share one section with emoji icon chips, the destructive action sits alone
 /// below, and a version line closes the sheet — no headers or footer prose.
@@ -10,6 +10,9 @@ struct SettingsSheet: View {
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
     @AppStorage("notificationHour") private var notificationHour = 9
+    /// Hides all item art: the home grid becomes a name list, and the add,
+    /// review, and detail sheets drop their icons.
+    @AppStorage("emojiFreeMode") private var emojiFreeMode = false
     @Query private var items: [FridgeItem]
 
     @State private var copiedDiagnostics = false
@@ -28,6 +31,12 @@ struct SettingsSheet: View {
                         row(icon: "🔔", "Expiry reminder")
                     }
                     .accessibilityIdentifier("settings.notificationHour")
+
+                    Toggle(isOn: $emojiFreeMode) {
+                        row(icon: "🔤", "Emoji-free mode")
+                    }
+                    .tint(AppTheme.brandGreen)
+                    .accessibilityIdentifier("settings.emojiFreeMode")
 
                     Button(action: copyDiagnostics) {
                         row(icon: "📋", diagnosticsLabel)

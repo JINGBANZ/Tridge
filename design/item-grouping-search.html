@@ -235,11 +235,11 @@
   }
   .p-caret { display: inline-block; width: 1.5px; height: 14px; background: var(--accent); animation: caret 1s steps(1) infinite; }
   @keyframes caret { 0%, 55% { opacity: 1; } 56%, 100% { opacity: 0; } }
-  /* Full-bleed borderless band (owner revision): edge-to-edge under the
-     header — no border, no radius; the -14px margins cancel .p-home's padding. */
+  /* Rounded capsule parked below the header (Apple Music style): a muted fill
+     that reads as a distinct field over the chilled background. */
   .p-search {
-    background: var(--surface-solid); margin: 0 -14px 14px;
-    padding: 8px 14px; font-size: 13px; display: flex; align-items: center; gap: 7px;
+    background: #dbe2dd; border-radius: 999px; margin: 0 0 12px;
+    padding: 9px 14px; font-size: 13px; display: flex; align-items: center; gap: 8px;
     color: var(--muted);
   }
   .p-search .typed { color: var(--ink); font-weight: 600; }
@@ -309,9 +309,8 @@
   .d3 .pepper-badge { animation: d3-pulse 12s ease infinite; }
   @keyframes d3-pulse { 0%, 66% { transform: scale(1); } 71% { transform: scale(1.35); } 76%, 100% { transform: scale(1); } }
 
-  /* --- Demo 4: home search (9s) --- */
-  .d4 .p-search { animation: d4-bar 9s ease infinite; }
-  @keyframes d4-bar { 0%, 6% { opacity: 0; transform: translateY(-8px); } 14%, 100% { opacity: 1; transform: translateY(0); } }
+  /* --- Demo 4: home search (9s) — the capsule is always present below the
+     header; the demo just types into it to filter the grid. --- */
   .d4 .s1 { animation: d4-s1 9s steps(1) infinite; }
   .d4 .s2 { animation: d4-s2 9s steps(1) infinite; }
   @keyframes d4-s1 { 0%, 22% { opacity: 0; } 23%, 100% { opacity: 1; } }
@@ -811,11 +810,15 @@ label-left / input-right form row, matching Quantity and Expires.</p>
         </div>
       </div>
     </div>
-    <p class="demo-caption">A custom field pinned below the header — hidden until the grid is
-    pulled down, so the spec's single-control home screen keeps its face. (Not the system
-    <code>.searchable</code> drawer: its scroll-linked bar re-layouts the grid every frame — see
-    the decision log, 2026-07-11.) Typing filters the already-fetched grid in memory through
-    <code>NameSearch</code>; clearing restores everything.
+    <p class="demo-caption">A rounded capsule matching Apple Music's Library&nbsp;→&nbsp;Songs search:
+    <strong>hidden at rest; overscrolling the grid down expands it, scrolling back up collapses it</strong>
+    (a spring on its height, growing/shrinking in place rather than sliding out of the header). It is
+    drawn as an overlay <em>above</em> the grid, so items never overlap it, while the grid scrolls
+    <em>under</em> the opaque header via an occluder layer (not the system <code>.searchable</code>
+    drawer — that drawer's scroll-linked bar re-layouts the grid every frame; see the decision log,
+    2026-07-12). Focusing fades the header away, lifts the capsule to the top, and slides in a
+    circular&nbsp;✕ cancel button; Cancel restores rest. Typing filters the already-fetched grid in
+    memory through <code>NameSearch</code>; clearing restores everything.
     Diacritic-blind: "jala" finds "Jalapeño Peppers".</p>
   </div>
 </div>
@@ -913,7 +916,7 @@ spec's acceptance-criteria checklist and is exercised in a local Simulator per t
   <li><strong>Foundation</strong> — <code>NameKey</code> + <code>normalizedName</code> property + <code>#Index</code> + backfill + <code>setName</code> write discipline. Invisible, independently shippable.</li>
   <li><strong>Merge at confirm</strong> — <code>MergePlanner</code> wired into <code>ScanFlowModel.confirm</code> and <code>ManualAddSheet.add</code>. Closes #26.</li>
   <li><strong>Manual add, minimized</strong> — <code>ArtInference</code> replaces the ArtPicker; <code>NameSearch</code> drives the quick-fill chips row; merge-aware <strong>Add</strong> with the prefill-vs-edited expiry rule.</li>
-  <li><strong>Inventory lookup</strong> — the pull-down search field on the home grid (§6.2).</li>
+  <li><strong>Inventory lookup</strong> — the capsule search field on the home grid (§6.2).</li>
 </ol>
 <p>Steps 2–4 are separately reviewable PRs on the same foundation; none blocks another after
 step 1. On implementation, the owner calls recorded here (silent merge, name-only key, auto art,

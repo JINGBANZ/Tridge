@@ -500,6 +500,7 @@
   auto-focusing the field on reveal (presenting the keyboard mid-drag fights
   `scrollDismissesKeyboard` — the same drag instantly dismisses it — which made the reveal stutter
   and left a focused-field race that swallowed the auto-hide crossing, freezing the bar shown).
+- **Superseded by:** *2026-07-12 — Home search adopts the Apple Music capsule + scroll-under-header model*
 
 ### 2026-07-11 — One shared item form; the date-label OCR scan is removed
 
@@ -548,6 +549,47 @@
   builds via Appetize.io, not TestFlight* and *2026-07-09 — TestFlight for on-device testing;
   SideStore rejected*.
 
+### 2026-07-12 — Home search adopts the Apple Music capsule + scroll-under-header model
+
+- **Chose:** The home search field is a rounded capsule (`AppTheme.searchFieldFill`, muted over the
+  chilled background), **hidden at rest and revealed by overscrolling the grid downward** (owner
+  request). Overscrolling past `searchRevealPull` **expands** it and scrolling up **collapses** it —
+  a spring on `revealAmount` (0…1) that animates the capsule's height *and* the reserved grid space
+  together, so it grows/shrinks in place rather than sliding out of the header. The capsule is drawn
+  as an overlay **above the grid and below the header** (`searchBarOverlay`), so items can never
+  overlap it; the grid is pushed clear by a matching clear spacer in the scroll view's top
+  `safeAreaInset` (`headerReserve + insetBarSpace`). Behind the header, `headerOccluder` paints a copy
+  of `ChillBackground` masked to the status-bar + header band, so the grid slides under the header
+  seamlessly (gradient, glow, and all). Focusing enters a `searchActive` "search mode" (distinct from
+  `searchFocused`/the keyboard, so scroll-to-dismiss drops the keyboard without leaving search mode):
+  the header fades, a circular ✕ **cancel button** slides in to the right, and the capsule rises to
+  just below the status bar as the spacer shrinks (`headerReserve`). Cancel clears the query and
+  returns the capsule to its revealed rest position. This matches iOS 26 Apple Music's Library → Songs
+  search, the reference the owner asked to reproduce. The `HomeView` measures the header
+  (`onGeometryChange`) to size the occluder and the spacer.
+- **Why:** The prior full-bleed pull-to-reveal band (superseded entry above) was a deliberate
+  minimal take, but the owner wants the familiar Apple Music interaction — a capsule hidden at rest
+  and revealed by pull-down, scroll-under-header, a cancel affordance, and the focus choreography.
+  Native `.searchable` is the
+  only way to get that *for free*, but it is inseparable from `NavigationStack` nav-bar chrome,
+  cannot host under the custom header, gives no custom field style, and on iOS 26 defaults to a
+  bottom-floating placement — all re-imposing the scroll-linked relayout the prior entry rejected.
+  Hand-rolling over the existing custom-header architecture keeps that decision intact and the
+  interaction jank-free (the occlusion is z-order, not offset tracking).
+- **Rejected:** `NavigationStack` + native `.searchable` restyled (loses the custom header, no custom
+  capsule, reintroduces the scroll-linked relayout, iOS-26 bottom-search default); the prior
+  full-bleed borderless band styling (owner reversed it for the capsule); a text "Cancel" label
+  instead of the circular ✕ (the iOS 26 reference uses the circular glass button); a **fully
+  finger-continuous** reveal that tracks the pull per frame — writing the reveal amount from
+  `onScrollGeometryChange` every frame and reading it back in the same body **hangs the view in a
+  layout cycle** (a blank screen — SwiftUI never completes the first layout). The reveal therefore
+  fires on discrete Bool threshold crossings and animates with a spring; the visual growth is a
+  finite animation, not a per-frame scroll binding. True finger-tracking would need a
+  `UIScrollView`-backed representable to sidestep the cycle. Also rejected: putting the capsule in
+  the `safeAreaInset` (it can render *behind* scrolling items — the overlap the overlay fixes) and
+  forcing the capsule's `TextField` toward zero height to collapse it (also hangs layout — clip the
+  reveal window over a `fixedSize` bar instead).
+
 ### 2026-07-12 — Settings is one card with icon chips; explanatory footers dropped app-wide
 
 - **Chose:** The settings sheet's everyday rows (🔔 expiry-reminder picker, 📋 copy diagnostics)
@@ -564,6 +606,25 @@
 - **Rejected:** A fitted filter-style chip sheet (chips fix the reminder to preset hours); a fully
   custom themed panel on the chill gradient (most bespoke code — every future setting would need a
   designed card instead of a Form row).
+- **Superseded by:** *2026-07-12 — Add button is a plus glyph opening an action sheet; header
+  glyphs get real hit targets* (for the add-menu Cancel arrangement).
+
+### 2026-07-12 — Add button is a plus glyph opening an action sheet; header glyphs get real hit targets
+
+- **Chose:** The floating add button shows a white semibold `plus` glyph (owner request, replacing
+  the 🧾 emoji), and tapping it presents the add menu as a `confirmationDialog` (system action
+  sheet) instead of a `Menu` — the owner wants Cancel centered, and menu rows are always
+  leading-aligned with no alignment API, while an action sheet centers every option and detaches
+  Cancel at the bottom. This supersedes the divider + `.menuOrder(.fixed)` Cancel arrangement from
+  the entry above. Separately, the header filter/gear buttons pad their tappable area toward 44pt
+  (`AppTheme.headerButtonHitPad`, applied inside the label then pulled back with negative padding
+  so the layout and visuals are unchanged — see `headerHitTarget()` in `HomeView.swift`).
+- **Why:** The owner reported the filter button as unresponsive; the cause was the bare glyph's
+  hit area — a 20pt `line.3.horizontal.decrease` is only ~24×15pt tappable, so taps landing just
+  beside the thin lines fell through. Apple's minimum target is 44pt.
+- **Rejected:** Keeping the `Menu` with a centered Cancel (UIKit menus cannot center a row);
+  giving the header glyphs literal 44pt layout frames (widens the header gaps the owner just
+  tuned); enlarging the glyphs themselves (the 20pt size was owner-picked in the entry above).
 
 ### 2026-07-12 — TestFlight CI reuses one development signing identity
 
