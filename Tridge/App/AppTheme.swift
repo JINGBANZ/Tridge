@@ -126,6 +126,9 @@ enum AppTheme {
     /// padding). Overscrolling the grid by this much fully expands it; the
     /// reveal amount tracks the pull continuously up to here.
     static let searchRevealHeight: CGFloat = 52
+    /// Emoji-free mode's home rows: name-first lines replacing the art grid.
+    static let listRowPadding = (h: CGFloat(20), v: CGFloat(12))
+    static let listRowQuantityGap: CGFloat = 8
     /// Settings rows: emoji icon chips on a soft green square (owner-picked
     /// "one card, danger apart" redesign, 2026-07-12).
     static let settingsIconChipSize: CGFloat = 30
@@ -136,6 +139,9 @@ enum AppTheme {
 
     static let titleFont = Font.system(size: 28, weight: .heavy, design: .rounded)
     static let itemNameFont = Font.system(size: 13, weight: .semibold)
+    /// Emoji-free mode's home rows — the name is the row, so it reads larger
+    /// than the grid caption.
+    static let listRowNameFont = Font.system(size: 15, weight: .semibold)
     static let pillFont = Font.system(size: 10, weight: .heavy)
     static let countFont = Font.system(size: 12, weight: .semibold).monospacedDigit()
     static let chipFont = Font.system(size: 10.5, weight: .bold)

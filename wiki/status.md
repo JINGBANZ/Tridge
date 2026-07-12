@@ -74,7 +74,9 @@ isolated key.
   by pulling the grid down + the header filter button/sheet — Storage +
   Food Category filters via `Views/Home/FilterSheet.swift`, hidden on an empty fridge, search
   applying on top of the filters — scan flow + review sheet with per-row Food Category/Storage
-  chips, item detail + art picker, settings). Saving — scanned or typed — merges into a matching
+  chips, item detail + art picker, settings — incl. an emoji-free mode that swaps the home grid for
+  a name-row list (`Views/Home/ItemRow.swift`) and hides item art across the add/review/detail
+  sheets while art keys stay stored). Saving — scanned or typed — merges into a matching
   active item by normalized name instead of duplicating it (`design/item-grouping-search.html`);
   manual add has quick-fill history chips above the name field and automatic art
   (remembered → inferred → tap-to-pick). Item detail and manual add render the same

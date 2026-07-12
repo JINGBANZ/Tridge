@@ -9,15 +9,20 @@ struct ItemDetailSheet: View {
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
     @AppStorage("notificationHour") private var notificationHour = 9
+    @AppStorage("emojiFreeMode") private var emojiFreeMode = false
 
     @State private var showArtPicker = false
 
     var body: some View {
         NavigationStack {
             Form {
-                Section {
-                    HeroArtRow(emoji: Artwork.artwork(for: item)) {
-                        showArtPicker = true
+                // Emoji-free mode drops the hero art (and with it the picker
+                // entry point); the stored artKey stays untouched.
+                if !emojiFreeMode {
+                    Section {
+                        HeroArtRow(emoji: Artwork.artwork(for: item)) {
+                            showArtPicker = true
+                        }
                     }
                 }
 

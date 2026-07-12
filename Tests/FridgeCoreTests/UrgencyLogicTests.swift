@@ -56,4 +56,10 @@ final class UrgencyLogicTests: XCTestCase {
         XCTAssertEqual(UrgencyRules.pillLabel(daysLeft: -1), "✕ 1d")
         XCTAssertEqual(UrgencyRules.pillLabel(daysLeft: -14), "✕ 14d")
     }
+
+    func testSpokenFreshness() {
+        XCTAssertEqual(UrgencyRules.spokenFreshness(daysLeft: 12), "expires in 12 days")
+        XCTAssertEqual(UrgencyRules.spokenFreshness(daysLeft: 0), "expires today")
+        XCTAssertEqual(UrgencyRules.spokenFreshness(daysLeft: -3), "expired 3 days ago")
+    }
 }

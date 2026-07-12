@@ -14,6 +14,8 @@ struct HomeView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage("notificationHour") private var notificationHour = 9
+    /// Settings → Emoji-free mode: items render as name rows, no art anywhere.
+    @AppStorage("emojiFreeMode") private var emojiFreeMode = false
 
     // Soonest-expiring first puts expired items at the very top.
     @Query(filter: #Predicate<FridgeItem> { $0.statusRaw == "active" },
@@ -332,6 +334,8 @@ struct HomeView: View {
                 }
                 if visibleItems.isEmpty {
                     noMatchView
+                } else if emojiFreeMode {
+                    listBody
                 } else {
                     gridBody
                 }
@@ -350,6 +354,17 @@ struct HomeView: View {
             }
         }
         .padding(.horizontal, AppTheme.screenMargin)
+        .padding(.top, AppTheme.screenMargin)
+    }
+
+    /// Emoji-free mode's stand-in for the grid: one name row per item, same
+    /// order, same tap-to-edit and drag-to-consume gestures.
+    private var listBody: some View {
+        LazyVStack(spacing: 0) {
+            ForEach(Array(visibleItems.enumerated()), id: \.element.persistentModelID) { index, item in
+                slot(for: item, index: index)
+            }
+        }
         .padding(.top, AppTheme.screenMargin)
     }
 
@@ -382,6 +397,7 @@ struct HomeView: View {
     private func slot(for item: FridgeItem, index: Int) -> some View {
         GridSlot(
             item: item,
+            emojiFree: emojiFreeMode,
             index: index,
             popInEnabled: !reduceMotion
                 && index < AppTheme.popInItemLimit
@@ -421,8 +437,7 @@ struct HomeView: View {
             .allowsHitTesting(false)
             .overlay {
                 if let item = draggedItem, dragLocation != .zero {
-                    Text(Artwork.artwork(for: item))
-                        .font(.system(size: AppTheme.artPointSize))
+                    ghostArt(for: item)
                         .scaleEffect(dragScale)
                         .rotationEffect(.degrees(-4))
                         .shadow(color: .black.opacity(0.4), radius: 9, y: 16)
@@ -430,6 +445,20 @@ struct HomeView: View {
                         .allowsHitTesting(false)
                 }
             }
+    }
+
+    /// What travels under the finger: the item's art, or its name when
+    /// emoji-free mode is on.
+    @ViewBuilder
+    private func ghostArt(for item: FridgeItem) -> some View {
+        if emojiFreeMode {
+            Text(item.name)
+                .font(AppTheme.listRowNameFont)
+                .foregroundStyle(AppTheme.ink)
+        } else {
+            Text(Artwork.artwork(for: item))
+                .font(.system(size: AppTheme.artPointSize))
+        }
     }
 
     private var hotZone: DropZone? {
@@ -719,6 +748,7 @@ private struct HeaderOccluderView: View {
 /// tracks the properties it reads directly, past this gate.
 private struct GridSlot: View, Equatable {
     let item: FridgeItem
+    let emojiFree: Bool
     let index: Int
     let popInEnabled: Bool
     let opacity: Double
@@ -730,17 +760,24 @@ private struct GridSlot: View, Equatable {
 
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.item === rhs.item
+            && lhs.emojiFree == rhs.emojiFree
             && lhs.index == rhs.index
             && lhs.popInEnabled == rhs.popInEnabled
             && lhs.opacity == rhs.opacity
     }
 
     var body: some View {
-        ItemSprite(item: item)
-            .modifier(PopIn(index: index, enabled: popInEnabled, onFinished: onPopInFinished))
-            .opacity(opacity)
-            .onTapGesture(perform: onTap)
-            .gesture(consumeGesture)
+        Group {
+            if emojiFree {
+                ItemRow(item: item)
+            } else {
+                ItemSprite(item: item)
+            }
+        }
+        .modifier(PopIn(index: index, enabled: popInEnabled, onFinished: onPopInFinished))
+        .opacity(opacity)
+        .onTapGesture(perform: onTap)
+        .gesture(consumeGesture)
     }
 
     private var consumeGesture: some Gesture {

@@ -10,6 +10,7 @@ struct ManualAddSheet: View {
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
     @AppStorage("notificationHour") private var notificationHour = 9
+    @AppStorage("emojiFreeMode") private var emojiFreeMode = false
 
     /// Every row ever saved (any status) — the suggestion and remembered-art
     /// source. Consumed rows are never deleted, so history is complete.
@@ -34,13 +35,18 @@ struct ManualAddSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section {
-                    // Smaller than the detail sheet's hero: this page is
-                    // form-first, so the fields keep the space.
-                    HeroArtRow(emoji: Artwork.emoji(forKey: artKey),
-                               size: AppTheme.manualAddArtSize,
-                               needsArt: needsArt) {
-                        showArtPicker = true
+                // Art still resolves behind the scenes in emoji-free mode (so
+                // icons return when it's switched off) — only the display and
+                // the picker entry point go.
+                if !emojiFreeMode {
+                    Section {
+                        // Smaller than the detail sheet's hero: this page is
+                        // form-first, so the fields keep the space.
+                        HeroArtRow(emoji: Artwork.emoji(forKey: artKey),
+                                   size: AppTheme.manualAddArtSize,
+                                   needsArt: needsArt) {
+                            showArtPicker = true
+                        }
                     }
                 }
 
@@ -88,7 +94,9 @@ struct ManualAddSheet: View {
                         fill(with: suggestion)
                     } label: {
                         HStack(spacing: 5) {
-                            Text(Artwork.emoji(forKey: suggestion.artKey))
+                            if !emojiFreeMode {
+                                Text(Artwork.emoji(forKey: suggestion.artKey))
+                            }
                             Text(suggestion.displayName)
                                 .lineLimit(1)
                                 .foregroundStyle(AppTheme.ink)

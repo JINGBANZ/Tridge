@@ -20,7 +20,7 @@ struct ItemSprite: View {
                 .frame(maxWidth: 70)
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(item.name), \(accessibilityFreshness(daysLeft: daysLeft))")
+        .accessibilityLabel("\(item.name), \(UrgencyRules.spokenFreshness(daysLeft: daysLeft))")
         .accessibilityIdentifier("home.item.\(item.normalizedName)")
     }
 
@@ -50,13 +50,5 @@ struct ItemSprite: View {
                         .offset(x: 4, y: 3)
                 }
             }
-    }
-
-    private func accessibilityFreshness(daysLeft: Int) -> String {
-        switch UrgencyRules.urgency(daysLeft: daysLeft) {
-        case .fresh, .soon: "expires in \(daysLeft) days"
-        case .today: "expires today"
-        case .expired: "expired \(-daysLeft) days ago"
-        }
     }
 }
