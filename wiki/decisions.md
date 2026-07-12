@@ -606,6 +606,8 @@
 - **Rejected:** A fitted filter-style chip sheet (chips fix the reminder to preset hours); a fully
   custom themed panel on the chill gradient (most bespoke code — every future setting would need a
   designed card instead of a Form row).
+- **Superseded by:** *2026-07-12 — Add button is a plus glyph opening an action sheet; header
+  glyphs get real hit targets* (for the add-menu Cancel arrangement).
 
 ### 2026-07-12 — Add button is a plus glyph opening an action sheet; header glyphs get real hit targets
 

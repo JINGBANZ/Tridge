@@ -509,7 +509,7 @@ struct HomeView: View {
         } label: {
             Image(systemName: "plus")
                 .font(.system(size: 25, weight: .semibold))
-                .foregroundStyle(.white)
+                .foregroundStyle(AppTheme.chipSelectedLabel)
                 .frame(width: AppTheme.scanButtonSize, height: AppTheme.scanButtonSize)
                 .background(
                     LinearGradient(colors: [AppTheme.scanTop, AppTheme.scanBottom],
