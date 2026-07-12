@@ -26,9 +26,11 @@ jobs:
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
           ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_DEVELOPMENT_CERT_P12: ${{ secrets.APPLE_DEVELOPMENT_CERT_P12 }}
+          APPLE_DEVELOPMENT_CERT_PASSWORD: ${{ secrets.APPLE_DEVELOPMENT_CERT_PASSWORD }}
         run: |
           missing=""
-          for v in ASC_KEY_ID ASC_ISSUER_ID ASC_KEY_P8 APPLE_TEAM_ID; do
+          for v in ASC_KEY_ID ASC_ISSUER_ID ASC_KEY_P8 APPLE_TEAM_ID APPLE_DEVELOPMENT_CERT_P12 APPLE_DEVELOPMENT_CERT_PASSWORD; do
             [ -z "${!v}" ] && missing="$missing $v"
           done
           if [ -n "$missing" ]; then
@@ -54,6 +56,32 @@ jobs:
           mkdir -p "$RUNNER_TEMP/asc"
           printf '%s' "$ASC_KEY_P8" | openssl base64 -A -d > "$RUNNER_TEMP/asc/AuthKey.p8"
           echo "ASC_KEY_PATH=$RUNNER_TEMP/asc/AuthKey.p8" >> "$GITHUB_ENV"
+
+      # Reuse one Apple Development identity across ephemeral runners. Without
+      # this, automatic signing creates a new certificate on every release and
+      # eventually exhausts the Apple Developer account's certificate quota.
+      - name: Install Apple Development certificate
+        env:
+          CERTIFICATE_P12: ${{ secrets.APPLE_DEVELOPMENT_CERT_P12 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.APPLE_DEVELOPMENT_CERT_PASSWORD }}
+        run: |
+          certificate_path="$RUNNER_TEMP/apple-development.p12"
+          keychain_path="$RUNNER_TEMP/tridge-signing.keychain-db"
+          keychain_password="$(uuidgen)$(uuidgen)"
+
+          printf '%s' "$CERTIFICATE_P12" | openssl base64 -A -d > "$certificate_path"
+          security create-keychain -p "$keychain_password" "$keychain_path"
+          security set-keychain-settings -lut 21600 "$keychain_path"
+          security unlock-keychain -p "$keychain_password" "$keychain_path"
+          security import "$certificate_path" -P "$CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$keychain_path"
+          security set-key-partition-list -S apple-tool:,apple: -k "$keychain_password" "$keychain_path"
+          security list-keychains -d user -s "$keychain_path" login.keychain-db
+
+          identity_count="$(security find-identity -v -p codesigning "$keychain_path" | awk '/Apple Development/ { count++ } END { print count+0 }')"
+          if [ "$identity_count" -lt 1 ]; then
+            echo "::error::APPLE_DEVELOPMENT_CERT_P12 contains no usable Apple Development signing identity."
+            exit 1
+          fi
 
       # No scan-API secret to write: the app authenticates to the worker with
       # Apple App Attest, whose keys are generated on-device at runtime.

@@ -83,14 +83,17 @@ isolated key.
 - `.github/workflows/ci.yml` — Linux `swift test`; server typecheck + Vitest; release-lane syntax;
   macOS `swift test` + a Debug simulator build (compile-only gate, `CODE_SIGNING_ALLOWED=NO`).
 - `.github/workflows/testflight.yml` + `fastlane/` (`Fastfile`, `Appfile`) + `Gemfile` — the
-  manual TestFlight release lane: `workflow_dispatch` builds a signed Release IPA (cloud-managed
-  signing — no certs in the repo) and uploads it via fastlane's `upload_to_testflight`; the archive
+  manual TestFlight release lane: `workflow_dispatch` imports a reusable Apple Development identity
+  from GitHub secrets, builds a signed Release IPA, and uploads it via fastlane's
+  `upload_to_testflight`; the archive
   retries once when Apple's provisioning service transiently fails, before any upload begins. Signing
   hands the App Store Connect API key to `xcodebuild` itself via `-authenticationKey*` (gym does
   not forward it), so the workflow decodes the `.p8` to a file first; the key must have the
-  **Admin** role because creating a distribution certificate is Admin-only. Needs the `ASC_KEY_ID`,
-  `ASC_ISSUER_ID`, `ASC_KEY_P8`, `APPLE_TEAM_ID` repo secrets (setup in `README.md` → "On your
-  iPhone (TestFlight)"). Build number is the GitHub run number; `ITSAppUsesNonExemptEncryption=NO`
+  **Admin** role because cloud-managed distribution signing is Admin-only. Needs the `ASC_KEY_ID`,
+  `ASC_ISSUER_ID`, `ASC_KEY_P8`, `APPLE_TEAM_ID`, and two `APPLE_DEVELOPMENT_CERT_*` repo secrets
+  (setup in `README.md` → "On your iPhone (TestFlight)"). Reusing the development identity prevents
+  ephemeral runners from exhausting Apple's certificate quota; no certificate is stored in the
+  repo. Build number is the GitHub run number; `ITSAppUsesNonExemptEncryption=NO`
   is set so builds skip the export-compliance prompt. Runs on `macos-26` (Xcode 26 / iOS 26 SDK —
   Apple's current upload minimum; `macos-15`/Xcode 16 is rejected). One more account prerequisite
   beyond the Admin key: the team needs **one registered device**, or automatic signing can't mint

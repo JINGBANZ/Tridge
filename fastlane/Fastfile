@@ -2,10 +2,13 @@ default_platform(:ios)
 
 # Single lane: build a signed Release IPA and ship it to TestFlight. Everything
 # is driven from CI env vars (see .github/workflows/testflight.yml) so no Apple
-# account credentials or signing certificates live in the repo.
+# account credentials or signing certificates live in the repo. CI imports a
+# reusable Apple Development identity from GitHub secrets before this lane runs;
+# automatic signing then creates/downloads profiles without minting a certificate
+# for every ephemeral runner.
 #
 # Signing is cloud-managed: `-allowProvisioningUpdates` lets xcodebuild create/
-# download the distribution certificate and App Store provisioning profile on the
+# download provisioning profiles and use cloud-managed distribution signing on the
 # fly — no fastlane match, no committed cert repo. gym does NOT forward the App
 # Store Connect API key to the archive step, so the key is handed to xcodebuild
 # explicitly via the `-authenticationKey*` flags (the .p8 is written to a file by
