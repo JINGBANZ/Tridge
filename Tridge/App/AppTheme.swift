@@ -88,7 +88,7 @@ enum AppTheme {
     static let filterDotSize: CGFloat = 6
     static let filterDotOffset = (x: CGFloat(4), y: CGFloat(-4))
     /// Header glyph size (filter and gear).
-    static let headerGlyphSize: CGFloat = 17
+    static let headerGlyphSize: CGFloat = 20
     /// Home's "nothing matches" ghost under an active filter.
     static let ghostSpacing: CGFloat = 10
     static let ghostArtOpacity: Double = 0.5
@@ -126,6 +126,11 @@ enum AppTheme {
     /// padding). Overscrolling the grid by this much fully expands it; the
     /// reveal amount tracks the pull continuously up to here.
     static let searchRevealHeight: CGFloat = 52
+    /// Settings rows: emoji icon chips on a soft green square (owner-picked
+    /// "one card, danger apart" redesign, 2026-07-12).
+    static let settingsIconChipSize: CGFloat = 30
+    static let settingsIconChipRadius: CGFloat = 8
+    static let settingsRowIconGap: CGFloat = 12
 
     // MARK: Type
 
@@ -150,6 +155,8 @@ enum AppTheme {
     static let searchClearFont = Font.system(size: 14)
     /// The ✕ inside the circular cancel button.
     static let searchCancelFont = Font.system(size: 13, weight: .semibold)
+    /// The emoji inside settings icon chips.
+    static let settingsIconFont = Font.system(size: 15)
 
     // MARK: Effects
 

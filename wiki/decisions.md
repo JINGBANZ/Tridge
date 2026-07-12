@@ -591,3 +591,20 @@
   the `safeAreaInset` (it can render *behind* scrolling items — the overlap the overlay fixes) and
   forcing the capsule's `TextField` toward zero height to collapse it (also hangs layout — clip the
   reveal window over a `fixedSize` bar instead).
+
+### 2026-07-12 — Settings is one card with icon chips; explanatory footers dropped app-wide
+
+- **Chose:** The settings sheet's everyday rows (🔔 expiry-reminder picker, 📋 copy diagnostics)
+  share a single headerless section with emoji-on-soft-green icon chips; "Clear all items…" sits
+  centered in its own section below, with a `Tridge <version> (<build>)` footer closing the sheet.
+  The explanatory footer prose was removed everywhere it appeared (settings sections, the item
+  detail's "Category follows the artwork…" and expiry-source footnotes) — owner direction: the UI
+  should not narrate itself. In the same pass the header glyphs grew to 20pt and the add menu
+  gained a bottom Cancel item behind a divider (`.menuOrder(.fixed)`, or the upward-opening menu
+  reverses it to the top).
+- **Why:** Three headed one-row sections plus footers made a three-control sheet read like a
+  settings *page*; one card keeps it a quick sheet while quarantining the destructive action.
+  Picked by the owner from three mocked options.
+- **Rejected:** A fitted filter-style chip sheet (chips fix the reminder to preset hours); a fully
+  custom themed panel on the chill gradient (most bespoke code — every future setting would need a
+  designed card instead of a Form row).
