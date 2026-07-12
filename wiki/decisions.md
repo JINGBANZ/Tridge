@@ -500,9 +500,7 @@
   auto-focusing the field on reveal (presenting the keyboard mid-drag fights
   `scrollDismissesKeyboard` — the same drag instantly dismisses it — which made the reveal stutter
   and left a focused-field race that swallowed the auto-hide crossing, freezing the bar shown).
-- **Superseded by:** *2026-07-12 — Home search adopts the Apple Music capsule + scroll-under-header
-  model* — the pull-to-reveal band gives way to an always-present capsule that tucks under the
-  header on scroll; the no-`NavigationStack` / no-`.searchable` and `Equatable`-gated-cell parts stand.
+- **Superseded by:** *2026-07-12 — Home search adopts the Apple Music capsule + scroll-under-header model*
 
 ### 2026-07-11 — One shared item form; the date-label OCR scan is removed
 

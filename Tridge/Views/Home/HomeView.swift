@@ -96,7 +96,7 @@ struct HomeView: View {
         }
         .coordinateSpace(name: "fridge")
         .onPreferenceChange(DropZoneFramesKey.self) { zoneFrames = $0 }
-        .animation(.spring(response: 0.35, dampingFraction: 0.8), value: draggedItem == nil)
+        .animation(AppTheme.searchSpring, value: draggedItem == nil)
         .sheet(item: $selectedItem) { item in
             ItemDetailSheet(item: item)
         }
@@ -342,7 +342,7 @@ struct HomeView: View {
         .padding(.horizontal, AppTheme.screenMargin)
         .padding(.top, AppTheme.searchBarPadding.top)
         .padding(.bottom, AppTheme.searchBarPadding.bottom)
-        .animation(.spring(response: 0.35, dampingFraction: 0.8), value: searchText.isEmpty)
+        .animation(AppTheme.searchSpring, value: searchText.isEmpty)
     }
 
     /// Cancel leaves search mode: drop the keyboard, clear the query, fade the
@@ -351,7 +351,7 @@ struct HomeView: View {
     private func exitSearch() {
         searchFocused = false
         searchText = ""
-        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+        withAnimation(AppTheme.searchSpring) {
             searchActive = false
             searchRevealed = true
             revealAmount = 1
@@ -420,7 +420,7 @@ struct HomeView: View {
             // Focusing enters search mode; blur (e.g. scroll-to-dismiss) keeps
             // search mode until Cancel, matching Apple Music.
             guard focused, !searchActive else { return }
-            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+            withAnimation(AppTheme.searchSpring) {
                 searchActive = true
             }
         }
@@ -431,7 +431,7 @@ struct HomeView: View {
     /// slides down together.
     private func setSearchRevealed(_ revealed: Bool) {
         guard searchRevealed != revealed, !searchActive else { return }
-        withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
+        withAnimation(AppTheme.searchRevealSpring) {
             searchRevealed = revealed
             revealAmount = revealed ? 1 : 0
         }

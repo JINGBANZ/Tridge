@@ -172,6 +172,13 @@ enum AppTheme {
     static let popInStartScale: CGFloat = 0.7
     /// Only animate the initial screenful; later lazy cells must stay cheap to scroll.
     static let popInItemLimit = 16
+
+    /// Home's standard settle spring: search-mode transitions (enter/exit,
+    /// the inline clear button) and the drag ghost's appear/disappear.
+    static let searchSpring = Animation.spring(response: 0.35, dampingFraction: 0.8)
+    /// Pull-to-reveal expand/collapse of the search bar — slightly tighter so
+    /// the bar snaps in step with the scroll settle.
+    static let searchRevealSpring = Animation.spring(response: 0.32, dampingFraction: 0.82)
 }
 
 extension Color {
