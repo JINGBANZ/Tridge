@@ -122,7 +122,12 @@ final class ScanFlowModel {
         phase = .processing
         Task {
             do {
-                guard let jpeg = image.receiptJPEGData() else { throw LLMError.unparseable }
+                // The downscale + JPEG encode costs hundreds of ms for a camera
+                // capture; a plain `Task` inherits this model's main-actor
+                // isolation, so detach or the progress UI freezes.
+                guard let jpeg = await Task.detached(priority: .userInitiated,
+                                                     operation: { image.receiptJPEGData() }).value
+                else { throw LLMError.unparseable }
                 AppLog.scan.info("Scanning \(Int(image.size.width))×\(Int(image.size.height)) image, \(jpeg.count / 1024) KB JPEG")
                 let receipt = try await service.parseReceipt(jpegData: jpeg)
                 AppLog.scan.info("Review ready: \(receipt.items.count) items")
