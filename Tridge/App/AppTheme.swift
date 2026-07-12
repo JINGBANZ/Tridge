@@ -88,7 +88,7 @@ enum AppTheme {
     static let filterDotSize: CGFloat = 6
     static let filterDotOffset = (x: CGFloat(4), y: CGFloat(-4))
     /// Header glyph size (filter and gear).
-    static let headerGlyphSize: CGFloat = 17
+    static let headerGlyphSize: CGFloat = 20
     /// Home's "nothing matches" ghost under an active filter.
     static let ghostSpacing: CGFloat = 10
     static let ghostArtOpacity: Double = 0.5

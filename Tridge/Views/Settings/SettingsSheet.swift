@@ -25,27 +25,19 @@ struct SettingsSheet: View {
                     .accessibilityIdentifier("settings.notificationHour")
                 }
 
-                Section {
+                Section("Fridge") {
                     Button("Clear all items", role: .destructive) {
                         showingClearConfirmation = true
                     }
                     .disabled(items.isEmpty)
-                } header: {
-                    Text("Fridge")
-                } footer: {
-                    Text("Permanently deletes every item, including your item history.")
                 }
 
-                Section {
+                Section("Diagnostics") {
                     Button(action: copyDiagnostics) {
                         Label(diagnosticsLabel, systemImage: diagnosticsIcon)
                     }
                     .disabled(collectingDiagnostics)
                     .accessibilityIdentifier("settings.copyDiagnostics")
-                } header: {
-                    Text("Diagnostics")
-                } footer: {
-                    Text("This session's app logs (scans, parsing, errors — never your API key). Reproduce the problem first, then copy and paste into a bug report.")
                 }
             }
             .navigationTitle("Settings")
