@@ -49,18 +49,26 @@ paid **Apple Developer Program** membership ($99/yr).
    create a *distribution* certificate, which only Admin can do. The same key
    also uploads the build.) Note the **Issuer ID** and **Key ID**, and download
    the `AuthKey_XXXX.p8` (downloadable only once).
-4. Add four **repository secrets** (GitHub → repo **Settings** → **Secrets and
+4. Create one reusable **Apple Development** certificate and export its certificate
+   plus private key as a password-protected `.p12`. On a Mac, use Xcode →
+   **Settings** → **Accounts** → select the team → **Manage Certificates** → **+** →
+   **Apple Development**, then export that identity from Keychain Access. Reuse this
+   file until the certificate expires; do not create one per CI run.
+5. Add six **repository secrets** (GitHub → repo **Settings** → **Secrets and
    variables** → **Actions**):
    - `ASC_KEY_ID` — the API Key ID
    - `ASC_ISSUER_ID` — the Issuer ID
    - `ASC_KEY_P8` — the base64 of the `.p8` file: `base64 -i AuthKey_XXXX.p8`
    - `APPLE_TEAM_ID` — your 10-character Team ID (developer.apple.com → **Membership**)
+   - `APPLE_DEVELOPMENT_CERT_P12` — the base64 of the `.p12` file:
+     `base64 -i AppleDevelopment.p12`
+   - `APPLE_DEVELOPMENT_CERT_PASSWORD` — the password used when exporting the `.p12`
 
    (No scan secret ships in the app — it authenticates with Apple App Attest.
    Live scanning does need the scan worker deployed; the same `APPLE_TEAM_ID`
    above is also the worker's App Attest team-id secret. See
    [`server/README.md`](server/README.md).)
-5. Register at least **one device**: developer.apple.com → **Certificates,
+6. Register at least **one device**: developer.apple.com → **Certificates,
    Identifiers & Profiles** → **Devices** → **+**, paste your iPhone's UDID.
    Cloud-managed signing needs a device on the team to mint the archive's
    provisioning profile, or the build fails with "your team has no devices". Get
@@ -68,9 +76,15 @@ paid **Apple Developer Program** membership ($99/yr).
    the device name until it shows the UDID) or, on Linux/Windows, `idevice_id -l`.
 
 **Each release:** GitHub → **Actions** → **TestFlight** → **Run workflow**. It
-builds a signed Release IPA (signing is cloud-managed via the API key — no certs
-in the repo) and uploads it. A few minutes later the build appears in TestFlight;
-install the **TestFlight** app on your iPhone and accept the invite to run it.
+imports the reusable development identity into the ephemeral runner, builds a
+signed Release IPA (distribution signing remains cloud-managed via the API key),
+and uploads it. A few minutes later the build appears in TestFlight; install the
+**TestFlight** app on your iPhone and accept the invite to run it.
+
+When the development certificate approaches expiry, create and export its
+replacement, update the two `APPLE_DEVELOPMENT_CERT_*` secrets, verify one release,
+then revoke the old certificate. Revoking development certificates does not affect
+builds already uploaded to TestFlight or the App Store.
 
 ### With a Mac (Xcode 16+)
 

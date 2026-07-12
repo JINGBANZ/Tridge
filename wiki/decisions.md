@@ -625,3 +625,21 @@
 - **Rejected:** Keeping the `Menu` with a centered Cancel (UIKit menus cannot center a row);
   giving the header glyphs literal 44pt layout frames (widens the header gaps the owner just
   tuned); enlarging the glyphs themselves (the 20pt size was owner-picked in the entry above).
+
+### 2026-07-12 — TestFlight CI reuses one development signing identity
+
+- **Chose:** Store a password-protected Apple Development `.p12` and its password as GitHub Actions
+  secrets. The TestFlight workflow imports that identity into a temporary keychain before fastlane
+  runs, while retaining automatic provisioning and cloud-managed distribution signing. Certificate
+  material remains outside the repository and the temporary keychain dies with the runner.
+- **Why:** A fresh macOS runner has no signing private key. With fully automatic signing, every
+  archive therefore minted a new Apple Development certificate whose private key disappeared with
+  the runner, eventually exhausting Apple's account certificate limit. Reusing one identity makes
+  ephemeral releases deterministic and requires only periodic rotation when that certificate
+  expires.
+- **Rejected:** Keeping fully automatic certificate creation (deterministically exhausts the quota
+  again); fastlane `match` (adds a separate encrypted signing repository and setup overhead for one
+  app); storing certificates or passwords in the source repository (exposes signing credentials).
+- **Supersedes:** the certificate-management portion of *2026-07-09 — TestFlight for on-device
+  testing; SideStore rejected*. Automatic provisioning and cloud-managed distribution signing
+  remain in place.
