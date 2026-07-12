@@ -18,7 +18,9 @@ enum DropZone: CaseIterable {
     }
 }
 
-/// Reports each zone's frame (in the named "fridge" space) for drag hit-testing.
+/// Reports each zone's frame (in global space) for drag hit-testing — global
+/// so it stays valid when the grid is hosted in a `UIScrollView`, across the
+/// UIKit boundary a named coordinate space can't cross.
 struct DropZoneFramesKey: PreferenceKey {
     static var defaultValue: [DropZone: CGRect] { [:] }
     static func reduce(value: inout [DropZone: CGRect], nextValue: () -> [DropZone: CGRect]) {
@@ -66,7 +68,7 @@ struct DropZoneBar: View {
         .background {
             GeometryReader { proxy in
                 Color.clear.preference(key: DropZoneFramesKey.self,
-                                       value: [zone: proxy.frame(in: .named("fridge"))])
+                                       value: [zone: proxy.frame(in: .global)])
             }
         }
         .animation(.spring(response: 0.25, dampingFraction: 0.8), value: isHot)
