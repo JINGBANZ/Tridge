@@ -51,11 +51,12 @@ struct HomeView: View {
     @State private var showFilterSheet = false
 
     // Drag-to-consume state. The item changes once per drag and may drive
-    // `body`; the live position/scale change every frame and live in `drag`
-    // (isolated like `RevealModel`) so only the ghost and drop bar re-render.
+    // `body`; the live position/scale/zone-frames change every frame and live
+    // in `drag` (isolated like `RevealModel`) so only the ghost and drop bar
+    // re-render. `body` must never *read* `drag`'s properties — only pass the
+    // reference — or the observation dependency defeats the isolation.
     @State private var draggedItem: FridgeItem?
     @State private var drag = DragModel()
-    @State private var zoneFrames: [DropZone: CGRect] = [:]
 
     // No NavigationStack: nothing navigates, and a system search drawer is
     // scroll-linked — it resizes the bar area every frame while the grid
@@ -92,7 +93,7 @@ struct HomeView: View {
                     .transition(.opacity)
             }
         }
-        .onPreferenceChange(DropZoneFramesKey.self) { zoneFrames = $0 }
+        .onPreferenceChange(DropZoneFramesKey.self) { drag.zoneFrames = $0 }
         .animation(AppTheme.searchSpring, value: draggedItem == nil)
         .sheet(item: $selectedItem) { item in
             ItemDetailSheet(item: item)
@@ -439,7 +440,7 @@ struct HomeView: View {
 
     private func endDrag(at location: CGPoint) {
         guard let item = draggedItem else { return }
-        guard let zone = zoneFrames.first(where: { $0.value.contains(location) })?.key else {
+        guard let zone = drag.zoneFrames.first(where: { $0.value.contains(location) })?.key else {
             clearDrag() // released outside a zone cancels
             return
         }
@@ -450,8 +451,8 @@ struct HomeView: View {
         } else {
             // Shrink the ghost into the zone before the grid updates.
             withAnimation(.easeIn(duration: 0.2)) {
-                drag.location = CGPoint(x: zoneFrames[zone]?.midX ?? location.x,
-                                        y: zoneFrames[zone]?.midY ?? location.y)
+                drag.location = CGPoint(x: drag.zoneFrames[zone]?.midX ?? location.x,
+                                        y: drag.zoneFrames[zone]?.midY ?? location.y)
                 drag.scale = 0.15
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
@@ -489,7 +490,7 @@ struct HomeView: View {
                     .padding(.bottom, 10)
                     .transition(.opacity)
             } else {
-                DropZoneBarHost(drag: drag, zoneFrames: zoneFrames)
+                DropZoneBarHost(drag: drag)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
@@ -600,6 +601,11 @@ private final class DragModel {
     /// `.zero` means the long-press hasn't produced a live position yet.
     var location: CGPoint = .zero
     var scale: CGFloat = 1.3
+    /// The drop zones' global frames. Held here rather than on `@State`
+    /// because `DropZoneBar`'s enter/exit transition re-emits the frame
+    /// preference every animation frame (~0.35s at drag start *and* end); a
+    /// `@State` write would re-run the whole `HomeView` body per frame.
+    var zoneFrames: [DropZone: CGRect] = [:]
 }
 
 /// The ghost travelling under the finger — the item's art, or its name in
@@ -644,13 +650,14 @@ private struct DragGhostView: View {
 
 /// Hit-tests the live drag position against the zone frames and feeds the
 /// result to `DropZoneBar`. Its own view for the same reason as the ghost:
-/// only it re-renders per drag frame.
+/// only it re-renders per drag frame — and per frame-preference emission
+/// during the bar's enter/exit transition, since it alone reads
+/// `drag.zoneFrames`.
 private struct DropZoneBarHost: View {
     let drag: DragModel
-    let zoneFrames: [DropZone: CGRect]
 
     var body: some View {
-        DropZoneBar(hotZone: zoneFrames.first { $0.value.contains(drag.location) }?.key)
+        DropZoneBar(hotZone: drag.zoneFrames.first { $0.value.contains(drag.location) }?.key)
     }
 }
 
