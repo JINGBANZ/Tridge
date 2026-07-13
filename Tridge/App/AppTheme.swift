@@ -89,10 +89,8 @@ enum AppTheme {
     static let filterDotOffset = (x: CGFloat(4), y: CGFloat(-4))
     /// Header glyph size (filter and gear).
     static let headerGlyphSize: CGFloat = 20
-    /// Pads the bare header glyphs' tappable area toward the 44pt minimum —
-    /// the glyphs alone are ~15–20pt tall and easy to miss. Horizontal pad is
-    /// capped at half the glyph spacing so neighboring targets don't overlap.
-    static let headerButtonHitPad = (h: CGFloat(5), v: CGFloat(14))
+    /// Breathing room before the count in the native trailing toolbar group.
+    static let headerCountLeadingInset: CGFloat = 8
     /// Home's "nothing matches" ghost under an active filter.
     static let ghostSpacing: CGFloat = 10
     static let ghostArtOpacity: Double = 0.5
@@ -110,26 +108,6 @@ enum AppTheme {
     static let scanButtonClearance: CGFloat = scanButtonSize + 40
     static let dropZoneHeight: CGFloat = 78
     static let dropZoneRadius: CGFloat = 20
-    /// Home search field (Apple Music–style, item-grouping-search.html §6.2,
-    /// owner-revised 2026-07-12): a rounded capsule parked below the header
-    /// that scrolls up and tucks under it. A muted fill reads as a distinct
-    /// field over the chilled background.
-    static let searchFieldFill = Color(light: 0xDBE2DD, dark: 0x1E2A23)
-    /// Padding inside the capsule, around the icon/text row.
-    static let searchFieldPadding = (h: CGFloat(14), v: CGFloat(10))
-    static let searchFieldIconGap: CGFloat = 8
-    /// Vertical rhythm of the capsule row within the scroll content.
-    static let searchBarPadding = (top: CGFloat(2), bottom: CGFloat(10))
-    /// The circular ✕ cancel button that slides in to the right on focus.
-    static let searchCancelSize: CGFloat = 34
-    static let searchCancelGap: CGFloat = 8
-    /// When focused, content rises so the capsule sits this far below the
-    /// status bar (the header having faded away).
-    static let searchFocusTopGap: CGFloat = 4
-    /// Full height of the revealable search bar (capsule + its vertical
-    /// padding). Overscrolling the grid by this much fully expands it; the
-    /// reveal amount tracks the pull continuously up to here.
-    static let searchRevealHeight: CGFloat = 52
     /// Emoji-free mode's home rows: name-first lines replacing the art grid.
     static let listRowPadding = (h: CGFloat(20), v: CGFloat(12))
     static let listRowQuantityGap: CGFloat = 8
@@ -141,7 +119,7 @@ enum AppTheme {
 
     // MARK: Type
 
-    static let titleFont = Font.system(size: 28, weight: .heavy, design: .rounded)
+    static let titleFont = Font.system(size: 24, weight: .heavy, design: .rounded)
     static let itemNameFont = Font.system(size: 13, weight: .semibold)
     /// Emoji-free mode's home rows — the name is the row, so it reads larger
     /// than the grid caption.
@@ -160,11 +138,6 @@ enum AppTheme {
     /// Home's "nothing matches" ghost: art + caption.
     static let ghostArtFont = Font.system(size: 34)
     static let ghostTextFont = Font.system(size: 13, weight: .semibold)
-    static let searchFont = Font.system(size: 13, weight: .semibold)
-    /// The ⓧ clear button inside the search field.
-    static let searchClearFont = Font.system(size: 14)
-    /// The ✕ inside the circular cancel button.
-    static let searchCancelFont = Font.system(size: 13, weight: .semibold)
     /// The emoji inside settings icon chips.
     static let settingsIconFont = Font.system(size: 15)
 
@@ -183,12 +156,8 @@ enum AppTheme {
     /// Only animate the initial screenful; later lazy cells must stay cheap to scroll.
     static let popInItemLimit = 16
 
-    /// Home's standard settle spring: search-mode transitions (enter/exit,
-    /// the inline clear button) and the drag ghost's appear/disappear.
-    static let searchSpring = Animation.spring(response: 0.35, dampingFraction: 0.8)
-    /// Pull-to-reveal expand/collapse of the search bar — slightly tighter so
-    /// the bar snaps in step with the scroll settle.
-    static let searchRevealSpring = Animation.spring(response: 0.32, dampingFraction: 0.82)
+    /// Drag ghost and drop-zone appear/disappear settle.
+    static let dragSpring = Animation.spring(response: 0.35, dampingFraction: 0.8)
 }
 
 extension Color {
