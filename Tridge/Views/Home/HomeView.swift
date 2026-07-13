@@ -30,20 +30,6 @@ struct HomeView: View {
     @State private var showAddMenu = false
     @State private var pickedPhoto: PhotosPickerItem?
     @State private var searchText = ""
-    /// Search "mode": true from first focus until Cancel is tapped — distinct
-    /// from `searchFocused` (the keyboard) so scrolling the results can dismiss
-    /// the keyboard without leaving search mode, as in Apple Music.
-    @State private var searchActive = false
-    /// The bar's live 0…1 openness, driven continuously by the UIKit scroll
-    /// offset. Isolated so scrolling re-renders only the bar overlay + occluder,
-    /// never `body` (which hosts the grid).
-    @State private var reveal = RevealModel()
-    @FocusState private var searchFocused: Bool
-    /// Measured so the grid rests just beneath the header and the occluder
-    /// covers exactly the status bar + header. Seeded with typical values to
-    /// avoid a first-frame jump.
-    @State private var safeTop: CGFloat = 59
-    @State private var headerContentHeight: CGFloat = 48
     @State private var animatedItemIDs: Set<UUID> = []
 
     // Filter state: nil = "All" on that axis.
@@ -53,48 +39,41 @@ struct HomeView: View {
 
     // Drag-to-consume state. The item changes once per drag and may drive
     // `body`; the live position/scale change every frame and live in `drag`
-    // (isolated like `RevealModel`) so only the ghost and drop bar re-render.
+    // so only the ghost and drop bar re-render.
     @State private var draggedItem: FridgeItem?
     @State private var drag = DragModel()
     @State private var zoneFrames: [DropZone: CGRect] = [:]
 
-    // No NavigationStack: nothing navigates, and a system search drawer is
-    // scroll-linked — it resizes the bar area every frame while the grid
-    // scrolls, re-laying-out the whole screen. Instead the grid fills the
-    // screen behind an opaque header layer; the search capsule is the grid's
-    // first scrolling row, so it tucks *under* the header on scroll by plain
-    // layout — no per-frame scroll math (Apple Music's Library → Songs search).
     var body: some View {
-        ZStack(alignment: .top) {
-            AppTheme.ChillBackground()
+        NavigationStack {
+            ZStack(alignment: .top) {
+                AppTheme.ChillBackground()
 
-            if items.isEmpty {
-                VStack(spacing: 0) {
-                    header
+                if items.isEmpty {
                     EmptyStateView()
                         .padding(.bottom, AppTheme.scanButtonClearance)
                         .accessibilityIdentifier("home.emptyState")
+                } else {
+                    inventoryScroll
                 }
-            } else {
-                collapsibleGrid
-                HeaderOccluderView(reveal: reveal, searchActive: searchActive,
-                                   headerReserve: headerReserve)
-                SearchBarView(reveal: reveal, searchActive: searchActive,
-                              headerReserve: headerReserve, searchText: $searchText,
-                              searchFocused: $searchFocused, onCancel: exitSearch)
-                headerBar
-            }
 
-            bottomArea
-            DragGhostView(drag: drag, item: draggedItem, emojiFree: emojiFreeMode)
+                bottomArea
+                DragGhostView(drag: drag, item: draggedItem, emojiFree: emojiFreeMode)
 
-            if scanFlow.phase == .processing {
-                ScanProgressView()
-                    .transition(.opacity)
+                if scanFlow.phase == .processing {
+                    ScanProgressView()
+                        .transition(.opacity)
+                }
             }
+            .modifier(NativeSearchModifier(isEnabled: !items.isEmpty, text: $searchText))
+            .navigationTitle("")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { homeToolbar }
+            .toolbarBackground(.hidden, for: .navigationBar)
         }
+        .tint(AppTheme.brandGreen)
         .onPreferenceChange(DropZoneFramesKey.self) { zoneFrames = $0 }
-        .animation(AppTheme.searchSpring, value: draggedItem == nil)
+        .animation(AppTheme.dragSpring, value: draggedItem == nil)
         .sheet(item: $selectedItem) { item in
             ItemDetailSheet(item: item)
         }
@@ -136,20 +115,7 @@ struct HomeView: View {
             // stale filter or query afterward.
             if empty {
                 clearFilters()
-                searchFocused = false
                 searchText = ""
-                searchActive = false
-                reveal.progress = 0
-            }
-        }
-        .onChange(of: searchFocused) { _, focused in
-            // Focusing enters search mode (pins the bar open, fades the header);
-            // Cancel leaves it. Scrolling stays live throughout — dragging the
-            // results dismisses the keyboard (keyboardDismissMode .onDrag)
-            // without leaving search mode, as in Apple Music.
-            guard focused, !searchActive else { return }
-            withAnimation(AppTheme.searchSpring) {
-                searchActive = true
             }
         }
     }
@@ -234,36 +200,50 @@ struct HomeView: View {
         filteredItems.reduce(0) { $0 + $1.quantity }
     }
 
-    private var header: some View {
-        HStack {
-            Text("Tridge")
-                .font(AppTheme.titleFont)
-                .foregroundStyle(AppTheme.ink)
-                .accessibilityIdentifier("home.title")
-            Spacer()
-            HStack(spacing: 10) {
-                Text("\(unitCount) item\(unitCount == 1 ? "" : "s")")
-                    .font(AppTheme.countFont)
-                    .foregroundStyle(AppTheme.mutedInk)
-                    .accessibilityIdentifier("home.itemCount")
-                if !items.isEmpty {
-                    filterButton
-                }
-                Button {
-                    showSettings = true
-                } label: {
-                    Image(systemName: "gearshape")
-                        .font(.system(size: AppTheme.headerGlyphSize))
-                        .foregroundStyle(AppTheme.mutedInk)
-                        .headerHitTarget()
-                }
-                .accessibilityLabel("Settings")
-                .accessibilityIdentifier("home.settingsButton")
+    @ToolbarContentBuilder
+    private var homeToolbar: some ToolbarContent {
+        if #available(iOS 26.0, *) {
+            ToolbarItem(placement: .topBarLeading) {
+                homeTitle
+            }
+            .sharedBackgroundVisibility(.hidden)
+        } else {
+            ToolbarItem(placement: .topBarLeading) {
+                homeTitle
             }
         }
-        .padding(.horizontal, 20)
-        .padding(.top, 12)
-        .padding(.bottom, 4)
+        ToolbarItemGroup(placement: .topBarTrailing) {
+            Text("\(unitCount) item\(unitCount == 1 ? "" : "s")")
+                .font(AppTheme.countFont)
+                .foregroundStyle(AppTheme.mutedInk)
+                .padding(.leading, AppTheme.headerCountLeadingInset)
+                .accessibilityIdentifier("home.itemCount")
+            if !items.isEmpty {
+                filterButton
+            }
+            settingsButton
+        }
+    }
+
+    private var homeTitle: some View {
+        Text("Tridge")
+            .font(AppTheme.titleFont)
+            .foregroundStyle(AppTheme.ink)
+            .fixedSize()
+            .accessibilityAddTraits(.isHeader)
+            .accessibilityIdentifier("home.title")
+    }
+
+    private var settingsButton: some View {
+        Button {
+            showSettings = true
+        } label: {
+            Image(systemName: "gearshape")
+                .font(.system(size: AppTheme.headerGlyphSize))
+                .foregroundStyle(AppTheme.mutedInk)
+        }
+        .accessibilityLabel("Settings")
+        .accessibilityIdentifier("home.settingsButton")
     }
 
     /// Bare glyph at the gear's visual weight; tints green with a dot while a
@@ -284,23 +264,9 @@ struct HomeView: View {
                             .offset(x: AppTheme.filterDotOffset.x, y: AppTheme.filterDotOffset.y)
                     }
                 }
-                .headerHitTarget()
         }
         .accessibilityLabel(hasActiveFilter ? "Filter (active)" : "Filter")
         .accessibilityIdentifier("home.filterButton")
-    }
-
-    // MARK: Search
-
-    /// Cancel leaves search mode: drop the keyboard, clear the query, and fade
-    /// the header back in. The capsule stays at its current (revealed) openness
-    /// — scrolling up from here collapses it.
-    private func exitSearch() {
-        searchFocused = false
-        searchText = ""
-        withAnimation(AppTheme.searchSpring) {
-            searchActive = false
-        }
     }
 
     // MARK: Grid
@@ -316,32 +282,13 @@ struct HomeView: View {
         }
     }
 
-    /// The scrollable grid, hosted in a `UIScrollView` (`CollapsibleScroll`) so
-    /// the search bar can expand/collapse continuously with the scroll without a
-    /// SwiftUI layout cycle. The content leads with a transparent spacer the
-    /// height of the bar: it scrolls naturally with the grid, so the grid rises
-    /// to meet the bar as it collapses (no gap). The visible capsule is drawn by
-    /// `SearchBarView`, sized from the live scroll offset published to `reveal`.
-    private var collapsibleGrid: some View {
-        CollapsibleScroll(
-            topInset: headerReserve,
-            bottomInset: AppTheme.scanButtonClearance,
-            revealHeight: AppTheme.searchRevealHeight,
-            locked: searchActive,
-            onScroll: { top in
-                let clamped = min(max(top, 0), AppTheme.searchRevealHeight)
-                let progress = 1 - clamped / AppTheme.searchRevealHeight
-                // Same-value writes still notify @Observable observers, so
-                // skip them — otherwise every frame of ordinary scrolling
-                // (progress pinned at 0) re-renders the bar and occluder.
-                if reveal.progress != progress { reveal.progress = progress }
-            }
-        ) {
-            // Evaluated once per body pass; reading `visibleItems` in each
-            // branch would re-filter the inventory per access.
+    /// The native navigation controller owns the search drawer and coordinates
+    /// its collapse directly with this scroll view. Keeping the grid in the same
+    /// SwiftUI hierarchy avoids a second scroll offset or per-frame state update.
+    private var inventoryScroll: some View {
+        ScrollView {
             let visible = visibleItems
             VStack(spacing: 0) {
-                Color.clear.frame(height: AppTheme.searchRevealHeight)
                 if hasActiveFilter {
                     activeFilterBar
                 }
@@ -353,8 +300,11 @@ struct HomeView: View {
                     gridBody(visible)
                 }
             }
+            .frame(maxWidth: .infinity)
+            .padding(.bottom, AppTheme.scanButtonClearance)
         }
-        .ignoresSafeArea(.container, edges: .top)
+        .scrollDismissesKeyboard(.interactively)
+        .scrollIndicators(.hidden)
     }
 
     private func gridBody(_ visible: [FridgeItem]) -> some View {
@@ -379,32 +329,6 @@ struct HomeView: View {
             }
         }
         .padding(.top, AppTheme.screenMargin)
-    }
-
-    /// Distance from the screen top to the bar (and the grid's reveal spacer):
-    /// status bar + header at rest; focused, the header has faded so the capsule
-    /// rises to just below the status bar. No scroll dependency, so `body` never
-    /// re-renders mid-scroll.
-    private var headerReserve: CGFloat {
-        searchActive
-            ? safeTop + AppTheme.searchFocusTopGap
-            : safeTop + headerContentHeight
-    }
-
-    // MARK: Header overlay
-
-    /// The pinned header, drawn above the scroll content so the search capsule
-    /// tucks under it. Measures its own height (and the safe-area top) so the
-    /// grid can park just beneath it. Fades away in search mode.
-    private var headerBar: some View {
-        header
-            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { rect in
-                safeTop = rect.minY
-                headerContentHeight = rect.height
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .opacity(searchActive ? 0 : 1)
-            .allowsHitTesting(!searchActive)
     }
 
     private func slot(for item: FridgeItem, index: Int) -> some View {
@@ -578,25 +502,10 @@ struct HomeView: View {
     }
 }
 
-private extension View {
-    /// The bare header glyphs are well under the 44pt hit minimum (the filter
-    /// lines are ~15pt tall), so taps beside them fell through. Pad the
-    /// tappable area out, then pull the layout back in so the header keeps its
-    /// glyph-sized spacing — padding never clips, so the padded shape still
-    /// hit-tests.
-    func headerHitTarget() -> some View {
-        padding(.horizontal, AppTheme.headerButtonHitPad.h)
-            .padding(.vertical, AppTheme.headerButtonHitPad.v)
-            .contentShape(Rectangle())
-            .padding(.horizontal, -AppTheme.headerButtonHitPad.h)
-            .padding(.vertical, -AppTheme.headerButtonHitPad.v)
-    }
-}
-
 /// The live drag position and ghost scale, updated every frame of a
-/// drag-to-consume. Isolated in its own observable (like `RevealModel`) so
-/// per-frame finger moves re-render only the ghost overlay and the drop-zone
-/// bar — never `HomeView`'s body, which would rebuild the whole grid tree.
+/// drag-to-consume. Isolated in its own observable so per-frame finger moves
+/// re-render only the ghost overlay and the drop-zone bar — never `HomeView`'s
+/// body, which would rebuild the whole grid tree.
 @Observable
 private final class DragModel {
     /// `.zero` means the long-press hasn't produced a live position yet.
@@ -656,118 +565,23 @@ private struct DropZoneBarHost: View {
     }
 }
 
-/// The capsule search field, drawn as an overlay above the grid (so items can
-/// never overlap it) and below the header. Its height tracks the live scroll
-/// `reveal.progress`, so it expands/collapses continuously with the finger.
-/// Kept a separate view so only it re-renders each scroll frame — not
-/// `HomeView`'s body, which hosts the grid.
-private struct SearchBarView: View {
-    let reveal: RevealModel
-    let searchActive: Bool
-    let headerReserve: CGFloat
-    @Binding var searchText: String
-    var searchFocused: FocusState<Bool>.Binding
-    let onCancel: () -> Void
+/// Adds native navigation search only while inventory exists. The modifier is
+/// conditional because an empty fridge deliberately has no search UI.
+private struct NativeSearchModifier: ViewModifier {
+    let isEnabled: Bool
+    @Binding var text: String
 
-    /// 1 while focused (pinned open); otherwise the live scroll openness.
-    private var progress: CGFloat { searchActive ? 1 : reveal.progress }
-
-    var body: some View {
-        VStack(spacing: 0) {
-            Color.clear.frame(height: headerReserve)
-            // Laid out at natural height (`fixedSize`), then clipped to the
-            // reveal window — clipping keeps layout stable while the height
-            // tracks the scroll.
-            capsule
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(height: AppTheme.searchRevealHeight * progress, alignment: .bottom)
-                .clipped()
-                .opacity(progress)
-            Spacer(minLength: 0)
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if isEnabled {
+            content.searchable(
+                text: $text,
+                placement: .navigationBarDrawer(displayMode: .automatic),
+                prompt: "Search your fridge"
+            )
+        } else {
+            content
         }
-        .ignoresSafeArea(.container, edges: .top)
-        // Only tappable once fully open, so a partly-revealed bar doesn't eat
-        // taps meant for the grid.
-        .allowsHitTesting(progress >= 0.99)
-    }
-
-    private var capsule: some View {
-        HStack(spacing: AppTheme.searchCancelGap) {
-            HStack(spacing: AppTheme.searchFieldIconGap) {
-                Image(systemName: "magnifyingglass")
-                    .font(AppTheme.searchFont)
-                    .foregroundStyle(AppTheme.mutedInk)
-                TextField("Search your fridge", text: $searchText)
-                    .font(AppTheme.searchFont)
-                    .foregroundStyle(AppTheme.ink)
-                    .tint(AppTheme.brandGreen)
-                    .focused(searchFocused)
-                    .submitLabel(.search)
-                    .autocorrectionDisabled()
-                    .accessibilityIdentifier("home.search.field")
-                if !searchText.isEmpty {
-                    Button {
-                        searchText = ""
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(AppTheme.searchClearFont)
-                            .foregroundStyle(AppTheme.mutedInk)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Clear search")
-                    .accessibilityIdentifier("home.search.clearButton")
-                    .transition(.opacity.combined(with: .scale))
-                }
-            }
-            .padding(.horizontal, AppTheme.searchFieldPadding.h)
-            .padding(.vertical, AppTheme.searchFieldPadding.v)
-            .background(AppTheme.searchFieldFill, in: Capsule())
-            .contentShape(Capsule())
-            .onTapGesture { searchFocused.wrappedValue = true }
-
-            if searchActive {
-                Button(action: onCancel) {
-                    Image(systemName: "xmark")
-                        .font(AppTheme.searchCancelFont)
-                        .foregroundStyle(AppTheme.mutedInk)
-                        .frame(width: AppTheme.searchCancelSize,
-                               height: AppTheme.searchCancelSize)
-                        .background(AppTheme.searchFieldFill, in: Circle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Cancel search")
-                .accessibilityIdentifier("home.search.cancelButton")
-                .transition(.move(edge: .trailing).combined(with: .opacity))
-            }
-        }
-        .padding(.horizontal, AppTheme.screenMargin)
-        .padding(.top, AppTheme.searchBarPadding.top)
-        .padding(.bottom, AppTheme.searchBarPadding.bottom)
-        .animation(AppTheme.searchSpring, value: searchText.isEmpty)
-    }
-}
-
-/// A copy of the chilled background masked to the whole top band — status bar +
-/// header + the bar's current height — painted above the grid and below the
-/// capsule. Rendering identically to the base background, it hides any grid
-/// content in that band (including a first row that lags the scroll), so items
-/// can never overlap the bar. Its own view so it, too, re-renders per scroll
-/// frame without touching `HomeView`'s body.
-private struct HeaderOccluderView: View {
-    let reveal: RevealModel
-    let searchActive: Bool
-    let headerReserve: CGFloat
-
-    private var progress: CGFloat { searchActive ? 1 : reveal.progress }
-
-    var body: some View {
-        AppTheme.ChillBackground()
-            .mask(alignment: .top) {
-                Rectangle()
-                    .frame(height: headerReserve + AppTheme.searchRevealHeight * progress)
-            }
-            .allowsHitTesting(false)
-            .ignoresSafeArea()
     }
 }
 
