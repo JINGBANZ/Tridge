@@ -202,6 +202,7 @@ struct HomeView: View {
 
     @ToolbarContentBuilder
     private var homeToolbar: some ToolbarContent {
+#if compiler(>=6.2)
         if #available(iOS 26.0, *) {
             ToolbarItem(placement: .topBarLeading) {
                 homeTitle
@@ -212,6 +213,11 @@ struct HomeView: View {
                 homeTitle
             }
         }
+#else
+        ToolbarItem(placement: .topBarLeading) {
+            homeTitle
+        }
+#endif
         ToolbarItemGroup(placement: .topBarTrailing) {
             Text("\(unitCount) item\(unitCount == 1 ? "" : "s")")
                 .font(AppTheme.countFont)
