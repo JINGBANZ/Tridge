@@ -1,5 +1,9 @@
 import SwiftUI
 
+enum HomeDragCoordinateSpace {
+    static let name = "home.drag"
+}
+
 enum DropZone: CaseIterable {
     case ate, tossed
 
@@ -18,9 +22,8 @@ enum DropZone: CaseIterable {
     }
 }
 
-/// Reports each zone's frame (in global space) for drag hit-testing — global
-/// so it stays valid when the grid is hosted in a `UIScrollView`, across the
-/// UIKit boundary a named coordinate space can't cross.
+/// Reports each zone's frame in the home drag coordinate space so hit-testing
+/// and the dragged ghost use the same origin.
 struct DropZoneFramesKey: PreferenceKey {
     static var defaultValue: [DropZone: CGRect] { [:] }
     static func reduce(value: inout [DropZone: CGRect], nextValue: () -> [DropZone: CGRect]) {
@@ -67,8 +70,9 @@ struct DropZoneBar: View {
         .accessibilityIdentifier(zone == .ate ? "home.dropZone.ate" : "home.dropZone.tossed")
         .background {
             GeometryReader { proxy in
+                let frame = proxy.frame(in: .named(HomeDragCoordinateSpace.name))
                 Color.clear.preference(key: DropZoneFramesKey.self,
-                                       value: [zone: proxy.frame(in: .global)])
+                                       value: [zone: frame])
             }
         }
         .animation(.spring(response: 0.25, dampingFraction: 0.8), value: isHot)

@@ -65,6 +65,7 @@ struct HomeView: View {
                         .transition(.opacity)
                 }
             }
+            .coordinateSpace(name: HomeDragCoordinateSpace.name)
             .modifier(NativeSearchModifier(isEnabled: !items.isEmpty, text: $searchText))
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
@@ -520,11 +521,9 @@ private final class DragModel {
 }
 
 /// The ghost travelling under the finger — the item's art, or its name in
-/// emoji-free mode. Placed on a full-screen layer that ignores the safe area,
-/// so `.position` resolves in global coordinates — the same space as the drag
-/// location and the drop-zone frames (global so hit-testing keeps working once
-/// the grid is hosted in a `UIScrollView`). Its own view so only it re-renders
-/// as `drag` changes each frame.
+/// emoji-free mode. Its parent fills the named home drag coordinate space, so
+/// `.position` uses the same origin as the gesture and drop-zone frames. Its
+/// own view means only it re-renders as `drag` changes each frame.
 private struct DragGhostView: View {
     let drag: DragModel
     let item: FridgeItem?
@@ -532,7 +531,6 @@ private struct DragGhostView: View {
 
     var body: some View {
         Color.clear
-            .ignoresSafeArea()
             .allowsHitTesting(false)
             .overlay {
                 if let item, drag.location != .zero {
@@ -654,7 +652,9 @@ private struct ConsumeGesture: UIGestureRecognizerRepresentable {
 
     func handleUIGestureRecognizerAction(_ recognizer: UILongPressGestureRecognizer,
                                          context: Context) {
-        let location = context.converter.location(in: .global)
+        let location = context.converter.location(
+            in: .named(HomeDragCoordinateSpace.name)
+        )
         switch recognizer.state {
         case .began, .changed:
             onChanged(location)
