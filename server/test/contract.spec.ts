@@ -32,8 +32,8 @@ describe("buildOpenAIRequest", () => {
     expect(content[1]).toEqual({ type: "input_text", text: PROMPT });
   });
 
-  it("always retains the request at OpenAI (store:true)", () => {
-    expect(request.store).toBe(true);
+  it("disables OpenAI Responses application-state storage (store:false)", () => {
+    expect(request.store).toBe(false);
   });
 });
 

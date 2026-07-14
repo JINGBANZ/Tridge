@@ -49,6 +49,18 @@ afterEach(() => {
 });
 
 describe("request validation", () => {
+  it("serves the public privacy policy without scan authentication", async () => {
+    const response = await worker.fetch(
+      makeRequest({ path: "/privacy", method: "GET", token: null }) as Parameters<typeof worker.fetch>[0],
+      makeEnv(),
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("text/html");
+    expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(await response.text()).toContain("Tridge Privacy Policy");
+  });
+
   it("404s unknown paths and 405s non-POST", async () => {
     const env = makeEnv();
     expect((await run(makeRequest({ path: "/nope" }), env)).response.status).toBe(404);
@@ -87,7 +99,7 @@ describe("request validation", () => {
 });
 
 describe("scan proxying", () => {
-  it("returns the parsed receipt and forwards our key + store:true", async () => {
+  it("returns the parsed receipt and forwards our key + store:false", async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify(openAIReply(RECEIPT_JSON))));
     vi.stubGlobal("fetch", fetchMock);
 
@@ -100,7 +112,7 @@ describe("scan proxying", () => {
     expect(url).toBe("https://api.openai.com/v1/responses");
     expect((init.headers as Record<string, string>).authorization).toBe("Bearer sk-test");
     const sent = JSON.parse(init.body as string);
-    expect(sent.store).toBe(true);
+    expect(sent.store).toBe(false);
     expect(sent.input[0].content[0].image_url).toMatch(/^data:image\/jpeg;base64,/);
   });
 

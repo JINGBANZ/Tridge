@@ -1,6 +1,6 @@
 // One worker for now: `tridge-scan-api-test` (`wrangler deploy`). It serves both
 // Xcode-dev builds and TestFlight — App Attest with `APP_ATTEST_ALLOW_DEV=true`,
-// plus a static bearer token for the local smoke harness. `store:true` and every
+// plus a static bearer token for the local smoke harness. `store:false` and every
 // other behavior here is already the production posture, so adding a dedicated
 // prod worker later is purely additive — see server/README.md → "Adding a
 // production worker later" (add an `env.prod` block, its own KV + OpenAI key,

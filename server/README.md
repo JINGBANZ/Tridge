@@ -7,7 +7,7 @@ returns the `ParsedReceipt` JSON the app already parses.
 **One worker today** (`tridge-scan-api-test`) serves every build — Xcode-dev and
 TestFlight alike. Client auth is **Apple App Attest**; a static bearer token is
 also accepted, solely so the local receipt smoke harness (which can't produce
-App Attest assertions) can drive the worker from Linux. `store:true` and the rest
+App Attest assertions) can drive the worker from Linux. `store:false` and the rest
 of the behavior here are already the production posture, so standing up a
 dedicated production worker later is purely additive — see
 [Adding a production worker later](#adding-a-production-worker-later).
@@ -25,6 +25,7 @@ POST /v1/receipt-scan
 
 POST /v1/attest/challenge          → {"challenge":"<base64>"}   (one-time, App Attest registration)
 POST /v1/attest                    → {"ok":true}                (body: {keyId, attestation, challenge})
+GET  /privacy                       → public privacy policy (no authentication)
 ```
 
 Protection layers, in order: per-IP rate limit → client auth → input
@@ -81,4 +82,13 @@ URL, isolated budget-capped OpenAI key, production-only attestations) is additiv
    test URL, `#else` → prod URL) so Release/TestFlight builds hit production.
 
 No behavior changes on the existing worker — it already runs the production
-posture (`store:true`, App Attest, per-device quotas).
+posture (`store:false`, App Attest, per-device quotas).
+
+## Privacy policy
+
+The Worker serves the App Store privacy policy at
+`https://tridge-scan-api-test.forrestzjb.workers.dev/privacy`. It is public and
+does not require App Attest or a scan token. The policy describes the receipt
+scan processor, App Attest/rate-limit data, and the `store:false` OpenAI
+Responses setting. After this change is deployed, enter that URL in App Store
+Connect → App Privacy → Privacy Policy URL.

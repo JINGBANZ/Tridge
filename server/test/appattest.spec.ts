@@ -200,7 +200,7 @@ describe("scan handler with App Attest", () => {
     const response = await worker.fetch(scanRequest("phone") as Parameters<typeof worker.fetch>[0], makeEnv(kv));
     expect(response.status).toBe(200);
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    expect(JSON.parse(init.body as string).store).toBe(true);
+    expect(JSON.parse(init.body as string).store).toBe(false);
   });
 
   it("401s a scan with no attestation and no token configured", async () => {
