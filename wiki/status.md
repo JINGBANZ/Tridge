@@ -13,7 +13,7 @@ camera) goes through a manual **TestFlight** release (`.github/workflows/testfli
 instructions are in `README.md` → "Trying the app". The app scans through the `server/` worker
 (`ProxyLLMService`) and carries no OpenAI key — BYOK is fully removed. Client auth is **Apple App
 Attest**: the app signs each scan with an on-device Secure Enclave key and ships no static token.
-**One worker** (`tridge-scan-api-test`) serves every build (Xcode-dev + TestFlight), with `store:true`
+**One worker** (`tridge-scan-api-test`) serves every build (Xcode-dev + TestFlight), with `store:false`
 and the full production posture (per-device quotas, sanitized errors); it also accepts a static
 bearer token solely for the local smoke harness. A dedicated production worker (separate URL +
 isolated OpenAI key) is deferred — the code is env-driven so it drops in additively later
@@ -116,7 +116,8 @@ isolated key.
   Client auth is Apple App Attest (`src/appattest.ts`: attestation registration via
   `/v1/attest/challenge` + `/v1/attest`, per-scan assertion, per-device quota — device keys/counters
   in the `DEVICE_KV` namespace, crypto via the `node-app-attest` library) with a static bearer token
-  as a fallback for the local smoke harness. `store:true` uniformly. One worker deploys today
+  as a fallback for the local smoke harness. `store:false` uniformly. It also serves the public
+  privacy policy at `/privacy`. One worker deploys today
   (`tridge-scan-api-test`, serving both Xcode-dev and TestFlight builds); the config is env-driven so
   a dedicated prod worker + isolated key is additive later. It is the single home of the receipt
   prompt + JSON schema. Vitest + tsc suite (`npm run typecheck && npm test`, incl. App Attest

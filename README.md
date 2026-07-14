@@ -27,6 +27,8 @@ browser. Agents: start with [`AGENTS.md`](AGENTS.md), then [`wiki/index.md`](wik
   live-scan (use "Try sample receipt" / "Seed the App" / manual add there, or a
   TestFlight build to scan for real). One worker serves every build today; a
   dedicated production worker can be added later (`server/README.md`).
+- Privacy policy: `https://tridge-scan-api-test.forrestzjb.workers.dev/privacy`
+  (available after the Worker deployment containing this change).
 
 ## Trying the app
 

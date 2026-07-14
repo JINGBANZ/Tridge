@@ -402,6 +402,8 @@
   `server/wrangler.jsonc`; set secrets (`OPENAI_API_KEY`, `APPLE_TEAM_ID`, `SCAN_API_TOKEN`); connect
   Cloudflare Workers Builds; verify a TestFlight build scans end-to-end. See `wiki/status.md` → Next
   action and `server/README.md` → Deploy.
+- **Superseded by:** *2026-07-14 — Receipt privacy: disable Responses storage and publish policy*
+  for the `store` value and privacy-policy URL; the App Attest and deployment choices stand.
 
 ### 2026-07-11 — Items group by name; silent merge behind the review page; automatic art
 
@@ -643,3 +645,18 @@
 - **Supersedes:** the certificate-management portion of *2026-07-09 — TestFlight for on-device
   testing; SideStore rejected*. Automatic provisioning and cloud-managed distribution signing
   remain in place.
+
+### 2026-07-14 — Receipt privacy: disable Responses storage and publish policy
+
+- **Chose:** Every receipt request now sends `store:false` to the OpenAI Responses API. The
+  existing Worker serves a public, no-auth privacy-policy page at `/privacy`, so App Store Connect
+  can use `https://tridge-scan-api-test.forrestzjb.workers.dev/privacy` after deployment.
+- **Why:** A receipt image can contain personal purchase information. `store:false` disables
+  Responses application-state storage, which is the correct default for a consumer receipt scan.
+  The policy accurately discloses the remaining scan processors (Cloudflare and OpenAI), the
+  App Attest device-security record, quota/rate-limit data, and OpenAI's abuse-monitoring
+  retention described in its data controls.
+- **Rejected:** `store:true` for dashboard inspection (the prior owner simplification; it retains
+  receipt request content in Responses); a separate policy hosting service (unnecessary operational
+  surface when the existing Worker already has a stable public HTTPS URL).
+- **Supersedes:** the `store:true` portion of *2026-07-10 — Scan API auth is Apple App Attest*.

@@ -23,11 +23,13 @@ import {
   verifyScanAssertion,
   withinDeviceQuota,
 } from "./appattest";
+import { privacyPolicyResponse } from "./privacy";
 import { base64FromBytes, errorMessage, jsonError, jsonResponse, log } from "./util";
 
 const SCAN_PATH = "/v1/receipt-scan";
 const ATTEST_CHALLENGE_PATH = "/v1/attest/challenge";
 const ATTEST_PATH = "/v1/attest";
+const PRIVACY_PATH = "/privacy";
 // The app compresses receipts to ≲1 MB (max edge 1568 px); 8 MB is headroom,
 // not a target. Also enforced before buffering via Content-Length.
 const MAX_BODY_BYTES = 8 * 1024 * 1024;
@@ -45,6 +47,11 @@ export default {
 } satisfies ExportedHandler<Env>;
 
 async function route(request: Request, env: Env): Promise<Response> {
+  const path = new URL(request.url).pathname;
+  // App Store reviewers need a public policy URL. This static page has no
+  // user data or Worker state, so it does not need scan authentication/rate limits.
+  if (request.method === "GET" && path === PRIVACY_PATH) return privacyPolicyResponse();
+
   // Rate limit first, for every route — the unauthenticated attest endpoints
   // (KV writes + X.509/ECDSA verification) must be throttled too, not just the
   // scan path. Keyed by client IP, checked before auth so credentials can't be
@@ -56,7 +63,6 @@ async function route(request: Request, env: Env): Promise<Response> {
     return jsonError(429, "Too many requests. Wait a minute and try again.", { "retry-after": "60" });
   }
 
-  const path = new URL(request.url).pathname;
   if (request.method !== "POST") return jsonError(405, "Use POST.");
 
   if (path === SCAN_PATH) return handleScan(request, env);

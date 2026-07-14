@@ -37,9 +37,9 @@ export function buildOpenAIRequest(imageBase64: string): unknown {
     // Generous cap: gpt-5 reasoning tokens count against it.
     max_output_tokens: 4000,
     reasoning: { effort: "low" },
-    // Retain the request at OpenAI so failed scans stay inspectable in the
-    // dashboard. Same in every environment (see wiki/decisions.md → 2026-07-10).
-    store: true,
+    // Receipt images are personal data. Disable Responses application-state
+    // storage in every environment (see wiki/decisions.md → 2026-07-14).
+    store: false,
     input: [
       {
         role: "user",

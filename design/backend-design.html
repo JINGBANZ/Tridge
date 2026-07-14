@@ -208,7 +208,7 @@
     <div class="arrow"><b>→</b>POST /v1/receipt-scan<br>image/jpeg + App Attest assertion</div>
     <div class="node hl">
       <b>Worker</b>
-      <span>holds OpenAI key · owns prompt, model, schema, retry · rate limits + per-device quota · <code>store:true</code></span>
+      <span>holds OpenAI key · owns prompt, model, schema, retry · rate limits + per-device quota · <code>store:false</code></span>
     </div>
     <div class="arrow"><b>→</b>Responses API<br>gpt-5-mini · strict schema</div>
     <div class="node">
@@ -290,7 +290,7 @@ POST /v1/attest            { keyId, attestation, challenge }  → { "ok": true }
       <tr><th></th><th>Worker now (<code>tridge-scan-api-test</code>)</th><th>Dedicated prod worker — additive, later</th></tr>
       <tr><td class="provider">Client auth</td><td>Apple App Attest per scan + per-device quotas (bearer token kept only for the local smoke harness)</td><td>Same — App Attest only (no token secret set)</td></tr>
       <tr><td class="provider">App Attest env</td><td>development + production accepted (<code>APP_ATTEST_ALLOW_DEV=true</code>) — serves Xcode-dev and TestFlight</td><td>production only (<code>false</code>)</td></tr>
-      <tr><td class="provider">OpenAI <code>store</code></td><td><code>true</code> — scans inspectable in OpenAI's dashboard</td><td><code>true</code> (same)</td></tr>
+      <tr><td class="provider">OpenAI <code>store</code></td><td><code>false</code> — Responses application state disabled</td><td><code>false</code> (same)</td></tr>
       <tr><td class="provider">OpenAI key</td><td>Dedicated project key, budget-capped</td><td>Separate isolated key, own budget + alerts</td></tr>
       <tr><td class="provider">Rate limiting</td><td>20/min per IP (all routes) + 10/day per-device quota (KV)</td><td>Same; custom domain unlocks WAF (optional)</td></tr>
       <tr><td class="provider">App URL</td><td>single <code>ScanAPIConfig.baseURL</code></td><td>build-config split (Debug → test, Release → prod)</td></tr>
@@ -326,7 +326,7 @@ POST /v1/attest            { keyId, attestation, challenge }  → { "ok": true }
     <li class="done">
       <b>Production-grade auth (App Attest) on one worker — implemented, PR #21</b>
       <p>Apple App Attest verification (attestation registration + per-scan assertion, via
-      <code>node-app-attest</code>), per-device quotas, and <code>store:true</code>. Device keys, sign counters, and quota
+      <code>node-app-attest</code>), per-device quotas, and <code>store:false</code>. Device keys, sign counters, and quota
       counts live in the <code>DEVICE_KV</code> namespace. The app (<code>AppAttestAuthorizer</code>) signs each scan and
       ships no static token; the worker keeps a bearer token only for the local smoke harness. One worker
       (<code>tridge-scan-api-test</code>) serves every build via a single <code>ScanAPIConfig.baseURL</code>. Server suite
