@@ -26,6 +26,11 @@
   the name-key identity model, name search, manual-add quick-fill chips, and tiered automatic
   art — with animated flow mocks and the competitor/platform research. The *why* lives in
   [decisions.md](./decisions.md) → *2026-07-11* entry.
+- [household-sharing.md](./household-sharing.md) — the approved **household sharing architecture**:
+  CloudKit ownership and invitations, private/shared persistence, the repository boundary,
+  multi-writer convergence, notification reconciliation, and the automatic no-uninstall reset.
+  Implementation state lives in [status.md](./status.md); the *why* lives in
+  [decisions.md](./decisions.md) → *2026-08-06* entries.
 
 ## Decisions
 

@@ -19,6 +19,11 @@ bearer token solely for the local smoke harness. A dedicated production worker (
 isolated OpenAI key) is deferred — the code is env-driven so it drops in additively later
 (`server/README.md` → "Adding a production worker later").
 
+Household sharing has an approved architecture in [`household-sharing.md`](./household-sharing.md)
+but no implementation. It uses CloudKit Sharing with private/shared Core Data stores, keeps the scan
+Worker outside the inventory data plane, and upgrades installed test builds automatically to a fresh
+shareable inventory without requiring users to uninstall.
+
 ## Next action
 
 The scan worker's production posture is implemented and tested in the repo; what remains is
@@ -124,6 +129,9 @@ isolated key.
   verification against known-good vectors); CI gates PRs; deploys go through Cloudflare Workers
   Builds (git integration), not CI. Setup/API: `server/README.md`.
 - `wiki/` — this design-docs set.
+- `wiki/household-sharing.md` — the approved design for household ownership, CloudKit invitations,
+  private/shared persistence, repository commands, conflict convergence, notification reconciliation,
+  and the automatic no-uninstall reset; the subsystem itself is not implemented.
 
 ## Not yet built
 
@@ -135,3 +143,7 @@ isolated key.
 - Verification of the spec's acceptance checklist on a test build: a local Simulator covers the
   simulator-safe items; the camera items and a live App Attest scan need a TestFlight build on a
   physical iPhone.
+- Household sharing implementation — approved in
+  [`household-sharing.md`](./household-sharing.md), including the fresh-store upgrade for existing
+  App Store/TestFlight installations; no sharing model, persistence stack, repository, invite flow,
+  or sync reconciliation exists in code yet.

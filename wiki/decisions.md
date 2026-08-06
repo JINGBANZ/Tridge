@@ -660,3 +660,47 @@
   receipt request content in Responses); a separate policy hosting service (unnecessary operational
   surface when the existing Worker already has a stable public HTTPS URL).
 - **Supersedes:** the `store:true` portion of *2026-07-10 — Scan API auth is Apple App Attest*.
+
+### 2026-08-06 — Household sharing uses CloudKit Sharing behind a repository-backed Core Data stack
+
+- **Chose:** Model one shareable fridge/freezer/pantry inventory as a `Household`, rooted in a
+  private `CKShare`. Use `NSPersistentCloudKitContainer` with private and shared stores, persistent
+  history, and remote-change notifications; accepted members are trusted read/write participants.
+  All views and the scan-confirm path submit household-scoped commands through an
+  `InventoryRepository` instead of mutating persistence objects directly. Quantity changes are
+  immutable stock operations reduced in `FridgeCore`, while deterministic UUID selection and
+  delayed tombstones converge concurrent same-name inserts. The existing Cloudflare Worker remains
+  receipt-scan-only: App Attest authenticates an installation to that billed endpoint, while
+  CloudKit identity and `CKShare` membership authorize household inventory.
+- **Why:** Tridge is iOS-only, every intended participant has iCloud, members are trusted household
+  editors, and offline convergence matters. CloudKit provides Apple-account identity, invitation
+  delivery, server-enforced share membership, device-to-device synchronization, and local-first
+  persistence without adding an account system or a second operational backend. A repository is the
+  necessary interception point for store routing, capability checks, conflict semantics,
+  notifications, and a future backend swap.
+- **Rejected:** SwiftData's managed CloudKit switch (it mirrors a user's private database, not the
+  shared database required here); retaining SwiftData as a cache under custom `CKSyncEngine`
+  instances (preserves the model syntax but makes Tridge own record mapping, sync state, tombstones,
+  and conflicts); extending the scan Worker with user accounts + an authoritative inventory database
+  (needed for Android/web or fine-grained roles, disproportionate for the accepted Apple-only
+  contract); synchronizing `FridgeItem.quantity` as a last-writer-wins scalar (concurrent household
+  changes can silently lose units). Full architecture: [`household-sharing.md`](./household-sharing.md).
+
+### 2026-08-06 — The sharing upgrade resets inventory in place without requiring an uninstall
+
+- **Chose:** The first sharing build opens its Core Data/CloudKit stores at a new explicit location,
+  ignores the legacy SwiftData store, bootstraps a fresh personal household, and records the new
+  persistence generation. Installed App Store/TestFlight users update normally. The one-time reset
+  cancels old expiry notifications and clears the badge, while retaining device preferences and the
+  existing App Attest registration. Legacy store files stay untouched for rollback; the app neither
+  migrates nor deletes them in this release, and it tells testers once that the sharing update starts
+  a fresh fridge.
+- **Why:** All existing inventory is test data, so preserving rows does not justify a cross-framework
+  migration. Requiring already-installed testers to uninstall is user-hostile and unreliable, while
+  deleting SQLite sidecars during launch adds destructive path risk for no product benefit. A new
+  store gives the clean schema the sharing model needs and makes rollback possible without a manual
+  install ritual.
+- **Rejected:** Asking every tester to uninstall first; a SwiftData-to-Core-Data item migration;
+  opening the old store with the new model; deleting the legacy database and sidecars on first launch;
+  clearing all `UserDefaults` or App Attest state along with the inventory. Full upgrade contract:
+  [`household-sharing.md`](./household-sharing.md) → *Upgrade from the shipping build*.
