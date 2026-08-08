@@ -122,7 +122,7 @@ Analytics & Improvements → Analytics Data (share the newest
 - Expiry tracking with local notifications (T−2 days and expiry day)
 - Game-inventory-style home grid, sorted soonest-expiring first
 - Drag-to-consume, on-device OCR for printed "best by" dates
-- iOS 18+, SwiftUI + SwiftData, no third-party packages, no backend
+- iOS 18+, SwiftUI + SwiftData; receipt scanning uses the Cloudflare Worker described above
 
 ## Later
 

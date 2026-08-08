@@ -1,5 +1,5 @@
 source "https://rubygems.org"
 
-# fastlane drives the TestFlight release lane (fastlane/Fastfile). It is CI/release
-# tooling only — the app itself keeps its "no third-party dependencies" rule.
+# fastlane drives the TestFlight release lane (fastlane/Fastfile). It is a locked
+# CI/release dependency and does not ship in the app binary.
 gem "fastlane"

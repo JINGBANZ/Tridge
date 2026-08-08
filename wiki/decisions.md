@@ -742,3 +742,35 @@
   schema promotion, App Store privacy metadata, and signed two-account TestFlight acceptance require
   the Apple account owner. Exact handoff and evidence: [`household-sharing.md`](./household-sharing.md)
   → *Owner handoff* and *Verification and definition of done*.
+- **Superseded by:** *2026-08-08 — Exact-name items converge losslessly; dependencies are
+  evidence-based* for the three-entity model, separate concurrent same-name rows, and blanket
+  no-package choice. Account isolation, lifecycle, data-rights, and owner-boundary choices stand.
+
+### 2026-08-08 — Exact-name items converge losslessly; dependencies are evidence-based
+
+- **Chose:** Preserve the shipping MergePlanner contract across devices. Two eligible active,
+  unexpired item roots with the same normalized name become one logical item through an immutable
+  `ItemMergeRecord`; a deterministic union projection sums both operation histories and never moves
+  or deletes either root. Expired, zero, and terminal groups remain distinct batches. This makes the
+  sharing model four entities and adds a Linux-testable `ItemGroupReducer` plus a persistent
+  `DuplicateReconciler`. Also replace the blanket third-party ban with evidence-based review and pin
+  MIT-licensed `CloudKitSyncMonitor` 3.1.0 behind `SyncStatusProviding` for overall setup/import/
+  export/network/account status. Core Data history, share lifecycle, account authorization, and
+  inventory convergence remain Tridge-owned.
+- **Why:** A user who adds Milk twice expects one Milk with accumulated quantity whether the second
+  add is sequential or originates concurrently on an offline household device. The prior
+  transfer-then-delete repair was unsafe because a late operation could still target the removed
+  root; a permanent add-only merge edge retains that history and is order-independent. The monitor
+  package has a narrow, tested responsibility and removes generic integration code, while its
+  protocol boundary prevents package types from owning the product model. Dependency value should
+  be decided on evidence, not prohibited categorically.
+- **Rejected:** Leaving independently created active Milk rows visible (breaks established product
+  behavior); copying operations to a winner and deleting aliases (can lose late writes); a Core Data
+  uniqueness constraint (unsupported by CloudKit models and cannot resolve offline races);
+  `SyncKit` replacing Apple's mirroring stack; Automerge as a second persistence/network layer; and
+  adding a package merely to avoid a small amount of domain-specific code. Exact implementation and
+  edge cases: [`household-sharing.md`](./household-sharing.md) → *Matching and lossless same-item
+  convergence* and *Adopt, do not reinvent*.
+- **Supersedes:** The cross-peer deduplication and no-package parts of *2026-08-08 — Sharing ships as
+  an Apple-native, account-isolated implementation contract*. It does not revive the delayed
+  tombstone/transfer design from *2026-08-06*.

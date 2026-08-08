@@ -22,19 +22,23 @@ isolated OpenAI key) is deferred — the code is env-driven so it drops in addit
 Household sharing has an independently reviewed, implementation-ready contract in
 [`household-sharing.md`](./household-sharing.md), but no implementation. It uses Apple-native
 CloudKit Sharing with account-isolated private/shared Core Data stores, immutable stock/delete
-events behind a repository, system invitation/participant UI, real export/deletion behavior, and no
-new package. It keeps the scan Worker outside the inventory data plane and upgrades installed test
-builds automatically to a fresh shareable inventory without requiring users to uninstall. The
-authoritative HTML spec now delegates its sharing-release persistence/lifecycle details to that page,
-so a fresh agent no longer encounters a SwiftData/local-only contradiction.
+events behind a repository, immutable merge links that make concurrent exact-name active items one
+lossless logical row, system invitation/participant UI, and real export/deletion behavior. It pins
+`CloudKitSyncMonitor` 3.1.0 behind a Tridge protocol for generic sync-health observation; persistent
+history, sharing, authorization, and inventory convergence stay application-owned. It keeps the scan
+Worker outside the inventory data plane and upgrades installed test builds automatically to a fresh
+shareable inventory without requiring users to uninstall. The authoritative HTML spec delegates its
+sharing-release persistence/lifecycle details to that page, so a fresh agent no longer encounters a
+SwiftData/local-only contradiction.
 
 ## Next action
 
 The next coding task is the household-sharing implementation, in the fixed order under
 [`household-sharing.md`](./household-sharing.md) → *Implementation sequence*: pure contracts/tests →
 exact Core Data model and account-scoped two-store launch → repository migration of every inventory
-path → history/notifications → Household/invitation UI → lifecycle/export/deletion → full Gate/CI.
-All repository decisions are closed there; a coding agent should not redesign them.
+path plus lossless duplicate reconciliation → pinned sync-status adapter and history/notifications →
+Household/invitation UI → lifecycle/export/deletion → full Gate/CI. All repository decisions are
+closed there; a coding agent should not redesign them.
 
 Live CloudKit/TestFlight completion has an explicit owner-only boundary: create/associate
 `iCloud.com.tridge.app` and refresh capabilities/provisioning, supply two iCloud test accounts/
@@ -147,8 +151,9 @@ isolated key.
 - `wiki/` — this design-docs set.
 - `wiki/household-sharing.md` — the independently reviewed implementation contract for Apple
   capabilities, exact account-scoped private/shared persistence, repository commands, stock/delete
-  convergence, Household/invitation/lifecycle UI, notification reconciliation, export/deletion,
-  owner-only gates, and the automatic no-uninstall reset; the subsystem itself is not implemented.
+  and same-name item convergence, reviewed dependency use, Household/invitation/lifecycle UI,
+  notification reconciliation, export/deletion, owner-only gates, and the automatic no-uninstall
+  reset; the subsystem itself is not implemented.
 
 ## Not yet built
 
@@ -162,6 +167,7 @@ isolated key.
   physical iPhone.
 - Household sharing implementation — approved in
   [`household-sharing.md`](./household-sharing.md), including exact model/operations/UI/lifecycle,
-  privacy/data-rights behavior, owner handoff, and the fresh-store upgrade for existing App Store/
-  TestFlight installations; no sharing model, persistence stack, repository, invite flow, or sync
+  lossless same-name merge links, the pinned sync-status dependency boundary, privacy/data-rights
+  behavior, owner handoff, and the fresh-store upgrade for existing App Store/TestFlight
+  installations; no sharing model, persistence stack, repository, invite flow, or sync
   reconciliation exists in code yet.

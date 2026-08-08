@@ -429,11 +429,12 @@
     <h2>Core Data + CloudKit sharing schema</h2>
     <div class="tablewrap"><table>
       <tr><th>Entity</th><th>Purpose</th><th>Key fields</th></tr>
-      <tr><td><code>HouseholdRecord</code></td><td>One owned or received fridge and the logical aggregate shared in one Core Data record zone.</td><td>UUID, model version, name, created/modified dates, inverse items relationship</td></tr>
-      <tr><td><code>FridgeItemRecord</code></td><td>Item metadata in exactly one household/store/share.</td><td>UUID, model version, name + normalized name, art key, storage, purchase/expiry dates, expiry source, timestamps, inverse household/stock relationships</td></tr>
+      <tr><td><code>HouseholdRecord</code></td><td>One owned or received fridge and the logical aggregate shared in one Core Data record zone.</td><td>UUID, model version, name, created/modified dates, inverse item and item-merge relationships</td></tr>
+      <tr><td><code>FridgeItemRecord</code></td><td>Durable item metadata and stock-history anchor in exactly one household/store/share.</td><td>UUID, model version, name + normalized name, art key, storage, purchase/expiry dates, expiry source, timestamps, inverse household/stock relationships</td></tr>
       <tr><td><code>StockChangeRecord</code></td><td>Immutable, idempotent stock or terminal event; authoritative for quantity, consumption, clear, and delete.</td><td>UUID command id, model version, signed delta, reason, occurrence date, inverse item relationship</td></tr>
+      <tr><td><code>ItemMergeRecord</code></td><td>Immutable edge joining concurrently created exact-name active items into one lossless logical item.</td><td>UUID, model version, sorted left/right item UUIDs, creation date, inverse household relationship</td></tr>
     </table></div>
-    <p class="muted">Quantity is <code>max(0, sum(unique stock-event deltas))</code>; immutable <code>deleted</code>/<code>cleared</code> events prevent resurrection. Urgency is computed from <code>expiryDate</code>, and Food Category remains computed from <code>artKey</code>. Raw receipt text stays only in the in-memory review draft and is not persisted or shared. The exact fields, optionality, inverses, delete rules, encrypted attributes, private/shared store routing, conflict semantics, and account isolation are normative in <a href="../wiki/household-sharing.md">household-sharing.md</a>. It supersedes the shipping SwiftData schema. The first sharing build intentionally starts fresh Core Data stores instead of migrating test inventory.</p>
+    <p class="muted">A logical item is the connected component of its immutable merge edges. Quantity is <code>max(0, sum(unique stock-event deltas across every member))</code>; immutable <code>deleted</code>/<code>cleared</code> events prevent resurrection. Thus two offline users adding one active “Milk” converge to one visible Milk with quantity two without deleting either history. Expired/zero/terminal batches stay separate. Urgency is computed from the winning <code>expiryDate</code>, and Food Category remains computed from <code>artKey</code>. Raw receipt text stays only in the in-memory review draft and is not persisted or shared. The exact fields, optionality, inverses, delete rules, encrypted attributes, private/shared store routing, conflict semantics, and account isolation are normative in <a href="../wiki/household-sharing.md">household-sharing.md</a>. It supersedes the shipping SwiftData schema. The first sharing build intentionally starts fresh Core Data stores instead of migrating test inventory.</p>
   </section>
 
   <!-- ================= LLM ================= -->
@@ -482,22 +483,23 @@ Rules:
   <section>
     <span class="eyebrow">Architecture</span>
     <h2>Project layout</h2>
-    <pre>Tridge/                    (iOS 18+, Swift 5.10, SwiftUI, no new third-party packages)
+    <pre>Tridge/                    (iOS 18+, Swift 5.10, SwiftUI; reviewed dependencies pinned)
 ├─ App/            TridgeApp · AppTheme · LaunchState · HouseholdSession
-├─ Core/           existing pure logic + snapshots, commands, StockReducer, selection, notification plan
+├─ Core/           existing pure logic + snapshots, commands, StockReducer, ItemGroupReducer, selection, notification plan
 ├─ Models/         Artwork (artKey → image lookup); no SwiftData model after the sharing migration
-├─ Persistence/    TridgeModel.xcdatamodeld · two-store controller · repository · persistent history
-├─ Sharing/        CKShare service · Transferable invite · app/scene invitation bridge · event monitor
+├─ Persistence/    TridgeModel.xcdatamodeld · two-store controller · repository · duplicate reconciler · persistent history
+├─ Sharing/        CKShare service · invitation bridge · CloudKitSyncMonitor adapter
+├─ Resources/      app assets · bundled third-party notices
 ├─ Services/       scan Worker client/App Attest · VisionKit scanner · local-notification adapter
 ├─ Views/          Home · Scan · Detail · Shared form rows · Settings · Household
 └─ Tests/          Linux pure-logic tests + Apple-platform persistence/sharing-adapter tests</pre>
     <div class="tablewrap"><table>
       <tr><th>Concern</th><th>Decision</th></tr>
-      <tr><td>Notifications</td><td><code>UNUserNotificationCenter</code>, local only, for the active household. Two per item: T−2d and expiry day, at the Settings hour. Identifiers include account-scope hash + household UUID + item UUID + <code>pre/day</code>; reconcile the desired diff after local/remote changes and household switches. Request permission on first successful item add, not on a remote import.</td></tr>
+      <tr><td>Notifications</td><td><code>UNUserNotificationCenter</code>, local only, for the active household. Two per logical item: T−2d and expiry day, at the Settings hour. Identifiers include account-scope hash + household UUID + logical-item UUID + <code>pre/day</code>; reconcile the desired diff after local/remote changes and household switches. Request permission on first successful item add, not on a remote import.</td></tr>
       <tr><td>Badge</td><td>App icon badge = count of expired active items in the active household; recomputed after local/remote changes, household switches, reset, and foreground.</td></tr>
       <tr><td>State</td><td>A main-actor <code>HouseholdSession</code> exposes immutable value snapshots. Views submit async commands to <code>InventoryRepository</code>; no managed object crosses a context or enters SwiftUI state. <code>ScanFlowModel</code> still owns only camera → Worker → in-memory review.</td></tr>
-      <tr><td>Sharing</td><td><code>NSPersistentCloudKitContainer</code> mirrors account-scoped private/shared stores. One invite-only, read/write zone share per household; Apple system UI manages participants. Full contract: <a href="../wiki/household-sharing.md">household-sharing.md</a>.</td></tr>
-      <tr><td>Out of scope</td><td>Grocery list, recipes, stats screen, custom sprite artwork, Android/web, non-iCloud accounts, public shares, fine-grained roles, and automatic cross-peer item deduplication.</td></tr>
+      <tr><td>Sharing</td><td><code>NSPersistentCloudKitContainer</code> mirrors account-scoped private/shared stores. One invite-only, read/write zone share per household; Apple system UI manages participants. Exact-name active duplicates converge through immutable merge links. <code>CloudKitSyncMonitor</code> 3.1.0 is pinned behind a Tridge adapter for overall sync health. Full contract: <a href="../wiki/household-sharing.md">household-sharing.md</a>.</td></tr>
+      <tr><td>Out of scope</td><td>Grocery list, recipes, stats screen, custom sprite artwork, Android/web, non-iCloud accounts, public shares, fine-grained roles, and a user-facing split/unmerge tool.</td></tr>
     </table></div>
   </section>
 
@@ -528,7 +530,7 @@ Rules:
     <span class="eyebrow">Definition of done</span>
     <h2>Acceptance criteria for the one-shot build</h2>
     <ul class="checklist">
-      <li>App builds clean in Xcode for iOS 18 simulator; no third-party dependencies.</li>
+      <li>App builds clean in Xcode for iOS 18 simulator; every third-party dependency is justified, license-reviewed, exactly pinned, locked, attributed, and isolated behind a replacement boundary where practical.</li>
       <li>Scanning a real Trader Joe's–style receipt yields a review sheet with ≥90% of food lines as clean names, each with art, quantity, and a plausible future expiry date.</li>
       <li>Confirming the sheet adds items to Home, sorted soonest-first, with staggered pop-in animation.</li>
       <li>Items render with no background frame — art + shadow directly on the gradient; pills green ≥3d, amber 1–2d, red today/expired; expired art desaturates; app badge equals expired count.</li>
@@ -540,7 +542,7 @@ Rules:
       <li>Notifications fire at T−2d and expiry day at the configured hour (verifiable with a short-dated test item).</li>
       <li>The app carries no API key; App Attest/auth failure and network failure show a safe retry message; malformed LLM JSON gets one automatic Worker-side retry.</li>
       <li>An installed TestFlight/App Store build updates without uninstalling, starts a fresh shareable inventory, preserves preferences and App Attest, removes old expiry reminders, and leaves the legacy SwiftData files untouched.</li>
-      <li>An owner can invite a second iCloud account; both peers can view/add/edit/eat/toss offline and converge through immutable stock events without a lost scalar increment. Independent offline same-name creates remain separate by design.</li>
+      <li>An owner can invite a second iCloud account; both peers can view/add/edit/eat/toss offline and converge through immutable stock events without a lost scalar increment. Independent offline exact-name active creates become one logical row with summed quantity through immutable merge links; neither physical history is deleted.</li>
       <li>The Household screen can switch among personal/received fridges, auto-select an accepted invitation, export a versioned JSON document, leave/revoke safely, stop sharing while preserving the owner's active stock, and delete owned CloudKit data.</li>
       <li>No/restricted iCloud account never exposes cached inventory; account changes rebuild account-scoped stores/tokens/selection before showing data. Public/read-only/participant-reinvite options are unavailable.</li>
       <li>Empty fridge shows the empty state; dark mode renders per the dark tokens; Reduce Motion disables the pop-in spring and drag float.</li>

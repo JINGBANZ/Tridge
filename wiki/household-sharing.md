@@ -18,6 +18,12 @@ adds two from a receipt. Their phones immediately show four and seven respective
 phones reconnect, both operations are present and both phones show six. The receipt still goes only
 to the existing scan Worker; the shared inventory goes only through the household's CloudKit share.
 
+The existing item-grouping behavior also survives sharing. If Maya and Alex each add one "Milk"
+while both are offline and neither can see the other's new row, Tridge preserves both additions but
+projects them as one logical Milk with quantity two after synchronization. It links the two physical
+histories instead of deleting either one, so an operation arriving late still counts. An expired,
+zero, or deleted Milk remains a closed batch; a later purchase starts a new one.
+
 Installed App Store and TestFlight users update normally. The sharing build starts a fresh inventory
 in new database files, preserves settings and App Attest, removes obsolete expiry reminders, and
 shows one explanation. Nobody must uninstall the old build.
@@ -36,14 +42,14 @@ different behavior.
 | Is iCloud optional? | No for the sharing build. A signed-out or restricted account sees an account-required screen; an already validated signed-in session can continue through an ordinary network outage. |
 | Is synchronization live? | No hard real-time promise. Local writes are immediate and CloudKit converges eventually. |
 | What happens to concurrent quantities? | Immutable stock operations compose; no increment or decrement is overwritten by a scalar last-writer-wins merge. |
-| What happens to simultaneous same-name creation? | Each device still merges against items it can already see. Independently created offline rows remain separate after sync; Tridge never destroys or combines them automatically. |
+| What happens to simultaneous same-name creation? | Exact-name active items converge to one logical item. Tridge retains every physical row and stock event, joins their identities with immutable merge links, and sums the histories; it never transfers then deletes a duplicate. |
 | What happens when sharing ends? | A participant leaves without a copy. An owner may stop sharing and keep a new private copy, or delete the shared fridge for everyone. |
 | Is old inventory migrated? | No. Test inventory resets automatically in place; the legacy SwiftData files remain untouched for rollback. |
-| Does this add a runtime dependency? | No. Use Apple frameworks and adapt Apple's sample patterns. |
+| Does this add a runtime dependency? | Yes, narrowly: pin `CloudKitSyncMonitor` 3.1.0 for sync-status observation. Core Data/CloudKit, sharing lifecycle, persistent history, and inventory convergence remain application code. |
 
 Cross-platform clients, non-iCloud identities, public shares, adversarial member permissions,
-grocery lists, recipes, and a manual duplicate-merging feature are out of scope. If Tridge later
-needs Android/web or field-level roles, inventory must move behind a server-authoritative API.
+grocery lists, recipes, and a user-facing manual merge tool are out of scope. If Tridge later needs
+Android/web or field-level roles, inventory must move behind a server-authoritative API.
 
 ## Why this architecture
 
@@ -60,6 +66,10 @@ flowchart LR
     PrivateDB <-->|private CKShare| SharedDB
     Private --> History[Persistent-history processor]
     Shared --> History
+    Repository --> Reconcile[Duplicate reconciler]
+    History --> Reconcile
+    Reconcile --> Private
+    Reconcile --> Shared
     History --> Session[HouseholdSession snapshots]
     Session --> Views
     History --> Reminders[Notification reconciler]
@@ -74,9 +84,9 @@ local replica, private-database sync, and CloudKit Sharing. Tridge uses one mode
 Each household is Tridge's **logical aggregate** inside one Core Data zone-wide `CKShare`; it is not
 a CloudKit hierarchical-root record. `NSPersistentCloudKitContainer.share([household], to: nil)`
 moves the related graph into the share's record zone. Its items and stock operations stay in that
-same persistent store and share graph. Relationships never cross household, store, or share
-boundaries. `CKShare` is the membership source of truth; Tridge does not create an account system or
-a parallel member table.
+same persistent store and share graph, along with its item-merge links. Relationships never cross
+household, store, or share boundaries. `CKShare` is the membership source of truth; Tridge does not
+create an account system or a parallel member table.
 
 The scan Worker remains a separate trust boundary. App Attest authorizes a Tridge installation to
 use the billed receipt endpoint. CloudKit identifies an iCloud user and authorizes access to a
@@ -95,20 +105,54 @@ Use these platform components directly:
 | Manage participants | `UICloudSharingController` | Existing system UI, wrapped for SwiftUI. Do not build a contacts or participant editor. |
 | Accept invitations | `CKSharingSupported` plus application/scene delegate callbacks | Route metadata to `acceptShareInvitations(from:into:)` for the shared store. |
 | Detect remote data | Persistent history and remote-change notifications | Consume a token per store and refresh value snapshots. |
+| Present overall sync health | [`CloudKitSyncMonitor` 3.1.0](https://github.com/ggruen/CloudKitSyncMonitor/tree/3.1.0) | Observe setup/import/export, network, and iCloud-account signals through a Tridge-owned adapter. |
 | Detect share-metadata changes | `CKSystemSharingUIObserver`, container events, and foreground refresh | Share changes do not create persistent-history transactions. |
 | Reference implementation | Apple's **CoreDataCloudKitShare** sample attached to its sharing guide | Adapt its two-store, invitation, history, and lifecycle patterns; preserve any copied license headers. |
 
-Do not add a package in the first release:
+Add `CloudKitSyncMonitor` to the app target with an **exact `3.1.0` pin**, commit
+`Package.resolved`, and add its copyright plus full MIT text to the app-target resource
+`Tridge/Resources/ThirdPartyNotices.txt`. Access it only through Tridge's
+`SyncStatusProviding` protocol and `CloudKitSyncStatusAdapter`; views and `HouseholdSession` never
+import the package. The adapter maps package state into Tridge's four user-facing strings, ignores
+events older than the current account-session start, sanitizes errors, and verifies that
+`CKContainer.default().containerIdentifier` is `iCloud.com.tridge.app`. Tridge's own account
+coordinator remains authoritative for whether stores may open or writes may proceed.
+
+`SyncStatusProviding` is a main-actor protocol with `currentStatus`, an `AsyncStream<SyncStatus>` of
+updates, `beginSession(startedAt:)`, and `endSession()`. Its domain enum is exactly `.upToDate`,
+`.syncing`, `.offline`, and `.needsAttention`. The adapter subscribes to the package's published
+setup/import/export/network values, yields only when the mapped domain value changes, and drops its
+subscriptions at session end. The package singleton may continue observing process-wide system
+notifications; it never owns a store, context, account-scoped cache, or command permission.
+
+Mapping precedence is deterministic: the Tridge account coordinator's unavailable/restricted state
+or a current-session non-network setup/import/export failure is `.needsAttention`; a validated
+account with an unavailable network is `.offline`; any in-progress event or incomplete initial
+setup/import is `.syncing`; successful setup plus a successful import, with export either not started
+or successful, is `.upToDate`. Old-session events are ignored. The label is diagnostic only and
+never claims that another device has already received a change.
+
+The reviewed 3.1.0 source has no transitive package dependencies and uses only Core Data, CloudKit,
+Network, and SwiftUI; it contains no analytics or non-Apple endpoint. Record its license in the app's
+bundled notices and re-run the license/source/privacy/compatibility review in a normal dependency-
+update PR before changing the pin. No new Settings row is required for this notice.
+
+The dependency is intentionally narrow. It does **not** consume persistent history, distinguish
+private/shared store contents, accept invitations, refresh `CKShare` metadata, or resolve inventory
+conflicts; the corresponding Tridge components remain required. The alternatives were evaluated,
+not rejected merely because they are dependencies:
 
 - Apple's [`sample-cloudkit-sharing`](https://github.com/apple/sample-cloudkit-sharing) is a useful
   MIT-licensed raw-CloudKit reference, but it is not a Core Data sharing library.
-- [`CloudKitSyncMonitor`](https://github.com/ggruen/CloudKitSyncMonitor) can turn container events
-  into sync-status properties, but it does not implement history consumption, store routing,
-  invitations, or inventory commands. Tridge needs only a small event reducer and the repository
-  currently forbids third-party packages.
+- [`SyncKit`](https://github.com/mentrena/SyncKit) owns CloudKit record synchronization itself and
+  would compete with `NSPersistentCloudKitContainer`; it is not a sharing-lifecycle wrapper.
 - [`Automerge`](https://github.com/automerge/automerge-swift) is a full CRDT document model. Adding
   a second persistence/conflict system beside Core Data and CloudKit would increase, not remove, the
-  work. The stock-operation reducer solves the one field that cannot safely use scalar merging.
+  work. Tridge needs only immutable stock events and immutable item-merge links.
+
+Future dependencies are allowed when a decision entry records the concrete gap, alternatives,
+license, maintenance/security/privacy posture, exact version policy, and replacement boundary. A
+package is not justified solely by reducing a few lines of domain-specific code.
 
 ## Apple project and service configuration
 
@@ -170,11 +214,11 @@ the wrong store.
 
 Use a main-queue, read-only view context with `automaticallyMergesChangesFromParent = true` and a
 store-trump merge policy. Repository writers use serial private-queue contexts, the transaction
-author `app.inventory`, and an object-trump merge policy. No managed object crosses a context or is
-stored in SwiftUI state; pass `NSManagedObjectID` internally and value snapshots across module
-boundaries.
+author `app.inventory`, and an object-trump merge policy. Duplicate reconciliation uses a separate
+serial context with author `app.reconcile`. No managed object crosses a context or is stored in
+SwiftUI state; pass `NSManagedObjectID` internally and value snapshots across module boundaries.
 
-For every inserted Household, FridgeItem, and StockChange, the repository calls
+For every inserted Household, FridgeItem, StockChange, and ItemMerge, the repository calls
 `context.assign(_:to:)` for the household's resolved store before save. A participant-created child
 must be assigned to the shared store explicitly. A relationship to an object in another store is a
 programming error and fails the command before save.
@@ -198,13 +242,19 @@ tests compile predictably on every Xcode version.
 
 | Entity | Attributes | Relationships |
 | --- | --- | --- |
-| `HouseholdRecord` | `id: UUID`, `modelVersion: Int16` (starts at `1`), `name: String`, `createdAt: Date`, `modifiedAt: Date` | `items` → many `FridgeItemRecord`, inverse `household`, Cascade |
+| `HouseholdRecord` | `id: UUID`, `modelVersion: Int16` (starts at `1`), `name: String`, `createdAt: Date`, `modifiedAt: Date` | `items` → many `FridgeItemRecord`, inverse `household`, Cascade; `itemMerges` → many `ItemMergeRecord`, inverse `household`, Cascade |
 | `FridgeItemRecord` | `id: UUID`, `modelVersion: Int16` (starts at `1`), `name: String`, `normalizedName: String`, `artKey: String`, `storageRaw: String`, `purchaseDate: Date`, `expiryDate: Date`, `expirySourceRaw: String`, `createdAt: Date`, `modifiedAt: Date` | `household` → one `HouseholdRecord`, inverse `items`, Nullify; `stockChanges` → many `StockChangeRecord`, inverse `item`, Cascade |
 | `StockChangeRecord` | `id: UUID`, `modelVersion: Int16` (starts at `1`), `delta: Int64`, `reasonRaw: String`, `occurredAt: Date` | `item` → one `FridgeItemRecord`, inverse `stockChanges`, Nullify |
+| `ItemMergeRecord` | `id: UUID`, `modelVersion: Int16` (starts at `1`), `leftItemID: UUID`, `rightItemID: UUID`, `createdAt: Date` | `household` → one `HouseholdRecord`, inverse `itemMerges`, Nullify |
 
-Set a local nonunique fetch index on `FridgeItemRecord.normalizedName`. `receiptText`, receipt images,
-`quantity`, `status`, `consumedDate`, a mutable deletion flag, urgency, and Food Category are **not**
-persisted:
+`ItemMergeRecord` is immutable. Its endpoint ids are different, sorted by UUID byte order
+(`leftItemID < rightItemID`), and must resolve to items in the same household and persistent store.
+Duplicate pair records are valid and have the same union effect, which makes concurrent
+reconciliation idempotent without a CloudKit-incompatible uniqueness constraint.
+
+Set local nonunique fetch indexes on `FridgeItemRecord.normalizedName` and each ItemMerge endpoint.
+`receiptText`, receipt images, `quantity`, `status`, `consumedDate`, a mutable deletion flag,
+urgency, and Food Category are **not** persisted:
 
 - raw receipt text exists only in the in-memory review draft and is discarded after confirmation;
 - quantity and consumption history derive from StockChange records;
@@ -215,14 +265,14 @@ persisted:
 Before initializing the development schema, set `allowsCloudEncryption = true` on the user-content
 attributes: household name; item name, normalized name, art key, storage, purchase/expiry dates, and
 expiry source; and stock delta, reason, and occurrence date. Leave ids and bookkeeping timestamps
-unencrypted. This decision must exist before production promotion because CloudKit field encryption
-cannot be toggled casually after a field ships.
+unencrypted, including ItemMerge endpoint ids. This decision must exist before production promotion
+because CloudKit field encryption cannot be toggled casually after a field ships.
 
 The repository treats a missing required value, invalid raw enum, nonfinite date, empty normalized
 name, a delta invalid for its reason (including zero for a nonterminal reason), or a broken
-relationship as corrupt imported data. It excludes that record from the UI, logs only
-entity/id/error category, and leaves the record intact for diagnostics; it never logs the household
-or item content.
+relationship as corrupt imported data. An invalid/self/cross-household ItemMerge endpoint is corrupt
+too. It excludes that record from the UI, logs only entity/id/error category, and leaves the record
+intact for diagnostics; it never logs the household or item content.
 
 ## Inventory semantics
 
@@ -240,7 +290,8 @@ or item content.
 | `deleted` | exactly `0`; immutable user deletion marker |
 | `cleared` | exactly `0`; immutable Clear All marker |
 
-For one item, the reducer first keeps one canonical operation per `id`, then computes:
+For one logical item, the reducer collects StockChange records from every physical item connected by
+ItemMerge links, keeps one canonical operation per `id` across that whole set, then computes:
 
 ```text
 rawQuantity = sum(canonical deltas)
@@ -266,28 +317,68 @@ from the target. Two peers consuming the last visible unit can produce a negativ
 shows zero. Once an item projects to zero, later purchases create a new item rather than paying down
 the old operation history. No operation log is compacted or pruned in this release.
 
-An item is visible/active only when `isDeleted == false` and projected quantity is greater than zero.
-Delete and Clear All append immutable terminal events and never remove them. Stock or metadata
-changes that arrive later cannot resurrect the item. A new purchase after deletion or zero creates a
-new item record. Clear All appends one `cleared` event per active item in a single transaction, with
-all operation ids allocated before the first save so the command can retry idempotently.
+An item group is visible/active only when `isDeleted == false` and projected quantity is greater than
+zero. Delete and Clear All append immutable terminal events and never remove records or merge links.
+A terminal event on any member closes the entire already-linked group, so stock or metadata changes
+that arrive later on another member cannot resurrect it. A new purchase after deletion or zero
+creates a new item record. Clear All appends one `cleared` event per active logical group in a single
+transaction, with all operation ids allocated before the first save so the command can retry
+idempotently.
 
-### Matching and scalar conflicts
+### Matching and lossless same-item convergence
 
 Keep the current `MergePlanner` behavior, scoped to the active household: exact normalized-name
 matches only, never merge into expired, zero-quantity, or deleted items, and choose the newest
 eligible purchase if local data already contains more than one match. A merge appends `acquired`
-stock; it does not rewrite a scalar quantity.
+stock to the resolved logical group; it does not insert a second root, create an unnecessary merge
+edge, or rewrite a scalar quantity.
+
+That same behavior applies when peers create before they can see one another. Physical
+`FridgeItemRecord` rows are durable operation-history anchors; `ItemMergeRecord` is an add-only edge
+that says two anchors are the same logical item. The Linux-testable `ItemGroupReducer` computes
+connected components with a union-find reduction. Edge order and duplicate edges do not matter. The
+logical item id is the smallest member UUID by byte order, so every peer chooses the same identity.
+
+After every local inventory save and relevant remote-history import, `DuplicateReconciler` examines
+the current logical groups in that household. It links two groups when both are active, nonzero,
+unexpired, and have the same nonempty normalized name. It writes a star from the lowest logical item
+id to each other group using a serial maintenance context and transaction author `app.reconcile`.
+Before inserting, it fetches either orientation of the pair; if two peers still insert the same edge
+concurrently, duplicate edges remain harmless. The snapshot projector applies the same eligible
+pair union in memory immediately, so the UI never needs to flash duplicate rows while the durable
+links export. Eligibility uses one injected `now`/Calendar snapshot and the same end-of-expiry-day
+rule as `UrgencyLogic`; once written, an edge is never reversed merely because time later advances.
+
+Reconciliation never copies StockChange records, rewrites their item relationship, or deletes a
+physical FridgeItem. Quantity is the sum of the unique operations across every member. Therefore a
+late operation written by an offline peer to either original Milk still appears in the one logical
+Milk. A sequential second add and two simultaneous offline adds have the same visible outcome.
+
+For a linked group, metadata comes from the member with the greatest
+`(modifiedAt, purchaseDate, createdAt, id)` tuple, using UUID byte order for the final tie. Stock-only
+commands do not change `modifiedAt`. A metadata edit updates the current winning member once and sets
+`modifiedAt` to the later of `now` or the next representable Date after the current group's maximum,
+so the edit wins over every revision already visible to that device. A rename collision with another
+eligible group creates a merge link. Concurrent unseen scalar edits still resolve to one complete
+metadata winner—Tridge does not pretend to field-merge two different names, art choices, storage
+values, or expiry dates.
+
+Commands and stale sheets may address the logical id or any member id; the repository resolves the
+current connected component inside its writer context. Adds/eat/toss/adjust append their operation
+to the lowest-id member. Delete/Clear append one terminal operation there, which closes every member
+already linked to it. A previously unseen, unlinked same-name row that arrives only after the known
+group is terminal is treated as a new batch rather than destroyed: the system has no causal evidence
+that it predates the deletion. This is the safe boundary between preserving a late purchase and
+enforcing delete-wins on a known group.
+
+Expired, zero, and terminal groups are never auto-linked to active groups. This preserves the
+shipping rule that buying Milk after the old Milk expires or reaches zero creates a fresh batch with
+its own expiry and history. ItemMerge links themselves are permanent until the whole household is
+deleted; there is no split/unmerge operation in this release.
 
 CloudKit's normal conflict resolution applies to concurrent edits of name, art, storage, and expiry:
-one value wins and every peer eventually sees that value. Tridge does not pretend to merge two
-different scalar edits. Forms use value drafts and commit once, so typing does not export every
-keystroke.
-
-Automatic cross-peer item deduplication is deliberately absent. When two offline users independently
-create "Milk," both rows remain after synchronization. This is visible and recoverable; silently
-combining different batches, dates, or stock histories is not. A future manual merge may be designed
-separately.
+one value wins per physical member before the deterministic group-level metadata selection above.
+Forms use value drafts and commit once, so typing does not export every keystroke.
 
 ## Application boundaries and modules
 
@@ -300,6 +391,7 @@ Tridge/
 │  ├─ InventoryCommands.swift       value commands/errors
 │  ├─ InventorySnapshots.swift      HouseholdSnapshot + InventoryItemSnapshot
 │  ├─ StockReducer.swift            order-independent quantity/idempotency rules
+│  ├─ ItemGroupReducer.swift        merge-link union + deterministic group projection
 │  ├─ HouseholdSelection.swift      deterministic active-household fallback
 │  └─ NotificationPlan.swift        pure desired-vs-scheduled reminder diff
 ├─ Persistence/
@@ -307,6 +399,7 @@ Tridge/
 │  ├─ ManagedObjects/               *Record classes and validated mapping
 │  ├─ PersistenceController.swift   two stores, contexts, store lookup
 │  ├─ CoreDataInventoryRepository.swift
+│  ├─ DuplicateReconciler.swift     creates lossless exact-name merge links
 │  ├─ PersistentHistoryProcessor.swift
 │  └─ HistoryTokenStore.swift
 ├─ Sharing/
@@ -315,10 +408,12 @@ Tridge/
 │  ├─ ShareInvitationRouter.swift   buffers cold/warm invitation metadata
 │  ├─ AppDelegate.swift             scene configuration + account events
 │  ├─ SceneDelegate.swift           CloudKit invitation callbacks
-│  └─ CloudKitEventMonitor.swift    setup/import/export/share status
+│  └─ CloudKitSyncStatusAdapter.swift  dependency → Tridge sync state
 ├─ App/
 │  ├─ HouseholdSession.swift        active id, snapshots, capabilities, UI state
 │  └─ LaunchState.swift             loading/account/error/reset-notice states
+├─ Resources/
+│  └─ ThirdPartyNotices.txt         pinned dependency copyright + MIT text
 ├─ Services/
 │  └─ NotificationService.swift     reconciles active-household reminders
 └─ Views/Household/
@@ -327,8 +422,9 @@ Tridge/
 ```
 
 The existing synchronized Xcode folder group picks up these files without per-file project edits.
-`Package.swift` already compiles all of `Tridge/Core`, so stock, selection, command, and notification
-logic remains Linux-testable. Core Data, CloudKit, UIKit, and SwiftUI stay outside `FridgeCore`.
+`Package.swift` already compiles all of `Tridge/Core`, so stock/grouping, selection, command, and
+notification logic remains Linux-testable. Core Data, CloudKit, UIKit, SwiftUI, and the app-target
+`CloudKitSyncMonitor` package stay outside `FridgeCore`.
 
 The component responsibilities are intentionally narrow:
 
@@ -340,8 +436,9 @@ The component responsibilities are intentionally narrow:
 | `HouseholdSession` | Main-actor observable UI state: available/active households, active items, account/capability/sync state, and command errors. |
 | `HouseholdSharingService` | Share APIs and owner/participant lifecycle; depends on a protocol so UI/lifecycle tests can use a fake. |
 | `ShareInvitationRouter` | Buffer metadata received before dependency setup and serialize acceptance into the shared store. |
-| `PersistentHistoryProcessor` | Consume and persist one history token per store, merge changes, then request snapshot/reminder refresh. |
-| `CloudKitEventMonitor` | Reduce account, network, setup/import/export, and system-sharing notifications to a diagnostic sync state. |
+| `DuplicateReconciler` | Persist immutable exact-name links after local saves/imports; never transfer or delete item histories. |
+| `PersistentHistoryProcessor` | Consume one history stream per store, run reconciliation, merge changes, refresh snapshots/reminders, then persist the token. |
+| `CloudKitSyncStatusAdapter` | Map pinned `CloudKitSyncMonitor` state to the Tridge domain behind `SyncStatusProviding`; it does not authorize account/store access. |
 | `NotificationService` | Diff desired active-household reminders against Tridge-owned pending identifiers and update badge. |
 
 Repository commands are `addReviewedRows`, `addManualItem`, `updateItem`, `eatOne`, `tossOne`,
@@ -355,8 +452,13 @@ Every operation-producing command also carries preallocated ids for every object
 - manual add has one candidate item id and one StockChange id;
 - reviewed rows have a stable candidate item id and StockChange id per row;
 - update/eat/toss/delete have one StockChange id;
-- Clear All has a StockChange id per item in the transaction; and
+- Clear All has a StockChange id per logical item group in the transaction; and
 - copy-before-purge preallocates its destination household id before recording the transition.
+
+Duplicate reconciliation is an internal maintenance operation, not a user command. It preallocates
+an ItemMerge id for each missing sorted endpoint pair, refetches the pair inside its writer context,
+and saves every missing link for one household atomically. A retry or concurrent duplicate link has
+the same union result.
 
 Allocate these values before entering `context.perform` and retain them for an in-process retry. A
 retry first fetches the StockChange id in the target household: an identical existing event means
@@ -368,7 +470,8 @@ The multirow add and Clear All save atomically, so a crash cannot leave a half-a
 
 The Home screen keeps its existing title, grid, search, filters, and single bottom add button. It
 does not gain a sync banner, account avatar, or tab bar. All existing inventory actions target the
-active household supplied by `HouseholdSession`.
+active household supplied by `HouseholdSession`, and it renders one row per projected logical item,
+not one row per physical FridgeItemRecord.
 
 Settings adds one first row to its existing everyday section:
 
@@ -381,7 +484,7 @@ Settings adds one first row to its existing everyday section:
 
 `Clear all items…` keeps its separate destructive section, but its confirmation says, "This removes
 all items from Home for everyone in this household." It appends immutable `cleared` events to the
-active household's items; it is an inventory action, not a privacy-data erasure action.
+active household's logical item groups; it is an inventory action, not a privacy-data erasure action.
 
 The Household row opens `HouseholdScreen`:
 
@@ -414,19 +517,20 @@ service. If the controller delegate reports that the owner stopped sharing, feed
 into the same resumable copy-before-purge state machine; do not implement a second stop path.
 
 Export Fridge Data writes a temporary, versioned JSON document containing export date, household
-name, every active or terminal item record's scalar metadata, current quantity, and complete
-stock-event history. It excludes participant/share metadata, account ids, diagnostics, receipt text,
-and receipt images, then presents the system share sheet. Delete Fridge physically removes an
-unshared private graph. Delete Shared Fridge for Everyone purges the shared zone without making the
-owner copy and explains that every participant loses the data. A participant's Leave action
-explicitly says the owner retains the shared data.
+name, each logical item's projected metadata/current quantity, every physical member record, every
+ItemMerge edge, and complete stock-event history. It excludes participant/share metadata, account
+ids, diagnostics, receipt text, and receipt images, then presents the system share sheet. Delete
+Fridge physically removes an unshared private graph. Delete Shared Fridge for Everyone purges the
+shared zone without making the owner copy and explains that every participant loses the data. A
+participant's Leave action explicitly says the owner retains the shared data.
 
 Every new control has an accessibility label/identifier, supports Dynamic Type, and communicates
 state with text in addition to color. Stop, leave, delete, and clear require explicit confirmation.
 
 ## Bootstrap and active-household selection
 
-Run selection only after both stores load and known imported history is merged:
+After both stores load and known imported history is merged, run DuplicateReconciler once for every
+valid household in both stores and build the logical projections. Then run selection:
 
 1. If an accepted invitation is pending and its Household record has imported, select that household
    and clear the pending invitation marker.
@@ -469,18 +573,21 @@ shared household.
 ### Local inventory command
 
 The view commits a value draft. Repository routing and all new records save in one local Core Data
-transaction, then `HouseholdSession` refetches and notifications reconcile. The UI does not wait for
-CloudKit export. If permission was revoked, the save is rejected with "You no longer have permission
-to change this household," snapshots refresh, and the user's draft remains available to copy.
+transaction. DuplicateReconciler then persists any missing exact-name links for that household;
+`HouseholdSession` refetches the logical projection and notifications reconcile. The UI does not wait
+for CloudKit export. If permission was revoked, the save is rejected with "You no longer have
+permission to change this household," snapshots refresh, and the user's draft remains available to
+copy.
 
 ### Remote import
 
 The container imports to a store and posts a remote-change notification. The history processor
-serially fetches transactions after that store's token, excluding `app.inventory`, with
-`affectedStores` set to only that store. It merges object-id changes into the view context, validates
-the affected graph, refreshes session snapshots, reconciles reminders, and only then archives the
-new token. Tokens are keyed by persistent-store identifier and stored outside CloudKit. Do not prune
-persistent history in this release; premature pruning can invalidate mirroring state.
+serially fetches transactions after that store's token, excluding `app.inventory` and
+`app.reconcile`, with `affectedStores` set to only that store. It merges object-id changes into the
+view context, validates the affected graph, runs DuplicateReconciler for affected households,
+refreshes session snapshots, reconciles reminders, and only then archives the new token. Tokens are
+keyed by persistent-store identifier and stored outside CloudKit. Do not prune persistent history in
+this release; premature pruning can invalidate mirroring state.
 
 Share changes are refreshed separately from history after system-sharing UI changes, relevant
 container events, account changes, and foreground activation. There is no unsupported "force sync"
@@ -506,12 +613,12 @@ This path must not lose the owner's stock. It is used both by Tridge's explicit 
 1. Allocate the destination household UUID and persist a local, account-scoped transition keyed by
    source zone with phase `copying`. The phases are `copying`, `copySaved`, and `purgePending`.
    Suppress both source and destination from normal interaction until the transition completes.
-2. Disable commands for the household and snapshot every item with no terminal delete/clear event and
-   projected quantity greater than zero.
+2. Disable commands for the household and snapshot every logical item group with no terminal
+   delete/clear event and projected quantity greater than zero.
 3. In one private-store transaction, create a new unshared Household with the preallocated UUID and
-   the same name. Copy each active item's scalar metadata with fresh ids and append one fresh
-   `preserved` StockChange equal to its projected quantity. Do not copy deleted/zero rows or old
-   operation history.
+   the same name. Copy each active logical group's winning scalar metadata once with fresh ids and
+   append one fresh `preserved` StockChange equal to its aggregate projected quantity. Do not copy
+   physical aliases, ItemMerge edges, deleted/zero rows, or old operation history.
 4. Save and verify the private copy can be fetched, then advance the transition to `copySaved`. The
    copy transaction is all-or-nothing; a retry first fetches the preallocated UUID and never creates
    a second copy. If save/verification fails, do not call purge; keep the source graph and show Retry.
@@ -592,8 +699,10 @@ reviewed.
 
 Notifications and badge cover the **active household only**. Switching households cancels Tridge
 expiry identifiers for the previous household and schedules the new one. Use identifiers
-`account.<accountScope>.household.<householdUUID>.item.<itemUUID>.pre` and `.day` so accounts and
-households cannot collide. The account scope is the nonlogged hash, never the raw user record id.
+`account.<accountScope>.household.<householdUUID>.item.<logicalItemUUID>.pre` and `.day` so accounts
+and households cannot collide. A newly imported lower-id merge member can change the logical id;
+the desired-state diff removes the obsolete identifier in the same reconciliation. The account
+scope is the nonlogged hash, never the raw user record id.
 
 After every local save, processed remote-history batch, active-household switch, foreground event,
 revocation, leave/stop/delete, and first-run reset:
@@ -634,17 +743,20 @@ The pure `NotificationPlan` diff is Linux-tested; the service is an Apple-platfo
 One agent can implement the repository work end to end in this order. Each step is a checkpoint, not
 an invitation to redesign the preceding decisions.
 
-1. **Pure contracts:** add snapshots, commands, StockReducer, HouseholdSelection, and
-   NotificationPlan with Linux tests. Keep `swift test` green.
+1. **Pure contracts:** add snapshots, commands, StockReducer, ItemGroupReducer,
+   HouseholdSelection, and NotificationPlan with Linux tests. Keep `swift test` green.
 2. **Model and launch:** add the exact Core Data model, two-store PersistenceController, launch
    states, entitlements/Info settings, and the idempotent fresh-store reset. Add macOS/iOS in-memory
    model-validation tests where CloudKit is disabled; add a `TridgeTests` Xcode test target and run
    it in macOS CI.
 3. **Repository migration:** implement store routing/capabilities and move Home, detail, manual add,
-   clear, and scan confirmation from SwiftData mutations to snapshots/commands. Only then delete the
+   clear, and scan confirmation from SwiftData mutations to snapshots/commands. Add
+   DuplicateReconciler and make snapshots group inferred/persisted merge edges before deleting the
    SwiftData `FridgeItem` model and all `@Query`/`modelContext` use.
-4. **History and local effects:** add per-store history tokens, remote merge, event monitoring,
-   session refresh, notification diffing, account transitions, and sanitized diagnostics.
+4. **History and local effects:** pin `CloudKitSyncMonitor` 3.1.0 in the app target with its lockfile
+   and attribution, implement the Tridge adapter, then add per-store history tokens, remote
+   reconciliation, session refresh, notification diffing, account transitions, and sanitized
+   diagnostics.
 5. **Sharing UI:** add Household settings/screen, ShareLink preparation, system management UI, and
    the cold/warm invitation bridge.
 6. **Lifecycle and data rights:** implement leave/revoke, resumable owner copy-before-purge, owned
@@ -671,6 +783,9 @@ Linux `swift test` covers:
   overflow rejection, zero projection, immutable terminal events, no resurrection, and a new batch
   after zero;
 - MergePlanner remaining household-scoped and never merging expired/zero/deleted rows;
+- ItemGroupReducer edge-order independence, duplicate-edge idempotency, deterministic logical id and
+  metadata winner, summed late operations across members, and no active-to-expired/zero/terminal
+  inference;
 - deterministic active-household selection/fallback;
 - notification desired-state diffs; and
 - command validation and snapshot mapping that does not expose receipt text.
@@ -680,10 +795,16 @@ Apple-platform tests cover:
 - the model passes CloudKit compatibility rules and loads two isolated test stores;
 - every new object is assigned to the household's store and cross-store relationships are rejected;
 - repository commands write one atomic graph and capability denial writes nothing;
+- a sequential same-name add appends to the existing group without a new root; reconciliation makes
+  concurrent active same-name roots and rename collisions one snapshot without deleting either
+  root, duplicate link inserts remain harmless, and a late member operation changes the aggregate;
 - history tokens are independent per store, saved only after processing, and app-authored history is
   filtered;
+- the `SyncStatusProviding` adapter maps pinned-package states without leaking package types or stale
+  prior-account events into HouseholdSession;
 - invitation metadata buffers until the shared store is ready and repeated acceptance is safe;
-- owner stop saves/verifies an active-inventory copy before a purge fake is invoked;
+- owner stop saves/verifies exactly one copied item per active logical group before a purge fake is
+  invoked;
 - stop-sharing transition retries never duplicate a copy and resume after each recorded phase;
 - participant leave makes no copy, owner deletion makes no copy, and export omits restricted fields;
 - account-derived paths/tokens/selection differ for two user-record-id hashes; and
@@ -713,7 +834,9 @@ complete this contract.
   peer eventually renders the same state.
 - With both devices offline, concurrent positive operations both survive; concurrent consumes do
   not display a negative quantity; a purchase after a zero item creates a fresh row.
-- Independent offline creation of the same name intentionally produces two visible rows.
+- With both devices offline, each adds one active "Milk" before seeing the other; after sync both
+  devices show one Milk whose quantity is the sum. Subsequent operations sent to either original
+  member still update that one row, and neither physical history is deleted.
 - A remote expiry edit updates the other device's active-household notifications.
 - Participant leave and owner revocation remove access, cancel reminders, and choose a fallback
   without affecting remaining members.

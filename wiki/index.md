@@ -29,9 +29,10 @@
   [decisions.md](./decisions.md) → *2026-07-11* entry.
 - [household-sharing.md](./household-sharing.md) — the approved **household sharing architecture**:
   exact Apple capabilities/schema/store routing, account isolation, invitation and lifecycle UI,
-  repository commands, multi-writer stock events, notification reconciliation, privacy/export/
-  deletion, the automatic no-uninstall reset, implementation checkpoints, and owner-only handoff.
-  Implementation state lives in [status.md](./status.md); the *why* lives in
+  repository commands, multi-writer stock events, lossless exact-name item convergence, the reviewed
+  dependency boundary, notification reconciliation, privacy/export/deletion, the automatic
+  no-uninstall reset, implementation checkpoints, and owner-only handoff. Implementation state
+  lives in [status.md](./status.md); the *why* lives in
   [decisions.md](./decisions.md) → *2026-08-06* and *2026-08-08* entries.
 
 ## Decisions
