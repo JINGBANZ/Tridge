@@ -13,9 +13,10 @@
 ## Core pages
 
 - [../design/fridge-design.html](../design/fridge-design.html) — **the complete design & build
-  spec**: screen mocks, design tokens, all screens/interactions, SwiftData schema, the OpenAI
-  API contract with the verbatim receipt prompt, project layout, acceptance criteria, and build
-  order. Open in a browser for visuals; the text and mock CSS are the normative spec.
+  spec**: screen mocks, design tokens, all screens/interactions, the current Core Data sharing
+  schema summary, the OpenAI API contract with the verbatim receipt prompt, project layout,
+  acceptance criteria, and build order. Open in a browser for visuals; its sharing-release details
+  delegate explicitly to [household-sharing.md](./household-sharing.md).
 - [../design/backend-design.html](../design/backend-design.html) — the **backend design doc**
   for the receipt-scan API (`server/`, Cloudflare Worker): architecture, request-protection
   layers, API contract, test-vs-production posture, migration plan, and the hosting research
@@ -27,10 +28,11 @@
   art — with animated flow mocks and the competitor/platform research. The *why* lives in
   [decisions.md](./decisions.md) → *2026-07-11* entry.
 - [household-sharing.md](./household-sharing.md) — the approved **household sharing architecture**:
-  CloudKit ownership and invitations, private/shared persistence, the repository boundary,
-  multi-writer convergence, notification reconciliation, and the automatic no-uninstall reset.
+  exact Apple capabilities/schema/store routing, account isolation, invitation and lifecycle UI,
+  repository commands, multi-writer stock events, notification reconciliation, privacy/export/
+  deletion, the automatic no-uninstall reset, implementation checkpoints, and owner-only handoff.
   Implementation state lives in [status.md](./status.md); the *why* lives in
-  [decisions.md](./decisions.md) → *2026-08-06* entries.
+  [decisions.md](./decisions.md) → *2026-08-06* and *2026-08-08* entries.
 
 ## Decisions
 

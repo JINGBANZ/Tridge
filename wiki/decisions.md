@@ -663,9 +663,10 @@
 
 ### 2026-08-06 — Household sharing uses CloudKit Sharing behind a repository-backed Core Data stack
 
-- **Chose:** Model one shareable fridge/freezer/pantry inventory as a `Household`, rooted in a
-  private `CKShare`. Use `NSPersistentCloudKitContainer` with private and shared stores, persistent
-  history, and remote-change notifications; accepted members are trusted read/write participants.
+- **Chose:** Model one shareable fridge/freezer/pantry inventory as a `Household` logical aggregate
+  placed in one private, zone-wide `CKShare`. Use `NSPersistentCloudKitContainer` with private and
+  shared stores, persistent history, and remote-change notifications; accepted members are trusted
+  read/write participants.
   All views and the scan-confirm path submit household-scoped commands through an
   `InventoryRepository` instead of mutating persistence objects directly. Quantity changes are
   immutable stock operations reduced in `FridgeCore`, while deterministic UUID selection and
@@ -685,6 +686,9 @@
   (needed for Android/web or fine-grained roles, disproportionate for the accepted Apple-only
   contract); synchronizing `FridgeItem.quantity` as a last-writer-wins scalar (concurrent household
   changes can silently lose units). Full architecture: [`household-sharing.md`](./household-sharing.md).
+- **Superseded by:** *2026-08-08 — Sharing ships as an Apple-native, account-isolated implementation
+  contract* for automatic item deduplication and mutable tombstone mechanics. The CloudKit, two-store,
+  repository, and immutable quantity-operation choices stand.
 
 ### 2026-08-06 — The sharing upgrade resets inventory in place without requiring an uninstall
 
@@ -704,3 +708,37 @@
   opening the old store with the new model; deleting the legacy database and sidecars on first launch;
   clearing all `UserDefaults` or App Attest state along with the inventory. Full upgrade contract:
   [`household-sharing.md`](./household-sharing.md) → *Upgrade from the shipping build*.
+
+### 2026-08-08 — Sharing ships as an Apple-native, account-isolated implementation contract
+
+- **Chose:** Finish the household design as an executable contract before implementation. Core Data
+  uses a versioned, CloudKit-compatible three-entity model (`HouseholdRecord`, `FridgeItemRecord`,
+  `StockChangeRecord`) in account-scoped private/shared stores. Quantity, consumption, and deletion
+  derive from immutable stock events; per-command quantities stay 1–99 while concurrent aggregate
+  stock is never capped. The app requires an active iCloud account, hashes the container-specific
+  user record id for local store/token/selection paths, and never presents another account's cache.
+  Sharing is invite-only, read/write, owner-invite-only, with one active household at a time. Owner
+  stop-sharing uses a resumable copy-before-purge transition; owner deletion purges without a copy;
+  participants leave without deleting the owner's data. Household JSON export and real owner
+  deletion are part of the release. All runtime collaboration code uses Apple frameworks with no new
+  package.
+- **Why:** The architecture review found that the original design still required an implementer to
+  invent schema, account isolation, conflict, UI-selection, stop/leave, privacy, and recovery rules.
+  Immutable events preserve concurrent stock and make delete precedence monotonic. Account-scoped
+  files prevent an iCloud switch from exposing the prior account. Apple's Core Data sharing sample
+  already provides the correct two-store, history, invitation, and lifecycle patterns, so a wrapper
+  dependency would add policy and maintenance cost without removing the hard application-specific
+  work.
+- **Rejected:** Automatic cross-peer same-name repair (late offline operations can attach to an alias
+  after a one-time transfer/delete, while silently merging separate expiry batches is destructive);
+  hard-deleting duplicate rows after a successful import/export (that event does not prove every
+  peer observed the alias); a local-only fallback when iCloud is absent (requires a third store and
+  separate move rules); shared static store paths across iCloud accounts; a mutable scalar tombstone;
+  `CloudKitSyncMonitor` for a small event-state reducer; Automerge or another second persistence/CRDT
+  layer. Concurrent offline creates remain explicit separate rows, including the rare case of two
+  independently bootstrapped personal households; the owner can rename/delete an unshared extra.
+- **Owner-only boundary:** Repository code, fakes, tests, unsigned Simulator build, and CI are agent-
+  runnable. Creating/associating `iCloud.com.tridge.app`, refreshing Apple provisioning, production
+  schema promotion, App Store privacy metadata, and signed two-account TestFlight acceptance require
+  the Apple account owner. Exact handoff and evidence: [`household-sharing.md`](./household-sharing.md)
+  → *Owner handoff* and *Verification and definition of done*.

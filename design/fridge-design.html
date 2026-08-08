@@ -238,7 +238,8 @@
       <span class="eyebrow">Design &amp; build spec · v2 · iOS</span>
     </div>
     <h1>Tridge</h1>
-    <p class="lede">Scan a grocery receipt, and your fridge appears on screen — every item as a prebuilt image floating on a soft background, quietly turning amber, then red, as it nears expiry. This document is the complete, one-shot build spec: design direction, every screen and interaction, data model, LLM contract, dev-environment requirements, and acceptance criteria.</p>
+    <p class="lede">Scan a grocery receipt, and your fridge appears on screen — every item as a prebuilt image floating on a soft background, quietly turning amber, then red, as it nears expiry. This document is the complete visual/product build spec: design direction, every screen and interaction, data model, LLM contract, dev-environment requirements, and acceptance criteria.</p>
+    <div class="callout"><b>Sharing-release contract:</b> the persistence, collaboration, account isolation, Household screen, no-uninstall reset, lifecycle, privacy, implementation order, and two-account verification details are normative in <a href="../wiki/household-sharing.md">wiki/household-sharing.md</a>. The summaries below agree with that contract; if an implementation detail is not visual, use the wiki page.</div>
   </header>
 
   <!-- ================= MOCKS ================= -->
@@ -401,14 +402,15 @@
   <!-- ================= SCREENS ================= -->
   <section>
     <span class="eyebrow">Screens &amp; interactions</span>
-    <h2>Four screens, one flow</h2>
+    <h2>The core flow plus household management</h2>
     <div class="tablewrap"><table>
       <tr><th>Screen</th><th>Contents &amp; behavior</th></tr>
       <tr><td><b>1 · Home</b></td><td>Header ("Fridge", unit count (×N quantities summed, not rows; follows the active filter), filter glyph → Filter sheet, gear icon → Settings sheet) · item grid as specced above · single floating scan button. <br><b>Filter:</b> the filter glyph opens a half sheet with two chip groups — <b>Storage</b> (All · Fridge · Freezer · Pantry) and <b>Food Category</b> (All · Produce · Dairy · Meat · Seafood · Bakery · Drinks · Snacks · Condiments · Other) — one selection per group, applied to the grid live behind the sheet, with Clear All / Done. While a filter is active the glyph tints green with a dot and removable filter tags sit under the header; a filter matching nothing shows a small ghost ("Nothing matches — remove a filter"), never a dead end. An empty fridge shows no filter UI at all and clears any active filter. <br><b>Tap item</b> → Item Detail sheet. <br><b>Long-press + drag item</b> → grid dims, scan button fades out, the two drop zones slide up: <code>😋 Ate it</code> (left) and <code>🗑️ Tossed</code> (right); dropping marks the item consumed/wasted with a haptic — for ×N items it decrements quantity by 1 and the item stays until 0. Releasing outside a zone cancels. <br><b>Empty state:</b> centered ghost item + "Scan your first receipt" + arrow pointing at the scan button.</td></tr>
-      <tr><td><b>2 · Scan / Add</b></td><td>Tapping the scan button opens the add menu as a system action sheet (<code>confirmationDialog</code> — centered buttons, not a leading-aligned <code>Menu</code>) — no hidden long-press: <b>Scan with camera</b> (<code>VNDocumentCameraViewController</code>, VisionKit; the entry is hidden where the document camera is unavailable — Simulator, browser-hosted simulators — so the camera is an enhancement, not a requirement) · <b>Choose from library</b> (photo-library picker) · <b>Type to add</b> (manual-add sheet: art, name, type-in quantity field, storage picker (defaults to Fridge), expiry date — saves directly, no API key or LLM call; debug builds add a bundled sample receipt and a preset seed) · <b>Cancel</b>, centered in the sheet's detached bottom slot, closes the menu. On capture or photo selection: full-screen progress ("Reading your receipt…", animated receipt emoji), image is downscaled to max 1568px long edge, JPEG 80%, sent to the LLM. Errors (network / key missing / unparseable) show a friendly retry alert.</td></tr>
+      <tr><td><b>2 · Scan / Add</b></td><td>Tapping the scan button opens the add menu as a system action sheet (<code>confirmationDialog</code> — centered buttons, not a leading-aligned <code>Menu</code>) — no hidden long-press: <b>Scan with camera</b> (<code>VNDocumentCameraViewController</code>, VisionKit; the entry is hidden where the document camera is unavailable — Simulator, browser-hosted simulators — so the camera is an enhancement, not a requirement) · <b>Choose from library</b> (photo-library picker) · <b>Type to add</b> (manual-add sheet: art, name, type-in quantity field, storage picker (defaults to Fridge), expiry date — saves directly with no LLM call; debug builds add a bundled sample receipt and a preset seed) · <b>Cancel</b>, centered in the sheet's detached bottom slot, closes the menu. On capture or photo selection: full-screen progress ("Reading your receipt…", animated receipt emoji), image is downscaled to max 1568px long edge, JPEG 80%, sent through the App-Attest-authorized scan Worker. Authentication, network, or parse errors show a friendly retry alert.</td></tr>
       <tr><td><b>3 · Review sheet</b></td><td>Presented sheet (see mock). Scan date + count header. Each row: art, clean name, original receipt text in small gray, a Food Category chip (green-tinted, display-only — the category follows the art) and a Storage chip (gray, tappable menu: Fridge / Freezer / Pantry) under the name, plus a type-in quantity chip (number pad, 1–99) and a tappable date chip (opens compact date picker). Unrecognized items (id <code>unknown</code>) flagged amber with "tap to fix". Rows can be deleted (swipe) or edited (tap name). Primary button "Add N items to Fridge" saves all, schedules notifications, pops to Home where new items animate in.</td></tr>
       <tr><td><b>4 · Item Detail</b></td><td>Sheet with large art (tap to pick different art from the prebuilt set) above a single details section of label-left / value-right rows, the same shared form manual add uses (<code>Views/Shared/ItemFormRows.swift</code>): name field, type-in quantity field (clearable while retyping), storage picker (Fridge/Freezer/Pantry), expiry date picker, and a read-only Food Category row (the category follows the artwork — changing the art recategorizes; no footer copy explains this in the UI). Buttons: Ate it · Tossed it · Delete.</td></tr>
-      <tr><td><b>＋ Settings sheet</b></td><td>Opened from the gear icon (not a tab). One headerless section of emoji-chip rows (emoji on a soft-green rounded square): 🔔 <b>Expiry reminder</b> hour picker (default 9:00) and 📋 <b>Copy diagnostics</b> (this session’s app logs via <code>AppLog</code>/OSLog to the clipboard for bug reports). Below it, <b>Clear all items…</b> centered in its own section (destructive, confirmation dialog), then a <code>Tridge &lt;version&gt; (&lt;build&gt;)</code> footer. No section headers, no explanatory footer prose. No stats in v1.</td></tr>
+      <tr><td><b>＋ Settings sheet</b></td><td>Opened from the gear icon (not a tab). One headerless section of emoji-chip rows (emoji on a soft-green rounded square): 🏠 <b>Household</b> (active household name + chevron), 🔔 <b>Expiry reminder</b> hour picker (default 9:00), 🔤 <b>Emoji-free mode</b>, and 📋 <b>Copy diagnostics</b> (this session’s redacted app logs via <code>AppLog</code>/OSLog to the clipboard). Below it, <b>Clear all items…</b> centered in its own section; its confirmation says it removes the active household's inventory for everyone. A <code>Tridge &lt;version&gt; (&lt;build&gt;)</code> footer closes the sheet. No stats.</td></tr>
+      <tr><td><b>＋ Household screen</b></td><td>Lists owned and received households, with a checkmark on the locally active one. Accepted invitations auto-select on the accepting device; the personal household remains selectable. Owners can rename, send an invite with <code>ShareLink</code>, manage the system share, stop sharing while keeping a private copy, export JSON, or delete owned cloud data. Participants can manage their participation, export visible data, or leave. Invite-only/read-write sharing, account/error/sync states, destructive confirmations, reset behavior, and exact lifecycle copy are normative in <a href="../wiki/household-sharing.md">the household-sharing architecture</a>.</td></tr>
     </table></div>
 
     <h3>The core loop</h3>
@@ -424,22 +426,14 @@
   <!-- ================= DATA MODEL ================= -->
   <section>
     <span class="eyebrow">Data model</span>
-    <h2>SwiftData schema</h2>
+    <h2>Core Data + CloudKit sharing schema</h2>
     <div class="tablewrap"><table>
-      <tr><th>Field</th><th>Type</th><th>Notes</th></tr>
-      <tr><td><code>id</code></td><td>UUID</td><td>primary</td></tr>
-      <tr><td><code>name</code></td><td>String</td><td>clean display name ("Whole Milk")</td></tr>
-      <tr><td><code>receiptText</code></td><td>String?</td><td>raw line from receipt ("TJ WHL MLK 1GAL")</td></tr>
-      <tr><td><code>artKey</code></td><td>String</td><td>an <code>ItemID</code> rawValue from the curated vocabulary ("milk"); <code>Artwork</code> resolves id → emoji (v1) or a custom image later, unrecognized keys fall back to <code>unknown</code>'s art</td></tr>
-      <tr><td><code>quantity</code></td><td>Int</td><td>≥1; consume decrements, removes at 0</td></tr>
-      <tr><td><code>storage</code></td><td>enum</td><td><code>fridge · freezer · pantry</code>; scans save the LLM's guess, manual adds pick one in the sheet (defaults to fridge) — no app-wide default, editable per item</td></tr>
-      <tr><td><code>purchaseDate</code></td><td>Date</td><td>the day the receipt was scanned (not read from the receipt)</td></tr>
-      <tr><td><code>expiryDate</code></td><td>Date</td><td><code>purchaseDate + shelfLifeDays</code> initially</td></tr>
-      <tr><td><code>expirySource</code></td><td>enum</td><td><code>llmEstimate · userSet · scannedLabel</code> — never overwrite <code>userSet</code>/<code>scannedLabel</code></td></tr>
-      <tr><td><code>status</code></td><td>enum</td><td><code>active · eaten · tossed</code></td></tr>
-      <tr><td><code>consumedDate</code></td><td>Date?</td><td>set when status changes; kept so waste stats can be added later</td></tr>
+      <tr><th>Entity</th><th>Purpose</th><th>Key fields</th></tr>
+      <tr><td><code>HouseholdRecord</code></td><td>One owned or received fridge and the logical aggregate shared in one Core Data record zone.</td><td>UUID, model version, name, created/modified dates, inverse items relationship</td></tr>
+      <tr><td><code>FridgeItemRecord</code></td><td>Item metadata in exactly one household/store/share.</td><td>UUID, model version, name + normalized name, art key, storage, purchase/expiry dates, expiry source, timestamps, inverse household/stock relationships</td></tr>
+      <tr><td><code>StockChangeRecord</code></td><td>Immutable, idempotent stock or terminal event; authoritative for quantity, consumption, clear, and delete.</td><td>UUID command id, model version, signed delta, reason, occurrence date, inverse item relationship</td></tr>
     </table></div>
-    <p class="muted">Urgency is computed, not stored: <code>daysLeft = calendarDays(now → expiryDate)</code>. Expired means end-of-day(expiryDate) &lt; now. <b>Food Category</b> is likewise computed, never stored: every <code>ItemID</code> maps to one of nine categories (Produce · Dairy · Meat · Seafood · Bakery · Drinks · Snacks · Condiments · Other) via <code>ItemID.foodCategory</code> in <code>Tridge/Core/Types.swift</code> — an exhaustive switch, so a new vocabulary id can't ship uncategorized, existing items pick up categories with no migration, and re-picking an item's art is how the user recategorizes it. Persistence is local-only SwiftData for v1; the schema is CloudKit-compatible (all optionals/defaults) so sync can be enabled later without migration.</p>
+    <p class="muted">Quantity is <code>max(0, sum(unique stock-event deltas))</code>; immutable <code>deleted</code>/<code>cleared</code> events prevent resurrection. Urgency is computed from <code>expiryDate</code>, and Food Category remains computed from <code>artKey</code>. Raw receipt text stays only in the in-memory review draft and is not persisted or shared. The exact fields, optionality, inverses, delete rules, encrypted attributes, private/shared store routing, conflict semantics, and account isolation are normative in <a href="../wiki/household-sharing.md">household-sharing.md</a>. It supersedes the shipping SwiftData schema. The first sharing build intentionally starts fresh Core Data stores instead of migrating test inventory.</p>
   </section>
 
   <!-- ================= LLM ================= -->
@@ -480,7 +474,7 @@ Rules:
       <li><b>Parsing:</b> structured outputs guarantees schema-valid JSON, but the client stays defensive: strip Markdown code fences if present, then <code>JSONDecoder</code>. On decode failure (truncation, refusal), retry the call once; then surface a retry alert.</li>
       <li><b>Image prep:</b> longest edge ≤ 1568px, JPEG quality 0.8, before base64.</li>
       <li><b>Unidentifiable items</b> come back as id <code>unknown</code> and get the amber "tap to fix" treatment in the review sheet, never silently dropped.</li>
-      <li><b>No key set:</b> the scan entries open Settings with an inline explainer instead of the camera; "Type to add" works without a key.</li>
+      <li><b>Client authentication:</b> the app carries no OpenAI key or static Worker token. Apple App Attest authorizes device scans; "Type to add" remains entirely local.</li>
     </ul>
   </section>
 
@@ -488,27 +482,22 @@ Rules:
   <section>
     <span class="eyebrow">Architecture</span>
     <h2>Project layout</h2>
-    <pre>Tridge/                    (iOS 18+, Swift 5.10, SwiftUI, no third-party packages)
-├─ App/            TridgeApp.swift · AppTheme.swift (tokens above)
-├─ Models/         FridgeItem.swift (SwiftData @Model + enums) · Artwork.swift (artKey → image lookup)
-├─ Services/
-│  ├─ LLMService.swift              protocol + OpenAIService (URLSession, async/await)
-│  ├─ ReceiptScanner.swift          VisionKit wrapper → UIImage
-│  ├─ NotificationService.swift     schedule/cancel per item
-│  └─ KeychainStore.swift           API key
-├─ Views/
-│  ├─ Home/        HomeView · ItemSprite · StatusPill · DropZoneBar · EmptyStateView
-│  ├─ Scan/        ScanProgressView · ReviewSheet · ReviewRow
-│  ├─ Detail/      ItemDetailSheet · ArtPicker
-│  ├─ Shared/      ItemFormRows (HeroArtRow · ItemFieldRows)
-│  └─ Settings/    SettingsSheet
-└─ Tests/          LLMResponseParsingTests · UrgencyLogicTests</pre>
+    <pre>Tridge/                    (iOS 18+, Swift 5.10, SwiftUI, no new third-party packages)
+├─ App/            TridgeApp · AppTheme · LaunchState · HouseholdSession
+├─ Core/           existing pure logic + snapshots, commands, StockReducer, selection, notification plan
+├─ Models/         Artwork (artKey → image lookup); no SwiftData model after the sharing migration
+├─ Persistence/    TridgeModel.xcdatamodeld · two-store controller · repository · persistent history
+├─ Sharing/        CKShare service · Transferable invite · app/scene invitation bridge · event monitor
+├─ Services/       scan Worker client/App Attest · VisionKit scanner · local-notification adapter
+├─ Views/          Home · Scan · Detail · Shared form rows · Settings · Household
+└─ Tests/          Linux pure-logic tests + Apple-platform persistence/sharing-adapter tests</pre>
     <div class="tablewrap"><table>
       <tr><th>Concern</th><th>Decision</th></tr>
-      <tr><td>Notifications</td><td><code>UNUserNotificationCenter</code>, local only. Two per item: T−2d and expiry day, at the Settings hour. Identifiers <code>"{uuid}-pre"</code> / <code>"{uuid}-day"</code>; cancel + reschedule on any date change, cancel on consume/delete. Request permission on first successful item add, not at launch.</td></tr>
-      <tr><td>Badge</td><td>App icon badge = count of expired active items; recomputed on foreground and via notification.</td></tr>
-      <tr><td>State</td><td>SwiftData <code>@Query</code> drives Home directly; a lightweight <code>ScanFlowModel</code> (@Observable) owns camera → LLM → review state.</td></tr>
-      <tr><td>Out of scope v1</td><td>Grocery list, recipes, stats screen, custom sprite artwork, CloudKit sync, household sharing, Android. The schema and LLMService are shaped so none of these require migrations.</td></tr>
+      <tr><td>Notifications</td><td><code>UNUserNotificationCenter</code>, local only, for the active household. Two per item: T−2d and expiry day, at the Settings hour. Identifiers include account-scope hash + household UUID + item UUID + <code>pre/day</code>; reconcile the desired diff after local/remote changes and household switches. Request permission on first successful item add, not on a remote import.</td></tr>
+      <tr><td>Badge</td><td>App icon badge = count of expired active items in the active household; recomputed after local/remote changes, household switches, reset, and foreground.</td></tr>
+      <tr><td>State</td><td>A main-actor <code>HouseholdSession</code> exposes immutable value snapshots. Views submit async commands to <code>InventoryRepository</code>; no managed object crosses a context or enters SwiftUI state. <code>ScanFlowModel</code> still owns only camera → Worker → in-memory review.</td></tr>
+      <tr><td>Sharing</td><td><code>NSPersistentCloudKitContainer</code> mirrors account-scoped private/shared stores. One invite-only, read/write zone share per household; Apple system UI manages participants. Full contract: <a href="../wiki/household-sharing.md">household-sharing.md</a>.</td></tr>
+      <tr><td>Out of scope</td><td>Grocery list, recipes, stats screen, custom sprite artwork, Android/web, non-iCloud accounts, public shares, fine-grained roles, and automatic cross-peer item deduplication.</td></tr>
     </table></div>
   </section>
 
@@ -549,11 +538,15 @@ Rules:
       <li>Long-press-dragging an item dims the grid and reveals the two drop zones; dropping on "Ate it"/"Tossed" fires a haptic and updates status; ×N quantity decrements before removal; releasing elsewhere cancels.</li>
       <li>Editing a date in Item Detail sets <code>expirySource = userSet</code>, reschedules both notifications, and survives relaunch.</li>
       <li>Notifications fire at T−2d and expiry day at the configured hour (verifiable with a short-dated test item).</li>
-      <li>No API key → scan routes to Settings with explanation; network failure → retry alert; malformed LLM JSON → one automatic retry.</li>
+      <li>The app carries no API key; App Attest/auth failure and network failure show a safe retry message; malformed LLM JSON gets one automatic Worker-side retry.</li>
+      <li>An installed TestFlight/App Store build updates without uninstalling, starts a fresh shareable inventory, preserves preferences and App Attest, removes old expiry reminders, and leaves the legacy SwiftData files untouched.</li>
+      <li>An owner can invite a second iCloud account; both peers can view/add/edit/eat/toss offline and converge through immutable stock events without a lost scalar increment. Independent offline same-name creates remain separate by design.</li>
+      <li>The Household screen can switch among personal/received fridges, auto-select an accepted invitation, export a versioned JSON document, leave/revoke safely, stop sharing while preserving the owner's active stock, and delete owned CloudKit data.</li>
+      <li>No/restricted iCloud account never exposes cached inventory; account changes rebuild account-scoped stores/tokens/selection before showing data. Public/read-only/participant-reinvite options are unavailable.</li>
       <li>Empty fridge shows the empty state; dark mode renders per the dark tokens; Reduce Motion disables the pop-in spring and drag float.</li>
-      <li>Unit tests pass on Linux via <code>swift test</code> where possible: LLM JSON parsing (incl. fenced output), urgency thresholds.</li>
+      <li>Unit tests pass on Linux via <code>swift test</code> where possible: receipt parsing, urgency, stock reduction/idempotency, household selection, and notification diffing; Apple-platform persistence tests and the two-account acceptance matrix in <a href="../wiki/household-sharing.md">household-sharing.md</a> also pass.</li>
     </ul>
-    <div class="callout" style="margin-top:8px">Build order for the agent: Models + Artwork lookup → AppTheme → Home grid with seeded sample data → drag-to-consume → LLM service + scan flow → review sheet → detail + notifications → settings → tests.</div>
+    <div class="callout" style="margin-top:8px">Sharing-release build order for the agent: pure stock/selection/notification contracts + Linux tests → exact Core Data model and account-scoped private/shared stack → repository-backed migration of every view and scan confirmation → persistent history + notification reconciliation → Household UI and invitation bridge → leave/revoke/stop/delete/export lifecycle → full Gate and CI → owner-provisioned two-account development acceptance → production schema promotion and TestFlight upgrade acceptance. Exact checkpoints and the owner-only boundary are in <a href="../wiki/household-sharing.md">household-sharing.md</a>.</div>
   </section>
 
 </div>

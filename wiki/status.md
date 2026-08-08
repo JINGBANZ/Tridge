@@ -19,15 +19,31 @@ bearer token solely for the local smoke harness. A dedicated production worker (
 isolated OpenAI key) is deferred — the code is env-driven so it drops in additively later
 (`server/README.md` → "Adding a production worker later").
 
-Household sharing has an approved architecture in [`household-sharing.md`](./household-sharing.md)
-but no implementation. It uses CloudKit Sharing with private/shared Core Data stores, keeps the scan
-Worker outside the inventory data plane, and upgrades installed test builds automatically to a fresh
-shareable inventory without requiring users to uninstall.
+Household sharing has an independently reviewed, implementation-ready contract in
+[`household-sharing.md`](./household-sharing.md), but no implementation. It uses Apple-native
+CloudKit Sharing with account-isolated private/shared Core Data stores, immutable stock/delete
+events behind a repository, system invitation/participant UI, real export/deletion behavior, and no
+new package. It keeps the scan Worker outside the inventory data plane and upgrades installed test
+builds automatically to a fresh shareable inventory without requiring users to uninstall. The
+authoritative HTML spec now delegates its sharing-release persistence/lifecycle details to that page,
+so a fresh agent no longer encounters a SwiftData/local-only contradiction.
 
 ## Next action
 
-The scan worker's production posture is implemented and tested in the repo; what remains is
-owner-only provisioning (no code):
+The next coding task is the household-sharing implementation, in the fixed order under
+[`household-sharing.md`](./household-sharing.md) → *Implementation sequence*: pure contracts/tests →
+exact Core Data model and account-scoped two-store launch → repository migration of every inventory
+path → history/notifications → Household/invitation UI → lifecycle/export/deletion → full Gate/CI.
+All repository decisions are closed there; a coding agent should not redesign them.
+
+Live CloudKit/TestFlight completion has an explicit owner-only boundary: create/associate
+`iCloud.com.tridge.app` and refresh capabilities/provisioning, supply two iCloud test accounts/
+devices, promote the accepted development schema, review App Store privacy metadata, and run the
+signed two-account checklist. The agent can finish code, fakes, tests, unsigned build, CI, and docs
+without those actions and must report only the live acceptance as externally blocked.
+
+Separately, the scan worker's production posture is implemented and tested in the repo; its existing
+owner-only provisioning remains:
 
 1. Create the `DEVICE_KV` namespace and paste its id into `server/wrangler.jsonc`
    (`wrangler kv namespace create DEVICE_KV`).
@@ -129,9 +145,10 @@ isolated key.
   verification against known-good vectors); CI gates PRs; deploys go through Cloudflare Workers
   Builds (git integration), not CI. Setup/API: `server/README.md`.
 - `wiki/` — this design-docs set.
-- `wiki/household-sharing.md` — the approved design for household ownership, CloudKit invitations,
-  private/shared persistence, repository commands, conflict convergence, notification reconciliation,
-  and the automatic no-uninstall reset; the subsystem itself is not implemented.
+- `wiki/household-sharing.md` — the independently reviewed implementation contract for Apple
+  capabilities, exact account-scoped private/shared persistence, repository commands, stock/delete
+  convergence, Household/invitation/lifecycle UI, notification reconciliation, export/deletion,
+  owner-only gates, and the automatic no-uninstall reset; the subsystem itself is not implemented.
 
 ## Not yet built
 
@@ -144,6 +161,7 @@ isolated key.
   simulator-safe items; the camera items and a live App Attest scan need a TestFlight build on a
   physical iPhone.
 - Household sharing implementation — approved in
-  [`household-sharing.md`](./household-sharing.md), including the fresh-store upgrade for existing
-  App Store/TestFlight installations; no sharing model, persistence stack, repository, invite flow,
-  or sync reconciliation exists in code yet.
+  [`household-sharing.md`](./household-sharing.md), including exact model/operations/UI/lifecycle,
+  privacy/data-rights behavior, owner handoff, and the fresh-store upgrade for existing App Store/
+  TestFlight installations; no sharing model, persistence stack, repository, invite flow, or sync
+  reconciliation exists in code yet.
