@@ -23,14 +23,16 @@ Household sharing has an independently reviewed, implementation-ready contract i
 [`household-sharing.md`](./household-sharing.md), but no implementation. It uses Apple-native
 CloudKit Sharing with account-isolated private/shared Core Data stores, immutable stock/delete
 events behind a repository, revision-guarded merge claims that make concurrent exact-name active
-items one lossless logical row without trapping concurrent renames, household inventory epochs that
-make Clear All cover unseen offline rows, system invitation/participant UI, and real export/deletion
-behavior. Sync health reduces Apple container events only for the current session's two store
-identifiers; persistent history, sharing, authorization, and inventory convergence stay
-application-owned. It keeps the scan Worker outside the inventory data plane and upgrades installed
-test builds automatically to a fresh shareable inventory without requiring users to uninstall. The
-authoritative HTML spec delegates sharing-release persistence, lifecycle, reset, and verification
-details to that page and specifies Core Data/CloudKit for the sharing build.
+items one lossless logical row without trapping concurrent renames, causal inventory frontiers that
+make Clear All cover unseen offline rows without discarding additions after a concurrent clear,
+system invitation/participant UI, and real export/deletion behavior. Sync observation starts before
+store loading, buffers setup/import events, then reduces only events for the activated account
+session's two store identifiers; an empty fresh cache cannot bootstrap before its initial private
+import. Persistent history, sharing, authorization, and inventory convergence stay application-
+owned. It keeps the scan Worker outside the inventory data plane and upgrades installed test builds
+automatically to a fresh shareable inventory without requiring users to uninstall. The authoritative
+HTML spec delegates sharing-release persistence, lifecycle, reset, and verification details to that
+page and specifies Core Data/CloudKit for the sharing build.
 
 ## Next action
 
@@ -38,7 +40,8 @@ The next coding task is the household-sharing implementation, in the fixed order
 [`household-sharing.md`](./household-sharing.md) → *Implementation sequence*: pure contracts/tests →
 exact Core Data model and account-scoped two-store launch → repository migration of every inventory
 path plus lossless duplicate reconciliation and clear epochs → store-scoped sync status and
-history/notifications →
+history/notifications (including pre-load event buffering, initial-import bootstrap gating, and
+obsolete delivered-alert cleanup) →
 Household/invitation UI → lifecycle/export/deletion → full Gate/CI. All repository decisions are
 closed there; a coding agent should not redesign them.
 
@@ -169,7 +172,7 @@ isolated key.
   physical iPhone.
 - Household sharing implementation — approved in
   [`household-sharing.md`](./household-sharing.md), including exact model/operations/UI/lifecycle,
-  revision-safe same-name merge claims, household clear epochs, current-store sync-session
-  isolation, privacy/data-rights behavior, owner handoff, and the fresh-store upgrade for existing
+  revision-safe same-name merge claims, causal household clear frontiers, pre-load/current-store
+  sync-session isolation, privacy/data-rights behavior, owner handoff, and the fresh-store upgrade for existing
   App Store/TestFlight installations; no sharing model, persistence stack, repository, invite flow,
   or sync reconciliation exists in code yet.

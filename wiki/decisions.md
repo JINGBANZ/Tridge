@@ -810,3 +810,30 @@
   scalar clear generations; claiming local sync completion proves peer acknowledgement; timestamp-
   only filtering of a process-wide package singleton; silently retaining archived inventory with no
   user erasure path; and automatically deleting the archive during a normal update.
+- **Superseded by:** *2026-08-09 — Causal clear frontiers and pre-load observation close convergence
+  gaps* for selecting one concurrent clear epoch and beginning event tracking only after both stores
+  load. Revision-guarded merges, direct Apple event consumption, the stop limitation, and separate
+  upgrade markers stand.
+
+### 2026-08-09 — Causal clear frontiers and pre-load observation close convergence gaps
+
+- **Chose:** Represent Clear All as an immutable causal graph: every clear records the complete
+  frontier it observed as parent epoch ids, and every new item records its observed frontier.
+  Concurrent clear children remain simultaneous leaves rather than competing in a UUID tie-break;
+  a later clear joins every branch it has observed. Prepare the store-scoped CloudKit event observer
+  before persistent stores load, buffer events until the two store identifiers are known, and require
+  a successful initial private-store import before an empty fresh cache may bootstrap `My Fridge`.
+  Configure both invitation and existing-share system UI for private/read-write only, and remove
+  delivered as well as pending notifications when account or household scope changes.
+- **Why:** A total-order winner made valid groceries added after the "losing" concurrent clear
+  disappear. Post-load observation could miss the setup/import start it later required, while local
+  store-open completion could create a duplicate personal household before the first cloud import.
+  The ShareLink restrictions do not configure `UICloudSharingController`, and pending-only cleanup
+  leaves the previous account's item name visible in Notification Center. The causal frontier and
+  explicit startup/adapter boundaries preserve the intended data and make each invariant directly
+  testable.
+- **Rejected:** UUID or timestamp tie-breaking between concurrent clears; suppressing an entire
+  losing epoch; mutating/rebasing physical item history after sync; treating
+  `loadPersistentStores` as import completion; subscribing only after both stores load; allowing an
+  empty fresh cache to bootstrap while offline or importing; relying on ShareLink options to
+  constrain Manage Sharing; and removing only pending notifications.

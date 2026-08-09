@@ -26,6 +26,11 @@ link captures both items' identity revisions; if Alex had concurrently corrected
 "Cream," that stale Milk link becomes inactive and the two histories stay separate. An expired,
 zero, or deleted Milk remains a closed batch; a later purchase starts a new one.
 
+Clear All also has an offline-safe rule. If Maya and Alex both clear while offline, neither clear
+"wins" by deleting the other's later work. Each clear creates a branch in the household's causal
+inventory frontier, so groceries added after either clear remain after synchronization. A later
+Clear All performed after both branches are visible replaces both branches and clears their items.
+
 Installed App Store and TestFlight users update normally. The sharing build starts a fresh inventory
 in new database files, preserves settings and App Attest, removes obsolete expiry reminders, and
 shows one explanation. Nobody must uninstall the old build.
@@ -45,7 +50,7 @@ different behavior.
 | Is synchronization live? | No hard real-time promise. Local writes are immediate and CloudKit converges eventually. |
 | What happens to concurrent quantities? | Immutable stock operations compose; no increment or decrement is overwritten by a scalar last-writer-wins merge. |
 | What happens to simultaneous same-name creation? | Exact-name active items converge to one logical item. Tridge retains every physical row and stock event, joins matching identity revisions with immutable merge claims, and sums the histories; a concurrent rename deactivates a stale claim, and Tridge never transfers then deletes a duplicate. |
-| What does Clear All mean offline? | It advances a household inventory epoch. Items and edits from an older epoch stay in history but cannot reappear when an offline device reconnects. New stock added after that device imports the clear belongs to the new epoch. |
+| What does Clear All mean offline? | It advances a causal household inventory frontier. Items from a superseded frontier stay in history but cannot reappear when an offline device reconnects. Concurrent clear branches coexist, so groceries added after either clear survive; a later clear that has imported both branches supersedes both. |
 | What happens when sharing ends? | A participant leaves without a copy. An owner may stop sharing and keep the data already visible on the owner's device, after a warning that another member's unseen offline edits cannot be recovered, or delete the shared fridge for everyone. |
 | Is old inventory migrated? | No. Test inventory resets automatically in place. The legacy SwiftData files remain available for rollback during normal use and have a separate explicit local-erasure action. |
 | Does this add a runtime dependency? | No package currently fits the account-isolated, two-store event contract. The repository's evidence-based policy still permits a reviewed dependency when one materially reduces risk. |
@@ -113,25 +118,32 @@ Use these platform components directly:
 | Reference implementation | Apple's **CoreDataCloudKitShare** sample attached to its sharing guide | Adapt its two-store, invitation, history, and lifecycle patterns; preserve any copied license headers. |
 
 `SyncStatusProviding` is a main-actor protocol with `currentStatus`, an `AsyncStream<SyncStatus>` of
-updates, `beginSession(generation:storeIdentifiers:)`, and `endSession(generation:)`. Its domain enum
-is exactly `.upToDate`, `.syncing`, `.offline`, and `.needsAttention`. The account coordinator creates
-a fresh random generation after both stores load and supplies the exact identifiers of those loaded
-stores. Ending a session clears every in-flight event and subscription owned by that generation.
+updates, `prepareSession(generation:)`, `activateSession(generation:storeIdentifiers:)`, and
+`endSession(generation:)`. Its domain enum is exactly `.upToDate`, `.syncing`, `.offline`, and
+`.needsAttention`. `AccountSessionCoordinator` creates a fresh random generation and calls
+`prepareSession` **before** `loadPersistentStores`, then calls `activateSession` with the exact two
+loaded store identifiers after both descriptions finish. Ending a session clears every in-flight
+or buffered event and subscription owned by that generation.
 
-`StoreScopedSyncMonitor` observes `NSPersistentCloudKitContainer.eventChangedNotification`
-directly. It accepts an event start only when `event.storeIdentifier` belongs to the current session
-and records `event.identifier -> (generation, storeIdentifier, type)`. It accepts a completion only
-when that identifier was recorded for the still-current generation and store. A completion from
-account A that arrives after account B starts is therefore ignored even if its timestamps are new.
-Timestamps are diagnostic data, never the isolation boundary. `NWPathMonitor` supplies reachability;
-the account coordinator remains authoritative for whether stores may open or writes may proceed.
+`StoreScopedSyncMonitor` installs its
+`NSPersistentCloudKitContainer.eventChangedNotification` observer during `prepareSession`, before a
+store load can start setup/import work. Until activation it buffers event snapshots by
+`event.identifier`, retaining their `storeIdentifier`, type, start, and completion. Activation
+discards buffered events for every store except the two just loaded, replays the remaining starts
+and completions in notification order, and then accepts live starts only for those identifiers. A
+completion is accepted only when its start was recorded for the still-current generation and store.
+A completion from account A that arrives while account B loads or after B activates is therefore
+dropped. Timestamps are diagnostic data, never the isolation boundary. `NWPathMonitor` supplies
+reachability; the account coordinator remains authoritative for whether stores may open or writes
+may proceed.
 
 Mapping precedence is deterministic: an unavailable/restricted account or a current-session
 non-network setup/import/export failure is `.needsAttention`; a validated account with an
 unavailable network is `.offline`; any current-session in-progress event or incomplete initial
 setup/import is `.syncing`; successful setup and import for both current stores, with exports either
-not started or successful, is `.upToDate`. The label is diagnostic only and never claims that
-another device has already received a change.
+not started or successful, is `.upToDate`. A successful initial private-store import is also the
+bootstrap barrier described below; store loading alone is not that barrier. The label is diagnostic
+only and never claims that another device has already received a change.
 
 [`CloudKitSyncMonitor` 3.1.0](https://github.com/ggruen/CloudKitSyncMonitor/blob/3.1.0/Sources/CloudKitSyncMonitor/SyncMonitor.swift)
 was evaluated but is not adopted. Its process-wide reducer copies type/timestamps/result from
@@ -242,29 +254,50 @@ tests compile predictably on every Xcode version.
 | Entity | Attributes | Relationships |
 | --- | --- | --- |
 | `HouseholdRecord` | `id: UUID`, `modelVersion: Int16` (starts at `1`), `name: String`, `initialInventoryEpochID: UUID`, `createdAt: Date`, `modifiedAt: Date` | `items` → many `FridgeItemRecord`, inverse `household`, Cascade; `itemMerges` → many `ItemMergeRecord`, inverse `household`, Cascade; `clearEvents` → many `HouseholdClearRecord`, inverse `household`, Cascade |
-| `FridgeItemRecord` | `id: UUID`, `modelVersion: Int16` (starts at `1`), `name: String`, `normalizedName: String`, `identityRevisionID: UUID`, `inventoryEpochID: UUID`, `artKey: String`, `storageRaw: String`, `purchaseDate: Date`, `expiryDate: Date`, `expirySourceRaw: String`, `createdAt: Date`, `modifiedAt: Date` | `household` → one `HouseholdRecord`, inverse `items`, Nullify; `stockChanges` → many `StockChangeRecord`, inverse `item`, Cascade |
+| `FridgeItemRecord` | `id: UUID`, `modelVersion: Int16` (starts at `1`), `name: String`, `normalizedName: String`, `identityRevisionID: UUID`, `inventoryEpochContextRaw: String`, `artKey: String`, `storageRaw: String`, `purchaseDate: Date`, `expiryDate: Date`, `expirySourceRaw: String`, `createdAt: Date`, `modifiedAt: Date` | `household` → one `HouseholdRecord`, inverse `items`, Nullify; `stockChanges` → many `StockChangeRecord`, inverse `item`, Cascade |
 | `StockChangeRecord` | `id: UUID`, `modelVersion: Int16` (starts at `1`), `delta: Int64`, `reasonRaw: String`, `occurredAt: Date` | `item` → one `FridgeItemRecord`, inverse `stockChanges`, Nullify |
 | `ItemMergeRecord` | `id: UUID`, `modelVersion: Int16` (starts at `1`), `leftItemID: UUID`, `leftIdentityRevisionID: UUID`, `rightItemID: UUID`, `rightIdentityRevisionID: UUID`, `createdAt: Date` | `household` → one `HouseholdRecord`, inverse `itemMerges`, Nullify |
-| `HouseholdClearRecord` | `id: UUID`, `modelVersion: Int16` (starts at `1`), `epochID: UUID`, `revision: Int64`, `occurredAt: Date` | `household` → one `HouseholdRecord`, inverse `clearEvents`, Nullify |
+| `HouseholdClearRecord` | `id: UUID`, `modelVersion: Int16` (starts at `1`), `epochID: UUID`, `parentEpochIDsRaw: String`, `revision: Int64`, `occurredAt: Date` | `household` → one `HouseholdRecord`, inverse `clearEvents`, Nullify |
 
 `ItemMergeRecord` is an immutable, revision-guarded identity claim. Its endpoint ids are different,
 sorted by UUID byte order (`leftItemID < rightItemID`), and must resolve to items in the same
-household, persistent store, and inventory epoch. The captured revision beside each endpoint must
-equal that item's current `identityRevisionID`, and the current normalized names must still match,
-for the claim to participate in projection. A revision mismatch is an expected dormant claim, not
+household and persistent store whose inventory contexts are both active in the current frontier.
+The two contexts need not be identical: items added after two concurrent clears may still converge
+by name. The captured revision beside each endpoint must equal that item's current
+`identityRevisionID`, and the current normalized names must still match, for the claim to
+participate in projection. A revision or active-context mismatch is an expected dormant claim, not
 corruption. Duplicate claims for the same endpoints and revisions are valid and have the same union
 effect, which makes concurrent reconciliation idempotent without a CloudKit-incompatible uniqueness
 constraint.
 
-`HouseholdClearRecord` is immutable. The initial inventory epoch is revision `0` with
-`HouseholdRecord.initialInventoryEpochID`. Every Clear All creates a positive Lamport revision one
-greater than the greatest revision visible to that command. The current inventory epoch is the
-`epochID` from the greatest `(revision, id)` tuple; UUID byte order deterministically breaks a tie
-between concurrent clears. Duplicate records with the same id/payload reduce once. A nonpositive
-revision, reused id with a conflicting payload, empty relationship, or overflow is corrupt.
+`HouseholdClearRecord` is an immutable edge in a causal epoch graph. The initial node is revision
+`0` with `HouseholdRecord.initialInventoryEpochID`. `parentEpochIDsRaw` and
+`FridgeItemRecord.inventoryEpochContextRaw` are the same canonical encoding: a JSON array of
+lowercase UUID strings, sorted by UUID byte order, unique, and nonempty. A Clear All captures the
+entire current frontier as its parent set, creates a fresh `epochID`, and sets `revision` to one plus
+the greatest parent revision. The current frontier is every reachable epoch with no outgoing valid
+clear edge; the initial epoch is the frontier before the first clear.
 
-Set local nonunique fetch indexes on `FridgeItemRecord.normalizedName`,
-`FridgeItemRecord.inventoryEpochID`, each ItemMerge endpoint, and `HouseholdClearRecord.revision`.
+Two offline clears from the same frontier therefore create two leaf epochs instead of a winner and
+loser. Their records reduce in any order to a frontier containing both leaves. An item captures the
+device's entire visible frontier when it is created and is current exactly when every captured epoch
+is still in the reduced frontier. Thus an item added after either concurrent clear stays current
+after the branches meet, while an item created before those clears does not. A later Clear All that
+has imported both leaves lists both as parents and replaces them with one new leaf. A clear created
+on a device that has seen only one branch supersedes only that branch; this is the causal boundary,
+not wall-clock time or UUID ordering.
+
+The Linux reducer topologically validates parents against the initial epoch or another valid clear
+record and requires `revision == max(parent revisions) + 1`. Import order does not matter: a child
+whose parent has not arrived is pending for that reduction and is reconsidered after every relevant
+history batch. A permanently missing parent, noncanonical/empty context, repeated epoch id with a
+conflicting payload, cycle, nonpositive revision, or overflow is corrupt and cannot suppress valid
+inventory. Duplicate records with the same id and payload reduce once.
+
+Set local nonunique fetch indexes on `FridgeItemRecord.normalizedName`, each ItemMerge endpoint, and
+`HouseholdClearRecord.revision`. Epoch contexts are reduced per household and are not used as an
+exact-string query index.
+
 `receiptText`, receipt images, `quantity`, `status`, `consumedDate`, a mutable deletion flag,
 urgency, and Food Category are **not** persisted:
 
@@ -333,23 +366,33 @@ from the target. Two peers consuming the last visible unit can produce a negativ
 shows zero. Once an item projects to zero, later purchases create a new item rather than paying down
 the old operation history. No operation log is compacted or pruned in this release.
 
-An item group is visible/active only when every projected member belongs to the household's current
-inventory epoch, `isDeleted == false`, and projected quantity is greater than zero. Delete appends an
-immutable terminal event and never removes records or merge claims. A terminal event on any member
-closes the entire revision-valid group, so stock or nonidentity metadata changes that arrive later
-on another member cannot resurrect it. A causally concurrent normalized-name change may deactivate
-the claim and expose that corrected identity as a separate item; Clear All uses the stronger epoch
-barrier below. A new purchase after deletion or zero creates a new item record in the current epoch.
+The projector first discards physical members whose captured inventory context is not a subset of
+the household's current frontier, then applies revision-valid merge claims among the remaining
+members. A resulting item group is visible/active only when `isDeleted == false` and projected
+quantity is greater than zero. Delete never removes records or merge claims. It appends the same
+immutable `deleted` StockChange id/payload to every physical member in the current revision-valid
+group; the grouped reducer counts that id once, while every member remains terminal if a later
+frontier or identity change makes a claim dormant. A terminal event on any member closes the current
+group, so stock or nonidentity metadata changes that arrive later cannot resurrect it. A previously
+unseen, unlinked row is not retroactively deleted without causal evidence. Clear All uses the
+stronger household barrier below. A new purchase after deletion or zero creates a new item record
+stamped with the complete current frontier.
 
-Clear All is both a per-visible-group terminal command and a household-wide barrier. In one
-transaction it inserts a preallocated `HouseholdClearRecord` at `maxVisibleRevision + 1` and appends
-one preallocated `cleared` StockChange to every currently visible logical group. Once the new epoch
-wins, projection, matching, and commands exclude all items stamped with an older epoch, including an
-item that another device created offline before learning about the clear. That item's history remains
-exportable but cannot reappear. A device stamps new items with the new epoch only after importing the
-barrier; an item it adds concurrently under the old epoch may appear locally and then disappear on
-sync. Concurrent clear records converge by `(revision, id)`, and stock created under a losing epoch
-is suppressed. Retrying the same command reuses the barrier, epoch, and StockChange ids.
+Clear All is both a per-visible-group terminal command and a household-wide causal barrier. In one
+transaction it inserts a preallocated `HouseholdClearRecord` whose parents are the complete current
+frontier and appends one preallocated `cleared` StockChange id/payload across every physical member
+of each currently visible logical group. The reducer counts each group id once while every known
+member is terminal independently. Projection, matching, and commands then use the new leaf. An item
+created before that clear, including one not yet imported, has a superseded context: its history
+remains exportable but it cannot reappear. An item added concurrently from the parent context may
+appear locally and then disappear when the clear arrives, preserving the release's clear-wins rule
+for concurrent add versus clear.
+
+Concurrent clears are different because each creates a child of the same parent frontier. Both
+children remain leaves after synchronization, so items created after either clear remain visible.
+When a later device has imported both leaves, its next Clear All names both as parents and
+supersedes both branches. Retrying one command reuses the clear-record, epoch, and StockChange ids;
+concurrent commands keep their distinct ids and converge without a tie-break winner.
 
 ### Matching and lossless same-item convergence
 
@@ -367,8 +410,9 @@ with a union-find reduction. Claim order and duplicate claims do not matter. The
 the smallest member UUID by byte order, so every peer chooses the same identity.
 
 After every local inventory save and relevant remote-history import, `DuplicateReconciler` examines
-the current logical groups in that household and current inventory epoch. It links two groups when
-both are active, nonzero, unexpired, and have the same nonempty normalized name. It writes a star
+the current logical groups in that household and current inventory frontier. It links two groups
+when both contexts are current, both groups are active, nonzero, unexpired, and have the same
+nonempty normalized name. It writes a star
 from the lowest logical item id to each other group using a serial maintenance context and
 transaction author `app.reconcile`. Each claim captures the current `identityRevisionID` beside both
 endpoint ids. Immediately before save, the writer refetches the endpoints and verifies the epoch,
@@ -402,7 +446,8 @@ resolve to one complete metadata winner—Tridge does not pretend to field-merge
 storage, or expiry choices.
 
 Commands and stale sheets may address the logical id or any member id; the repository resolves the
-current revision-valid component inside its writer context and verifies its inventory epoch.
+current revision-valid component inside its writer context and verifies every member's inventory
+context against the freshly reduced frontier.
 Adds/eat/toss/adjust append their operation to the lowest-id member. Delete appends one terminal
 operation there, which closes every member already linked to it. Clear All uses the household epoch
 barrier above. A previously unseen, unlinked same-name row that arrives only after an individual
@@ -432,7 +477,7 @@ Tridge/
 │  ├─ InventorySnapshots.swift      HouseholdSnapshot + InventoryItemSnapshot
 │  ├─ StockReducer.swift            order-independent quantity/idempotency rules
 │  ├─ ItemGroupReducer.swift        revision-guarded claim union + deterministic projection
-│  ├─ InventoryEpochReducer.swift   deterministic Clear All barrier selection
+│  ├─ InventoryEpochReducer.swift   causal frontier codec + Clear All graph reduction
 │  ├─ HouseholdSelection.swift      deterministic active-household fallback
 │  └─ NotificationPlan.swift        pure desired-vs-scheduled reminder diff
 ├─ Persistence/
@@ -451,6 +496,7 @@ Tridge/
 │  ├─ SceneDelegate.swift           CloudKit invitation callbacks
 │  └─ StoreScopedSyncMonitor.swift  current-store events → Tridge sync state
 ├─ App/
+│  ├─ AccountSessionCoordinator.swift account validation, monitor/store startup, bootstrap gate
 │  ├─ HouseholdSession.swift        active id, snapshots, capabilities, UI state
 │  └─ LaunchState.swift             loading/account/error/reset-notice states
 ├─ Services/
@@ -470,6 +516,7 @@ The component responsibilities are intentionally narrow:
 | Component | Sole responsibility |
 | --- | --- |
 | `PersistenceController` | Construct both stores, identify each loaded store/scope, create confined contexts, and report complete/failed launch. |
+| `AccountSessionCoordinator` | Validate/hash the iCloud account, prepare sync observation before store load, activate it with loaded identifiers, wait for initial private import when required, and tear the whole generation down on account change. |
 | `InventoryRepository` protocol | Async household queries and commands; no CloudKit presentation or SwiftUI. |
 | `CoreDataInventoryRepository` | Validate commands, resolve the household/store, check capability, assign inserted objects, save atomically, and return snapshots. |
 | `HouseholdSession` | Main-actor observable UI state: available/active households, active items, account/capability/sync state, and command errors. |
@@ -477,8 +524,8 @@ The component responsibilities are intentionally narrow:
 | `ShareInvitationRouter` | Buffer metadata received before dependency setup and serialize acceptance into the shared store. |
 | `DuplicateReconciler` | Persist immutable exact-name links after local saves/imports; never transfer or delete item histories. |
 | `PersistentHistoryProcessor` | Consume one history stream per store, run reconciliation, merge changes, refresh snapshots/reminders, then persist the token. |
-| `StoreScopedSyncMonitor` | Reduce only current-generation events for the two loaded store identifiers plus reachability into Tridge sync state; it does not authorize account/store access. |
-| `NotificationService` | Diff desired active-household reminders against Tridge-owned pending identifiers and update badge. |
+| `StoreScopedSyncMonitor` | Buffer setup/import events during store loading, then reduce only current-generation events for the two activated store identifiers plus reachability into Tridge sync state; it does not authorize account/store access. |
+| `NotificationService` | Diff desired active-household reminders against Tridge-owned pending identifiers, remove pending and delivered alerts for obsolete account/household scopes, and update badge. |
 
 Repository commands are `addReviewedRows`, `addManualItem`, `updateItem`, `eatOne`, `tossOne`,
 `deleteItem`, `clearActiveHousehold`, and `renameOwnedHousehold`. Each includes the household id and a
@@ -490,10 +537,11 @@ Every operation-producing command also carries preallocated ids for every object
 
 - manual add has one candidate item id and one StockChange id;
 - reviewed rows have a stable candidate item id and StockChange id per row;
-- a normalized-name update has one identity-revision id plus replacement ItemMerge ids; other
-  update/eat/toss/delete commands have one StockChange id;
+- a normalized-name update has one identity-revision id plus replacement ItemMerge ids;
+  update/eat/toss commands have one StockChange id, and delete fans its one terminal id/payload out
+  to every current physical member;
 - Clear All has one clear-record id, one epoch id, and a StockChange id per logical item group in the
-  transaction; and
+  transaction; each group id/payload is fanned out to that group's current physical members; and
 - copy-before-purge preallocates its destination household id before recording the transition.
 
 Duplicate reconciliation is an internal maintenance operation, not a user command. It preallocates
@@ -526,9 +574,10 @@ Settings adds one first row to its existing everyday section:
 
 `Clear all items…` keeps its separate destructive section. Its confirmation says, "This clears the
 current inventory in Home for everyone. Items added on an offline device before it receives this
-clear will also disappear when that device syncs." It advances the household inventory epoch and
-appends immutable `cleared` events to the visible logical groups; it is an inventory action, not a
-privacy-data erasure action.
+clear will also disappear when that device syncs." It advances the household inventory frontier and
+appends immutable `cleared` events to the visible logical groups; specifically, it replaces the
+currently observed frontier with one causal child. It is an inventory action, not a privacy-data
+erasure action.
 
 The Household row opens `HouseholdScreen`:
 
@@ -558,15 +607,19 @@ recipients and read/write access; both `allowsAccessRequests` and
 
 Manage Sharing presents `UICloudSharingController` for the existing share so Apple owns participant
 selection/removal and permission display. Tridge does not render a custom member list because
-identity fields may be unavailable and a custom list would duplicate system behavior.
-Before presentation, retain the existing share zone id and Household managed-object id in the
-service. If the controller delegate reports that the owner stopped sharing, feed those identifiers
-into the same resumable copy-before-purge state machine; do not implement a second stop path.
+identity fields may be unavailable and a custom list would duplicate system behavior. The wrapper
+sets `availablePermissions = [.allowPrivate, .allowReadWrite]` on **every** controller created for an
+existing share; `CKAllowedSharingOptions` on `ShareLink` does not configure this separate UI. This
+removes public and read-only choices from the management controller as well as from invitation
+creation. Before presentation, retain the existing share zone id and Household managed-object id in
+the service. If the controller delegate reports that the owner stopped sharing, feed those
+identifiers into the same resumable copy-before-purge state machine; do not implement a second stop
+path.
 
 Export Fridge Data writes a temporary, versioned JSON document containing export date, household
 name, each logical item's projected metadata/current quantity, every physical member record, every
 ItemMerge claim, every household clear/epoch record, and complete stock-event history—including
-zero, deleted, cleared, dormant-claim, and prior-epoch rows. It excludes participant/share metadata,
+zero, deleted, cleared, dormant-claim, and superseded-context rows. It excludes participant/share metadata,
 account ids, diagnostics, receipt text, and receipt images, then presents the system share sheet. Delete
 Fridge physically removes an unshared private graph. Delete Shared Fridge for Everyone purges the
 shared zone without making the owner copy and explains that every participant loses the data. A
@@ -577,8 +630,12 @@ state with text in addition to color. Stop, leave, delete, and clear require exp
 
 ## Bootstrap and active-household selection
 
-After both stores load and known imported history is merged, run DuplicateReconciler once for every
-valid household in both stores and build the logical projections. Then run selection:
+`loadPersistentStores` completion means the local replicas opened; it does not mean the first
+CloudKit import finished. `AccountSessionCoordinator` activates the prepared sync session after both
+stores load and waits for the current generation's successful private-store setup and initial
+import before it may use the empty-store fallback below. Only then does it merge imported history,
+run DuplicateReconciler once for every valid household in both stores, build projections, and run
+selection:
 
 1. If an accepted invitation is pending and its Household record has imported, select that household
    and clear the pending invitation marker.
@@ -591,10 +648,21 @@ valid household in both stores and build the logical projections. Then run selec
 Persist only the UUID in `UserDefaults`; validate it every launch. If a selected household is left,
 revoked, purged, or deleted, run the same fallback immediately and reconcile reminders.
 
-CloudKit cannot enforce a unique personal-household root. If two devices both bootstrap before they
-see each other, both `My Fridge` records remain and appear in the list with creation dates. Do not
-silently merge them. The owner can rename either and delete an unshared extra. This rare, explicit
-outcome is safer than moving a possibly shared object graph between record zones.
+Persist `initialPrivateImportSucceeded` by account scope and private-store identifier only after the
+monitor accepts that successful current-generation import. A new/empty account-scoped cache with no
+such marker never creates `My Fridge` while setup/import is pending, offline, or failed; it stays in
+a retryable "Finishing iCloud setup…" launch state. Once the barrier succeeds, an empty private
+store is evidence for step 5. Existing nonempty validated caches and explicit post-delete fallback
+do not wait for a fresh import merely to render local data. This gate prevents an ordinary fresh
+installation from creating a duplicate household while its existing cloud household is still
+importing.
+
+CloudKit cannot enforce a unique personal-household root. If two truly fresh devices both complete
+their initial empty import and then bootstrap before either export reaches the other, both `My
+Fridge` records remain and appear in the list with creation dates. Do not silently merge them. The
+owner can rename either and delete an unshared extra. The import barrier prevents the routine
+fresh-cache duplicate; this remaining simultaneous-device race is explicit and safer than moving a
+possibly shared object graph between record zones.
 
 ## Sharing and lifecycle flows
 
@@ -801,6 +869,14 @@ revocation, leave/stop/delete, and first-run reset:
    a remote import.
 4. Set badge to the active household's expired active-item count.
 
+Account and household transitions additionally carry the exact old identifier prefix into
+`NotificationService` before snapshots or account state are cleared. The service fetches both
+pending requests and `deliveredNotifications()`, removes matching pending ids, and calls
+`removeDeliveredNotifications(withIdentifiers:)` for matching alerts still visible in Notification
+Center. An account switch uses the old account prefix; an active-household switch, leave,
+revocation, stop, or delete uses the old account-plus-household prefix. Prefix parsing is strict and
+never uses a broad substring, so another current household's notification is not removed.
+
 The pure `NotificationPlan` diff is Linux-tested; the service is an Apple-platform adapter.
 
 ## Privacy and security
@@ -875,10 +951,11 @@ Linux `swift test` covers:
 - ItemGroupReducer claim-order independence, duplicate-claim idempotency, deterministic logical id
   and metadata winner, summed late operations across members, revision-mismatch deactivation, and no
   active-to-expired/zero/terminal inference;
-- InventoryEpochReducer deterministic sequential/concurrent clear selection, retry idempotency, old-
-  epoch suppression, and new-epoch additions;
+- InventoryEpochReducer canonical-context validation, input-order independence, retry idempotency,
+  causal frontier reduction, pre-clear suppression, concurrent-clear branch preservation, and a
+  later multi-parent clear joining/superseding every observed branch;
 - deterministic active-household selection/fallback;
-- notification desired-state diffs; and
+- notification desired-state diffs plus exact obsolete-scope prefix selection; and
 - command validation and snapshot mapping that does not expose receipt text.
 
 Apple-platform tests cover:
@@ -891,25 +968,36 @@ Apple-platform tests cover:
   remain harmless, and a late member operation changes the aggregate; a concurrent root rename
   invalidates a stale claim, while an intentional logical-group rename replaces its claims
   atomically;
-- Clear All writes the epoch barrier and visible terminal events atomically; a later import from an
-  older epoch remains hidden, while an add after importing the barrier uses the new epoch;
+- Delete fans one stable terminal id/payload across every currently linked physical member, so a
+  later dormant claim cannot resurrect a member that the user deleted;
+- Clear All writes its full-parent-frontier barrier and visible terminal events atomically; a later
+  import from a superseded context remains hidden; two concurrent clears retain additions made
+  after either branch; and a later clear that observes both branches supersedes both;
 - history tokens are independent per store, saved only after processing, and app-authored history is
   filtered;
-- `StoreScopedSyncMonitor` ignores other-store events, completions whose start belongs to a prior
-  generation, and account A completions received during account B's session;
+- `StoreScopedSyncMonitor` captures a setup/import start and completion emitted before store-load
+  callbacks finish, replays it after activation, ignores buffered/live other-store events,
+  completions whose start belongs to a prior generation, and account A completions received while
+  account B prepares or runs;
+- a new empty account cache cannot bootstrap before a successful current-generation private import;
+  a cache whose cloud household arrives in that import selects it instead of creating a duplicate;
 - invitation metadata buffers until the shared store is ready and repeated acceptance is safe;
 - a shared-household rename persists the new `CKShare` title; Send Invite retries a dirty title and
   does not present ShareLink after a metadata-write failure;
+- every existing-share `UICloudSharingController` is configured with only `.allowPrivate` and
+  `.allowReadWrite`;
 - owner stop saves/verifies exactly one copied item per active logical group before a purge fake is
   invoked;
 - stop-sharing transition retries never duplicate a copy and resume after each recorded phase;
 - stop-sharing requires the offline-edit warning but never claims peer acknowledgement;
-- participant leave makes no copy, owner deletion makes no copy, export includes zero/prior-epoch
+- participant leave makes no copy, owner deletion makes no copy, export includes zero/superseded-context
   histories while omitting restricted fields, and explicit legacy erasure targets only the archived
   store and sidecars;
 - account-derived paths/tokens/selection differ for two user-record-id hashes; and
-- account/reset state never presents a prior store snapshot; signed-out upgrade still clears legacy
-  reminders, and reset-notice acknowledgement survives termination independently of migration.
+- account/reset state never presents a prior store snapshot; account/household transitions remove
+  matching pending **and delivered** alerts without touching another scope; signed-out upgrade still
+  clears legacy reminders; and reset-notice acknowledgement survives termination independently of
+  migration.
 
 The repository Gate remains:
 
@@ -941,10 +1029,18 @@ complete this contract.
 - While one device is about to infer Milk, the other offline device renames its root to Cream; after
   sync the stale claim is dormant and both products retain only their own quantities. Renaming an
   already-linked logical Milk updates the whole known group without splitting it.
-- While one device is offline with an unseen old-epoch item, the other runs Clear All; after sync the
-  old-epoch item stays out of Home. An item added after the offline device imports the clear remains.
+- While one device is offline with an unseen old-context item, the other runs Clear All; after sync the
+  old-context item stays out of Home. An item added after the offline device imports the clear
+  remains.
+- With both devices offline from the same frontier, each runs Clear All and then adds a different
+  grocery. After sync both post-clear groceries remain. After one device imports both clear branches
+  and runs Clear All again, both disappear and a subsequent item remains.
+- On a fresh device for an account that already owns a cloud household, delay the initial import;
+  Tridge stays in setup instead of creating `My Fridge`, then selects the imported household.
 - Renaming a shared household updates the title shown by a later invitation before ShareLink opens.
-- A remote expiry edit updates the other device's active-household notifications.
+- A remote expiry edit updates the other device's active-household notifications. Switching account
+  or household removes the old scope's already-delivered alert from Notification Center as well as
+  its pending requests.
 - Participant leave and owner revocation remove access, cancel reminders, and choose a fallback
   without affecting remaining members.
 - Owner Stop Sharing displays the unseen-offline-edit limitation and retains one unshared copy with
@@ -956,7 +1052,8 @@ complete this contract.
   before acknowledging the fresh-fridge notice causes it to appear again. Erase Old Local Inventory
   removes the exact archived store and sidecars without touching a current household.
 - Signing out/account switching never reveals the prior account's cached inventory.
-- Public access, read-only choice, access requests, and participant invitations are unavailable.
+- Public access, read-only choice, access requests, and participant invitations are unavailable in
+  both ShareLink and Manage Sharing.
 - Sync/account/error/destructive controls are VoiceOver-labelled and usable with Dynamic Type and
   Reduce Motion.
 
@@ -989,14 +1086,17 @@ blocked rather than altering identifiers or inventing credentials.
 - [Creating a Core Data model for CloudKit](https://developer.apple.com/documentation/coredata/creating-a-core-data-model-for-cloudkit)
 - [`NSPersistentCloudKitContainer`](https://developer.apple.com/documentation/coredata/nspersistentcloudkitcontainer)
 - [`NSPersistentCloudKitContainer.Event.storeIdentifier`](https://developer.apple.com/documentation/coredata/nspersistentcloudkitcontainer/event/storeidentifier)
+- [`NSPersistentCloudKitContainer.Event.identifier`](https://developer.apple.com/documentation/coredata/nspersistentcloudkitcontainer/event/identifier)
 - [Consuming relevant store changes](https://developer.apple.com/documentation/coredata/consuming-relevant-store-changes)
 - [Shared records and CKShare lifecycle](https://developer.apple.com/documentation/cloudkit/shared-records)
 - [`CKAllowedSharingOptions`](https://developer.apple.com/documentation/cloudkit/ckallowedsharingoptions)
+- [`UICloudSharingController.availablePermissions`](https://developer.apple.com/documentation/uikit/uicloudsharingcontroller/availablepermissions)
 - [`CKShareTransferRepresentation`](https://developer.apple.com/documentation/cloudkit/cksharetransferrepresentation)
 - [Accepting share invitations in a SwiftUI app](https://developer.apple.com/documentation/coredata/accepting-share-invitations-in-a-swiftui-app)
 - [Build apps that share data through CloudKit and Core Data (WWDC21)](https://developer.apple.com/videos/play/wwdc2021/10015/)
 - [TN3164: Debugging `NSPersistentCloudKitContainer` synchronization](https://developer.apple.com/documentation/technotes/tn3164-debugging-the-synchronization-of-nspersistentcloudkitcontainer)
 - [Providing user access to CloudKit data](https://developer.apple.com/documentation/cloudkit/providing-user-access-to-cloudkit-data)
+- [`UNUserNotificationCenter.deliveredNotifications()`](https://developer.apple.com/documentation/usernotifications/unusernotificationcenter/getdeliverednotifications%28completionhandler%3A%29)
 - [Responding to requests to delete data](https://developer.apple.com/documentation/cloudkit/responding-to-requests-to-delete-data)
 - [Integrating a text-based CloudKit schema](https://developer.apple.com/documentation/cloudkit/integrating-a-text-based-schema-into-your-workflow)
 
