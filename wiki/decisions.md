@@ -708,6 +708,9 @@
   opening the old store with the new model; deleting the legacy database and sidecars on first launch;
   clearing all `UserDefaults` or App Attest state along with the inventory. Full upgrade contract:
   [`household-sharing.md`](./household-sharing.md) → *Upgrade from the shipping build*.
+- **Superseded by:** *2026-08-09 — Revision guards and household epochs make destructive
+  convergence explicit* only for indefinite legacy-file retention: automatic upgrade still retains
+  the archive, while an explicit user action can erase it safely.
 
 ### 2026-08-08 — Sharing ships as an Apple-native, account-isolated implementation contract
 
@@ -774,3 +777,36 @@
 - **Supersedes:** The cross-peer deduplication and no-package parts of *2026-08-08 — Sharing ships as
   an Apple-native, account-isolated implementation contract*. It does not revive the delayed
   tombstone/transfer design from *2026-08-06*.
+- **Superseded by:** *2026-08-09 — Revision guards and household epochs make destructive
+  convergence explicit* for unconditional permanent merge projection and the selected sync-monitor
+  package. Lossless physical histories and the evidence-based dependency policy stand.
+
+### 2026-08-09 — Revision guards and household epochs make destructive convergence explicit
+
+- **Chose:** Make an inferred same-name merge an immutable claim over both endpoints' captured
+  identity revisions, not an unconditional permanent union. A normalized-name edit advances
+  identity revision; stale claims stay stored but become inactive. An intentional logical-group
+  rename updates all currently known members and replacement claims atomically. Clear All advances
+  an immutable, Lamport-ordered household inventory epoch so unseen older-epoch rows cannot reappear.
+  Stop Sharing preserves the owner's local projection after an explicit warning that CloudKit cannot
+  prove every participant device exported. Sync status consumes raw
+  `NSPersistentCloudKitContainer.Event` values keyed by current store identifiers, event ids, and a
+  session generation. Upgrade side effects and reset-notice acknowledgement use separate markers,
+  and a separate explicit action can destroy the archived pre-sharing SQLite store.
+- **Why:** PR review exposed four false guarantees: Milk could be linked permanently while another
+  offline peer corrected it to Cream; per-visible-item Clear All could miss an offline row; an
+  owner's successful sync could not acknowledge every participant's pending writes; and a
+  process-wide event reducer could attribute account A's late completion to account B. Revision and
+  epoch tokens make the first two outcomes deterministic without deleting history, while the stop
+  warning states the unavoidable distributed-systems limit. Separate upgrade markers survive every
+  crash point and the erasure action makes the archived test data honestly deletable.
+- **Dependency result:** The evidence-based policy remains. `CloudKitSyncMonitor` 3.1.0 is not used
+  because its reducer discards `NSPersistentCloudKitContainer.Event.storeIdentifier`; wrapping its
+  published state cannot recover the store/session provenance this two-account design requires.
+  Using it only for network/account status would not materially reduce risk. Apple's event API and
+  reference sharing sample cover the selected boundary directly.
+- **Rejected:** Permanent inferred unions with no revision guard; transferring events and deleting
+  aliases; a Clear All confirmation that ignores unseen offline items; wall-clock-only or mutable
+  scalar clear generations; claiming local sync completion proves peer acknowledgement; timestamp-
+  only filtering of a process-wide package singleton; silently retaining archived inventory with no
+  user erasure path; and automatically deleting the archive during a normal update.
