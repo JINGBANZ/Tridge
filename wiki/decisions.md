@@ -837,3 +837,29 @@
   `loadPersistentStores` as import completion; subscribing only after both stores load; allowing an
   empty fresh cache to bootstrap while offline or importing; relying on ShareLink options to
   constrain Manage Sharing; and removing only pending notifications.
+
+### 2026-08-09 — Durable invitation intent and generation drains close transition races
+
+- **Chose:** Persist invitation-selection intent before asking CloudKit to accept a share. Bound
+  markers use `(container, zone, account-scope hash)` so two invited accounts on one installation
+  cannot overwrite each other; pre-validation delivery uses a separate provisional id that is
+  atomically rekeyed within the live metadata-handling attempt. Every bound marker phase remains
+  valid selection intent until the matching Household imports and its UUID is durably selected, or
+  the user explicitly discards a terminal failure.
+  Bind store loading plus all account-scoped repository, history, reconciliation, sharing, and
+  reminder work to an immutable session generation through `AccountTaskRegistry`. An account
+  transition closes task admission, invalidates that generation, clears visible state, cancels
+  cooperative work, and awaits every registered load/context operation before removing stores; the
+  main-actor apply boundary also rejects stale results. Lock the release-only Fastlane dependency to
+  2.237.0 in both `Gemfile` and `Gemfile.lock`.
+- **Why:** CloudKit acceptance and local shared-record import are separate asynchronous events. A
+  process termination between them must not lose which household should become active. Likewise,
+  cancellation alone cannot stop a Core Data `context.perform` already executing: removing its
+  store or allowing its late snapshot to reach the next account can crash or disclose account A's
+  data under account B. Durable intent plus invalidate-and-drain makes both handoffs explicit and
+  testable. The lockfile makes the reviewed release tool version reproducible in CI.
+- **Rejected:** Recording invitation intent only after acceptance; clearing the marker before the
+  matching household is durably selected; relying on task cancellation without awaiting in-flight
+  context work; accepting callbacks based only on whichever account is current when they finish;
+  removing stores while old-generation tasks remain admitted; and calling an unconstrained Gem a
+  locked dependency.

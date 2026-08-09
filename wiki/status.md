@@ -28,11 +28,14 @@ make Clear All cover unseen offline rows without discarding additions after a co
 system invitation/participant UI, and real export/deletion behavior. Sync observation starts before
 store loading, buffers setup/import events, then reduces only events for the activated account
 session's two store identifiers; an empty fresh cache cannot bootstrap before its initial private
-import. Persistent history, sharing, authorization, and inventory convergence stay application-
-owned. It keeps the scan Worker outside the inventory data plane and upgrades installed test builds
-automatically to a fresh shareable inventory without requiring users to uninstall. The authoritative
-HTML spec delegates sharing-release persistence, lifecycle, reset, and verification details to that
-page and specifies Core Data/CloudKit for the sharing build.
+import. Invitation-selection intent is durable before CloudKit acceptance, and account changes
+invalidate and drain generation-bound work before removing stores, so a crash or late callback
+cannot lose the invited household or expose the prior account. Persistent history, sharing,
+authorization, and inventory convergence stay application-owned. It keeps the scan Worker outside
+the inventory data plane and upgrades installed test builds automatically to a fresh shareable
+inventory without requiring users to uninstall. The authoritative HTML spec delegates sharing-
+release persistence, lifecycle, reset, and verification details to that page and specifies Core
+Data/CloudKit for the sharing build.
 
 ## Next action
 
@@ -115,7 +118,8 @@ isolated key.
   see the decision log for why it's hand-authored.
 - `.github/workflows/ci.yml` — Linux `swift test`; server typecheck + Vitest; release-lane syntax;
   macOS `swift test` + a Debug simulator build (compile-only gate, `CODE_SIGNING_ALLOWED=NO`).
-- `.github/workflows/testflight.yml` + `fastlane/` (`Fastfile`, `Appfile`) + `Gemfile` — the
+- `.github/workflows/testflight.yml` + `fastlane/` (`Fastfile`, `Appfile`) + `Gemfile`/
+  `Gemfile.lock` (Fastlane exactly pinned to 2.237.0) — the
   manual TestFlight release lane: `workflow_dispatch` imports a reusable Apple Development identity
   from GitHub secrets, builds a signed Release IPA, and uploads it via fastlane's
   `upload_to_testflight`; the archive

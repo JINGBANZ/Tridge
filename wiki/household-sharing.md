@@ -448,16 +448,19 @@ storage, or expiry choices.
 Commands and stale sheets may address the logical id or any member id; the repository resolves the
 current revision-valid component inside its writer context and verifies every member's inventory
 context against the freshly reduced frontier.
-Adds/eat/toss/adjust append their operation to the lowest-id member. Delete appends one terminal
-operation there, which closes every member already linked to it. Clear All uses the household epoch
-barrier above. A previously unseen, unlinked same-name row that arrives only after an individual
-Delete is treated as a new batch rather than destroyed: the system has no causal evidence that it
-predates that item-specific deletion. Clear All is different because its explicit household epoch
-suppresses every older-epoch row.
+Adds/eat/toss/adjust append their operation to the lowest-id member. Delete appends its one stable
+terminal id/payload to **every** member resolved in that writer transaction, matching the fan-out
+rule above; a retry fills any missing member marker and treats identical existing markers as
+success. Clear All uses the household frontier barrier above. A previously unseen, unlinked
+same-name row that arrives only after an individual Delete is treated as a new batch rather than
+destroyed: the system has no causal evidence that it predates that item-specific deletion. Clear All
+is different because its explicit causal barrier suppresses every superseded context.
 
-Expired, zero, terminal, and different-epoch groups are never auto-linked to active groups, and
-groups with different normalized names are ineligible. This preserves the shipping rule that buying
-Milk after the old Milk expires or reaches zero creates a fresh batch with its own expiry and
+Expired, zero, terminal, inactive-context, and superseded-context groups are never auto-linked to
+active groups, and groups with different normalized names are ineligible. Two different contexts
+that are both subsets of the current concurrent frontier **are** eligible, so Milk added after each
+of two offline clears still converges to one logical Milk. This preserves the shipping rule that
+buying Milk after the old Milk expires or reaches zero creates a fresh batch with its own expiry and
 history. ItemMerge claim records remain until the household is deleted, but stale claims are
 dormant. There is no user-facing manual split/unmerge operation in this release.
 
@@ -492,11 +495,13 @@ Tridge/
 │  ├─ HouseholdSharingService.swift CKShare create/fetch/manage/leave/stop
 │  ├─ HouseholdShareItem.swift      Transferable used by ShareLink
 │  ├─ ShareInvitationRouter.swift   buffers cold/warm invitation metadata
+│  ├─ PendingInvitationStore.swift  durable account/zone-scoped selection intent
 │  ├─ AppDelegate.swift             scene configuration + account events
 │  ├─ SceneDelegate.swift           CloudKit invitation callbacks
 │  └─ StoreScopedSyncMonitor.swift  current-store events → Tridge sync state
 ├─ App/
 │  ├─ AccountSessionCoordinator.swift account validation, monitor/store startup, bootstrap gate
+│  ├─ AccountTaskRegistry.swift     generation-bound task admission + cancel/drain
 │  ├─ HouseholdSession.swift        active id, snapshots, capabilities, UI state
 │  └─ LaunchState.swift             loading/account/error/reset-notice states
 ├─ Services/
@@ -516,16 +521,53 @@ The component responsibilities are intentionally narrow:
 | Component | Sole responsibility |
 | --- | --- |
 | `PersistenceController` | Construct both stores, identify each loaded store/scope, create confined contexts, and report complete/failed launch. |
-| `AccountSessionCoordinator` | Validate/hash the iCloud account, prepare sync observation before store load, activate it with loaded identifiers, wait for initial private import when required, and tear the whole generation down on account change. |
+| `AccountSessionCoordinator` | Validate/hash the iCloud account, prepare sync observation before store load, activate it with loaded identifiers, wait for initial private import when required, and invalidate/drain the whole generation on account change. |
+| `AccountTaskRegistry` | Admit setup/store-load/repository/history/sharing/reminder tasks only for the current generation, cancel cooperative work, await every registered task before store teardown, and reject late results. |
 | `InventoryRepository` protocol | Async household queries and commands; no CloudKit presentation or SwiftUI. |
 | `CoreDataInventoryRepository` | Validate commands, resolve the household/store, check capability, assign inserted objects, save atomically, and return snapshots. |
 | `HouseholdSession` | Main-actor observable UI state: available/active households, active items, account/capability/sync state, and command errors. |
 | `HouseholdSharingService` | Share APIs and owner/participant lifecycle; depends on a protocol so UI/lifecycle tests can use a fake. |
-| `ShareInvitationRouter` | Buffer metadata received before dependency setup and serialize acceptance into the shared store. |
+| `ShareInvitationRouter` | Persist provisional then account/zone-scoped selection intent before acceptance, buffer metadata received before dependency setup, and serialize acceptance into the shared store. |
+| `PendingInvitationStore` | Atomically persist provisional delivery records and bound container/zone/account selection intent without saving a share URL or participant identity; clear only the matching marker after selection or explicit discard. |
 | `DuplicateReconciler` | Persist immutable exact-name links after local saves/imports; never transfer or delete item histories. |
 | `PersistentHistoryProcessor` | Consume one history stream per store, run reconciliation, merge changes, refresh snapshots/reminders, then persist the token. |
 | `StoreScopedSyncMonitor` | Buffer setup/import events during store loading, then reduce only current-generation events for the two activated store identifiers plus reachability into Tridge sync state; it does not authorize account/store access. |
 | `NotificationService` | Diff desired active-household reminders against Tridge-owned pending identifiers, remove pending and delivered alerts for obsolete account/household scopes, and update badge. |
+
+Every loaded-store async call carries an immutable `AccountSessionContext` containing the random
+generation, account-scope hash, and both loaded store identifiers; pre-load work carries the
+`AccountGenerationContext` defined below. Repository commands, persistent-history work, duplicate
+reconciliation, share/lifecycle operations, and reminder refreshes register with
+`AccountTaskRegistry` before touching a context. `HouseholdSession` accepts a snapshot, error, or
+sync update only when its generation still equals the coordinator's current generation. This check
+occurs at the main-actor apply boundary even for work that was already running when an account
+notification arrived.
+
+The coordinator creates an immutable `AccountGenerationContext` (random generation + account-scope
+hash) immediately after account validation and before constructing/loading stores. After both stores
+load, it derives `AccountSessionContext` by adding their identifiers. Implement
+`AccountTaskRegistry` as an actor with `run(generation:operation:)` for pre-load work and
+`run(context:operation:)` for loaded-store work. Each entry point compares the supplied generation
+to the open generation, creates and records the child task **before** starting its operation, and
+removes it only after the operation actually returns. Call sites do not launch unregistered account-
+bound `Task` work. Its transition operation atomically closes admission and invalidates the
+generation, cancels every recorded child, then awaits every child value; cancellation never counts
+as completion while a wrapped `context.perform` body is still executing.
+
+The dual `loadPersistentStores` call itself runs as one registered generation task that completes
+only after callbacks for both descriptions arrive. A callback captures its generation, never
+activates a stale session, and records any successfully loaded store for later removal. If an
+account change arrives after zero or one load callback, invalidation closes activation, drain waits
+for both callbacks, teardown removes every store loaded for that old generation, and only then may
+the next account construct/load its container.
+
+An account transition invalidates the generation and closes task admission first, closes inventory
+UI, and clears visible snapshots. The registry then cancels cooperative tasks and **awaits every
+registered operation**, including a noncancelable `context.perform` already saving to the old store.
+Only after the registry drains does the coordinator end sync observation, remove/release the old
+stores and contexts, validate the new account, and prepare its generation. A write already committed
+to account A may remain in A's isolated store, but no A result can apply to account B and no task can
+touch a removed persistent store.
 
 Repository commands are `addReviewedRows`, `addManualItem`, `updateItem`, `eatOne`, `tossOne`,
 `deleteItem`, `clearActiveHousehold`, and `renameOwnedHousehold`. Each includes the household id and a
@@ -555,6 +597,13 @@ that part already succeeded; a conflicting payload is an integrity error. If a r
 merges into an existing item, its candidate item id is unused but its StockChange id remains stable.
 The multirow add, logical name edit, and Clear All save atomically, so a crash cannot leave a
 half-applied command.
+
+Delete is the fan-out exception to that singular retry shortcut. Each attempt resolves the complete
+revision-valid physical member set in its writer transaction, fetches **all** StockChange rows with
+the command id, and verifies an identical `deleted` payload exists on every resolved member. It
+inserts the marker for each missing member in the same save, treats duplicate identical rows as
+success, and rejects any conflicting payload. Finding the id on only one member never completes the
+retry.
 
 ## UI contract
 
@@ -637,8 +686,9 @@ import before it may use the empty-store fallback below. Only then does it merge
 run DuplicateReconciler once for every valid household in both stores, build projections, and run
 selection:
 
-1. If an accepted invitation is pending and its Household record has imported, select that household
-   and clear the pending invitation marker.
+1. If a durable invitation-selection marker (`received`, `accepting`, or `awaitingImport`) is bound
+   to the current account scope and matches an imported Household zone, select that household,
+   persist its UUID, then clear the marker. Unbound and other-account markers are inert.
 2. Otherwise, use the locally saved `activeHouseholdID` if it still resolves to an accessible
    household.
 3. Otherwise, choose the oldest owned household; break ties by UUID.
@@ -684,12 +734,39 @@ possibly shared object graph between record zones.
 ### Accept
 
 Both warm and cold SwiftUI launches must be handled. `SceneDelegate` receives
-`CKShare.Metadata`; `ShareInvitationRouter` buffers it if persistence is not ready, verifies the
-container identifier, and serially calls `acceptShareInvitations(from:into:)` with the shared store.
-It records the share zone as pending selection. After import exposes the Household record, session
-selection follows the bootstrap rule and shows success. Repeated metadata is idempotent. A failure
-keeps the current household selected and offers Retry; it never creates a local imitation of the
-shared household.
+`CKShare.Metadata`. `ShareInvitationRouter` first verifies the container identifier, then writes a
+`PendingInvitationStore` record **before** invoking
+`acceptShareInvitations(from:into:)`. A bound record is keyed by container id + share zone id +
+account-scope hash; before account validation, a record instead has a fresh provisional delivery id
+plus its container/zone. The record also contains its received date and phase `received`,
+`accepting`, or `awaitingImport`, but never the share URL or participant identity. If persistence is
+not ready, the metadata stays in memory while the durable provisional selection intent already
+exists. Acceptance is serialized into the shared store and phase changes are persisted before
+publishing in-memory success.
+
+`PendingInvitationStore` is a small actor-backed Codable file at
+`Application Support/HouseholdSharing/pending-invitations.json`, outside either account's Core Data
+stores because it must work before those stores load. Writes use atomic replacement and
+`completeUntilFirstUserAuthentication` protection. If account identity is unavailable, persist an
+unbound `received` marker under that delivery id but wait to accept. Within that same live metadata-
+handling attempt, after account validation, atomically rekey it to `(container, zone, account hash)`
+before acceptance. If that bound key already exists, merge with that account's marker and remove
+only this attempt's provisional record. After a restart, a provisional marker stays inert until the
+user reopens the invitation; never bind an old provisional record merely to whichever account
+happens to be current. A marker bound to another account is neither accepted nor selected in the
+current session. This permits accounts A and B to hold independent pending intent for the same
+shared zone on one installation. The marker deliberately cannot resume an unstarted acceptance
+without metadata: after a crash before CloudKit accepts, the UI asks the user to open the invitation
+again or discard that provisional marker. If CloudKit did accept, its marker was already account-
+bound, so the matching shared-zone import completes selection without another callback.
+
+Every account-bound pending phase is a selection intent: if the process terminates after CloudKit
+accepts but before Tridge records `awaitingImport`, a later matching zone import still selects that
+Household. Repeated metadata deduplicates only against the bound marker for the validated current
+account and acceptance is idempotent. Clear that bound marker only after the matching Household
+imports and is durably selected, or after the user explicitly discards a terminal failed invitation.
+A recoverable failure keeps the current household selected, retains the marker and metadata when
+available, and offers Retry; it never creates a local imitation of the shared household.
 
 ### Local inventory command
 
@@ -799,8 +876,10 @@ exists.
   read-only, with writes disabled until the account is available; a cold launch waits/retries rather
   than guessing the account. An ordinary network outage after the account remains validated is
   local-first and permits writes.
-- **Account changes:** immediately close inventory sheets, clear snapshots, disable commands, tear
-  down the container (remove loaded stores from its coordinator and release all contexts) without
+- **Account changes:** invalidate the current generation, close task admission and inventory UI,
+  clear snapshots, and disable commands. Cancel cooperative work and await `AccountTaskRegistry`
+  drain; stale callbacks are rejected again at the main-actor apply boundary. Only then tear down
+  the container (remove loaded stores from its coordinator and release all contexts) without
   deleting either account directory, validate the new account scope, and create/load that scope's
   two stores. Then run normal selection after setup/import. Never present the prior account's cached
   objects during the transition.
@@ -919,11 +998,13 @@ an invitation to redesign the preceding decisions.
    clear, and scan confirmation from SwiftData mutations to snapshots/commands. Add
    DuplicateReconciler and make snapshots group inferred/persisted merge claims before deleting the
    SwiftData `FridgeItem` model and all `@Query`/`modelContext` use.
-4. **History and local effects:** implement the store/session-scoped sync-event monitor, then add
-   per-store history tokens, remote reconciliation, session refresh, notification diffing, account
-   transitions, and sanitized diagnostics.
+4. **History and local effects:** implement the store/session-scoped sync-event monitor and
+   generation-bound `AccountTaskRegistry`, then add per-store history tokens, remote reconciliation,
+   session refresh, notification diffing, account transitions with invalidate/cancel/drain before
+   store teardown, and sanitized diagnostics.
 5. **Sharing UI:** add Household settings/screen, ShareLink preparation, system management UI, and
-   the cold/warm invitation bridge.
+   the cold/warm invitation bridge with `PendingInvitationStore` persisted before CloudKit
+   acceptance and cleared only after matching import plus durable selection (or explicit discard).
 6. **Lifecycle and data rights:** implement leave/revoke, resumable owner copy-before-purge, owned
    private/shared deletion, JSON export, encrypted-key/user-deleted-zone handling, fallbacks, and
    failure recovery against a fake SharingService before live CloudKit testing.
@@ -969,7 +1050,8 @@ Apple-platform tests cover:
   invalidates a stale claim, while an intentional logical-group rename replaces its claims
   atomically;
 - Delete fans one stable terminal id/payload across every currently linked physical member, so a
-  later dormant claim cannot resurrect a member that the user deleted;
+  later dormant claim cannot resurrect a member that the user deleted; a retry with markers present
+  on only some members fills the missing markers before reporting success;
 - Clear All writes its full-parent-frontier barrier and visible terminal events atomically; a later
   import from a superseded context remains hidden; two concurrent clears retain additions made
   after either branch; and a later clear that observes both branches supersedes both;
@@ -982,6 +1064,11 @@ Apple-platform tests cover:
 - a new empty account cache cannot bootstrap before a successful current-generation private import;
   a cache whose cloud household arrives in that import selects it instead of creating a duplicate;
 - invitation metadata buffers until the shared store is ready and repeated acceptance is safe;
+- invitation selection intent persists before acceptance; termination after CloudKit accepts but
+  before phase update still auto-selects the matching imported zone exactly once; an unbound marker
+  left before acceptance stays inert across an account switch until matching metadata is reopened;
+- account A and account B can each retain independent pending intent for the same container/zone;
+  B reopening that share never overwrites, consumes, or becomes blocked by A's bound marker;
 - a shared-household rename persists the new `CKShare` title; Send Invite retries a dirty title and
   does not present ShareLink after a metadata-write failure;
 - every existing-share `UICloudSharingController` is configured with only `.allowPrivate` and
@@ -994,6 +1081,12 @@ Apple-platform tests cover:
   histories while omitting restricted fields, and explicit legacy erasure targets only the archived
   store and sidecars;
 - account-derived paths/tokens/selection differ for two user-record-id hashes; and
+- a delayed account-A command/history callback cannot apply after generation invalidation, task
+  registration closes before teardown, and old stores are removed only after every registered
+  context operation drains;
+- an account change before either load callback or between the private/shared load callbacks closes
+  activation, waits for both old-generation callbacks, removes every old loaded store, and starts
+  the new account only after that startup task drains;
 - account/reset state never presents a prior store snapshot; account/household transitions remove
   matching pending **and delivered** alerts without touching another scope; signed-out upgrade still
   clears legacy reminders; and reset-notice acknowledgement survives termination independently of
@@ -1019,6 +1112,9 @@ complete this contract.
   reset message until it is acknowledged once.
 - Owner invitation accepts on a cold and a warm launch; the received household auto-selects and the
   personal household remains in the picker.
+- Terminating immediately after invitation acceptance but before its shared record imports still
+  auto-selects the matching household on the next launch; repeating the invitation does not create
+  a second marker or selection.
 - Owner and participant can scan, manually add, edit metadata, eat, toss, delete, and clear; each
   peer eventually renders the same state.
 - With both devices offline, concurrent positive operations both survive; concurrent consumes do
@@ -1051,7 +1147,8 @@ complete this contract.
 - Updating while signed out still cancels legacy notifications and clears the badge; terminating
   before acknowledging the fresh-fridge notice causes it to appear again. Erase Old Local Inventory
   removes the exact archived store and sidecars without touching a current household.
-- Signing out/account switching never reveals the prior account's cached inventory.
+- Signing out/account switching never reveals the prior account's cached inventory, even when an
+  account-A command or history refresh completes late during the transition.
 - Public access, read-only choice, access requests, and participant invitations are unavailable in
   both ShareLink and Manage Sharing.
 - Sync/account/error/destructive controls are VoiceOver-labelled and usable with Dynamic Type and
