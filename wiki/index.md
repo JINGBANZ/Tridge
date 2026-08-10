@@ -33,7 +33,7 @@
   dependency boundary, notification reconciliation, privacy/export/deletion, the automatic
   no-uninstall reset, implementation checkpoints, and owner-only handoff. Implementation state
   lives in [status.md](./status.md); the *why* lives in
-  [decisions.md](./decisions.md) → *2026-08-06* and *2026-08-08* entries.
+  [decisions.md](./decisions.md) → *2026-08-06*, *2026-08-08*, and *2026-08-09* entries.
 
 ## Decisions
 

@@ -280,12 +280,14 @@ clear edge; the initial epoch is the frontier before the first clear.
 
 Two offline clears from the same frontier therefore create two leaf epochs instead of a winner and
 loser. Their records reduce in any order to a frontier containing both leaves. An item captures the
-device's entire visible frontier when it is created and is current exactly when every captured epoch
-is still in the reduced frontier. Thus an item added after either concurrent clear stays current
-after the branches meet, while an item created before those clears does not. A later Clear All that
-has imported both leaves lists both as parents and replaces them with one new leaf. A clear created
-on a device that has seen only one branch supersedes only that branch; this is the causal boundary,
-not wall-clock time or UUID ordering.
+device's entire visible frontier when it is created. That context is a set of independent supporting
+branches, not an all-or-nothing dependency: the item is current while **at least one** captured epoch
+remains in the reduced frontier. Thus an item added after either concurrent clear stays current
+after the branches meet, and an item created after seeing both branches remains supported if a later
+offline clear supersedes only one of them. An item created before those clears has no surviving
+captured epoch and stays hidden. A later Clear All that has imported both leaves lists both as
+parents and replaces them with one new leaf, removing the last support for items on either branch.
+This is the causal boundary, not wall-clock time or UUID ordering.
 
 The Linux reducer topologically validates parents against the initial epoch or another valid clear
 record and requires `revision == max(parent revisions) + 1`. Import order does not matter: a child
@@ -366,8 +368,8 @@ from the target. Two peers consuming the last visible unit can produce a negativ
 shows zero. Once an item projects to zero, later purchases create a new item rather than paying down
 the old operation history. No operation log is compacted or pruned in this release.
 
-The projector first discards physical members whose captured inventory context is not a subset of
-the household's current frontier, then applies revision-valid merge claims among the remaining
+The projector first discards physical members whose captured inventory context has no intersection
+with the household's current frontier, then applies revision-valid merge claims among the remaining
 members. A resulting item group is visible/active only when `isDeleted == false` and projected
 quantity is greater than zero. Delete never removes records or merge claims. It appends the same
 immutable `deleted` StockChange id/payload to every physical member in the current revision-valid
@@ -458,8 +460,8 @@ is different because its explicit causal barrier suppresses every superseded con
 
 Expired, zero, terminal, inactive-context, and superseded-context groups are never auto-linked to
 active groups, and groups with different normalized names are ineligible. Two different contexts
-that are both subsets of the current concurrent frontier **are** eligible, so Milk added after each
-of two offline clears still converges to one logical Milk. This preserves the shipping rule that
+that each intersect the current concurrent frontier **are** eligible, so Milk added after each of
+two offline clears still converges to one logical Milk. This preserves the shipping rule that
 buying Milk after the old Milk expires or reaches zero creates a fresh batch with its own expiry and
 history. ItemMerge claim records remain until the household is deleted, but stale claims are
 dormant. There is no user-facing manual split/unmerge operation in this release.
@@ -660,10 +662,13 @@ identity fields may be unavailable and a custom list would duplicate system beha
 sets `availablePermissions = [.allowPrivate, .allowReadWrite]` on **every** controller created for an
 existing share; `CKAllowedSharingOptions` on `ShareLink` does not configure this separate UI. This
 removes public and read-only choices from the management controller as well as from invitation
-creation. Before presentation, retain the existing share zone id and Household managed-object id in
-the service. If the controller delegate reports that the owner stopped sharing, feed those
-identifiers into the same resumable copy-before-purge state machine; do not implement a second stop
-path.
+creation. Because the system controller can let an owner stop sharing before its delegate calls
+Tridge, an owner who taps Manage Sharing first sees the existing unseen-offline-edit disclosure with
+Cancel and Continue to Manage Sharing. Only after Continue does Tridge retain the existing share zone
+id and Household managed-object id and present the controller. Participants open the controller
+directly because they cannot stop the owner's share. If the delegate reports that the owner stopped
+sharing, feed the retained identifiers into the same resumable copy-before-purge state machine; do
+not implement a second stop path or a custom participant UI.
 
 Export Fridge Data writes a temporary, versioned JSON document containing export date, household
 name, each logical item's projected metadata/current quantity, every physical member record, every
@@ -812,9 +817,10 @@ account/network are available and the two local stores have no in-progress or fa
 second confirmation says: "Only changes already synced to this device will be kept. Changes still
 offline on someone else's device may be lost. Ask everyone to open Tridge online before you stop
 sharing." The destructive button is "Stop Anyway." Local success still is not presented as proof
-that peers uploaded. If the owner stops through `UICloudSharingController`, Apple's system
-confirmation is the preflight; the delegate resumes the same best-effort copy and Tridge shows the
-same limitation in the completion notice.
+that peers uploaded. If the owner stops through `UICloudSharingController`, the disclosure shown
+before opening Manage Sharing is the preflight; Apple's own confirmation is additional. The
+delegate resumes the same best-effort copy and Tridge repeats the limitation in the completion
+notice.
 
 The resumable path must not lose stock already visible to the owner. It is used both by Tridge's
 explicit Stop action and the `UICloudSharingController` delegate callback:
@@ -1033,8 +1039,9 @@ Linux `swift test` covers:
   and metadata winner, summed late operations across members, revision-mismatch deactivation, and no
   active-to-expired/zero/terminal inference;
 - InventoryEpochReducer canonical-context validation, input-order independence, retry idempotency,
-  causal frontier reduction, pre-clear suppression, concurrent-clear branch preservation, and a
-  later multi-parent clear joining/superseding every observed branch;
+  causal frontier reduction, pre-clear suppression, concurrent-clear branch preservation, an item
+  with two captured branches surviving a clear of only one branch, and a later multi-parent clear
+  joining/superseding every observed branch;
 - deterministic active-household selection/fallback;
 - notification desired-state diffs plus exact obsolete-scope prefix selection; and
 - command validation and snapshot mapping that does not expose receipt text.
@@ -1073,6 +1080,8 @@ Apple-platform tests cover:
   does not present ShareLink after a metadata-write failure;
 - every existing-share `UICloudSharingController` is configured with only `.allowPrivate` and
   `.allowReadWrite`;
+- an owner must acknowledge the unseen-offline-edit disclosure before Manage Sharing presents its
+  controller, while a participant can open the controller without that owner-only warning;
 - owner stop saves/verifies exactly one copied item per active logical group before a purge fake is
   invoked;
 - stop-sharing transition retries never duplicate a copy and resume after each recorded phase;
@@ -1139,9 +1148,10 @@ complete this contract.
   its pending requests.
 - Participant leave and owner revocation remove access, cancel reminders, and choose a fallback
   without affecting remaining members.
-- Owner Stop Sharing displays the unseen-offline-edit limitation and retains one unshared copy with
-  the same locally visible active item metadata/quantities; a deliberately unexported participant
-  operation is not promised to survive.
+- Owner Stop Sharing displays the unseen-offline-edit limitation before either Tridge's explicit
+  Stop action or Apple's Manage Sharing controller can initiate it, and retains one unshared copy
+  with the same locally visible active item metadata/quantities; a deliberately unexported
+  participant operation is not promised to survive.
 - Export produces a versioned JSON file without receipt/share/account data; owner deletion removes
   the private or shared graph, while participant Leave states that the owner retains it.
 - Updating while signed out still cancels legacy notifications and clears the badge; terminating
@@ -1198,4 +1208,4 @@ blocked rather than altering identifiers or inventing credentials.
 - [Integrating a text-based CloudKit schema](https://developer.apple.com/documentation/cloudkit/integrating-a-text-based-schema-into-your-workflow)
 
 The load-bearing choices and rejected alternatives are recorded in
-[`decisions.md`](./decisions.md) → *2026-08-06* and *2026-08-08*.
+[`decisions.md`](./decisions.md) → *2026-08-06*, *2026-08-08*, and *2026-08-09* entries.
