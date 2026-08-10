@@ -22,8 +22,9 @@ isolated OpenAI key) is deferred — the code is env-driven so it drops in addit
 Household sharing has an independently reviewed, implementation-ready contract in
 [`household-sharing.md`](./household-sharing.md), but no implementation. Its final safety details
 stay inside the existing boundaries: owner-stop recovery is armed before Apple's management UI,
-invitation restrictions use the iOS 18-compatible APIs, explicit legacy erasure removes only exact
-validated remnants, and pending invitation keys hash their CloudKit zone identity. The
+invitation restrictions use minimal system options with secure defaults, explicit legacy erasure
+removes only exact validated remnants, and pending invitation keys hash their CloudKit zone
+identity. The
 plain-language graph and component map are in
 [`household-sharing-overview.html`](../design/household-sharing-overview.html). The contract uses
 Apple-native CloudKit Sharing with account-isolated private/shared Core Data stores, immutable
@@ -122,7 +123,8 @@ isolated key.
 - `Tridge.xcodeproj` — hand-written project (synchronized folder group) + shared scheme;
   see the decision log for why it's hand-authored.
 - `.github/workflows/ci.yml` — Linux `swift test`; server typecheck + Vitest; release-lane syntax;
-  macOS `swift test` + a Debug simulator build (compile-only gate, `CODE_SIGNING_ALLOWED=NO`).
+  Xcode 26/iOS 26 SDK `swift test` + a Debug simulator build with an iOS 18 deployment target
+  (compile-only gate, `CODE_SIGNING_ALLOWED=NO`).
 - `.github/workflows/testflight.yml` + `fastlane/` (`Fastfile`, `Appfile`) + `Gemfile`/
   `Gemfile.lock` (Fastlane exactly pinned to 2.237.0) — the
   manual TestFlight release lane: `workflow_dispatch` imports a reusable Apple Development identity

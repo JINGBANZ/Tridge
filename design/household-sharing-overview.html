@@ -773,13 +773,13 @@
         <article class="change-card">
           <span class="change-number">2</span>
           <div>
-            <h3>Use the iOS 18 sharing controls</h3>
-            <span class="scope">Uses only the iOS 18 SDK surface</span>
+            <h3>Keep sharing options minimal</h3>
+            <span class="scope">iOS 26 SDK · iOS 18 deployment</span>
           </div>
           <p class="why">
-            ShareLink uses the option-set APIs available on iOS 18 for specified recipients and
-            read/write access. It omits the two iOS 26-only convenience properties because Apple
-            documents both defaults as false. The product remains invite-only and owner-invite-only.
+            Builds use the iOS 26 SDK. ShareLink sets specified recipients and read/write access,
+            while leaving two convenience properties at Apple's documented false defaults because
+            setting them adds no behavior. Newer APIs remain available when they provide real value.
           </p>
         </article>
 

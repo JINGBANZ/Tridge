@@ -65,7 +65,8 @@ build spec is `design/fridge-design.html`; start there (via @wiki/index.md).
 ## Setup
 
 - Development happens on a Linux box; Xcode/macOS exists only in CI (GitHub Actions macOS runners).
-  Structure pure-logic code (LLM response parsing, urgency rules) into targets
+  CI and release builds use Xcode 26 with the iOS 26 SDK while the app's deployment target remains
+  iOS 18. Structure pure-logic code (LLM response parsing, urgency rules) into targets
   that build and pass under `swift test` on Linux.
 - The OpenAI key is held server-side as a Cloudflare Worker secret (`wrangler secret put`, run from
   a dev machine) — never on the device or in the repo. The app authenticates to the worker with

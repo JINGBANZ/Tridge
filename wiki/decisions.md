@@ -913,3 +913,16 @@
 - **Refines:** *2026-08-09 — Durable invitation intent and generation drains close transition races*
   for the marker's persisted representation. Its per-account durability and selection semantics
   stand. Exact behavior remains in [`household-sharing.md`](./household-sharing.md).
+
+### 2026-08-10 — Current SDK and deployment support are separate decisions
+
+- **Chose:** Build CI and releases with Xcode 26 and the iOS 26 SDK while retaining iOS 18 as the
+  deployment target. Newer APIs may be used behind availability checks when they materially improve
+  the product. Sharing leaves `allowsAccessRequests` and `allowsParticipantsToInviteOthers` at their
+  documented false defaults because explicit assignments add no behavior.
+- **Why:** The release toolchain must satisfy the App Store's current SDK requirement, and CI should
+  compile with the same SDK that ships. Raising the runtime floor would remove only trivial
+  availability code while preventing existing iOS 18 installations from receiving the sharing
+  update; it would not simplify the Core Data/CloudKit sharing architecture.
+- **Rejected:** Treating the build SDK as the minimum runtime; keeping Xcode 16 as a compatibility
+  ceiling; or raising the deployment target solely to reference redundant convenience properties.

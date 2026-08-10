@@ -675,9 +675,10 @@ Share Fridge/Send Invite uses `ShareLink` with a `HouseholdShareItem`. The share
 the household name and a Tridge share type. Its `CKAllowedSharingOptions` sets
 `allowedParticipantAccessOptions = .specifiedRecipientsOnly` and
 `allowedParticipantPermissionOptions = .readWrite`, which are available from iOS 16 and therefore
-cover both the iOS 18 deployment target and the repository's Xcode 16 CI SDK. Do not reference the
-iOS 26-only `allowsAccessRequests` or `allowsParticipantsToInviteOthers` properties; both default to
-false. `publicPermission` is `.none`.
+cover the iOS 18 deployment target. CI and release builds use Xcode 26 with the iOS 26 SDK. Leave
+`allowsAccessRequests` and `allowsParticipantsToInviteOthers` at their documented default of false;
+setting them explicitly adds no behavior. `publicPermission` is `.none`. This is not a general ban
+on newer APIs: use an iOS 26 API behind an availability check when it materially improves the app.
 
 Manage Sharing presents `UICloudSharingController` for the existing share so Apple owns participant
 selection/removal and permission display. Tridge does not render a custom member list because
@@ -1167,9 +1168,9 @@ Apple-platform tests cover:
   bound marker;
 - a shared-household rename persists the new `CKShare` title; Send Invite retries a dirty title and
   does not present ShareLink after a metadata-write failure;
-- `HouseholdShareItem` registers `.specifiedRecipientsOnly` and `.readWrite`, and the app compiles
-  with the repository's Xcode 16/iOS 18 SDK without referencing the iOS 26-only convenience
-  properties (whose documented defaults are false);
+- `HouseholdShareItem` registers `.specifiedRecipientsOnly` and `.readWrite`, leaves the two
+  convenience properties at their documented false defaults, and the Xcode 26/iOS 26 SDK build
+  preserves the iOS 18 deployment target;
 - every existing-share `UICloudSharingController` is configured with only `.allowPrivate` and
   `.allowReadWrite`;
 - an owner must acknowledge the unseen-offline-edit disclosure before Manage Sharing presents its
