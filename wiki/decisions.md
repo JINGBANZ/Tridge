@@ -812,8 +812,9 @@
   user erasure path; and automatically deleting the archive during a normal update.
 - **Superseded by:** *2026-08-09 — Causal clear frontiers and pre-load observation close convergence
   gaps* for selecting one concurrent clear epoch and beginning event tracking only after both stores
-  load. Revision-guarded merges, direct Apple event consumption, the stop limitation, and separate
-  upgrade markers stand.
+  load; and *2026-08-10 — V1 does not rename a linked multi-root item* for intentional logical-group
+  renames. Revision-guarded merges, direct Apple event consumption, the stop limitation, and
+  separate upgrade markers stand.
 
 ### 2026-08-09 — Causal clear frontiers and pre-load observation close convergence gaps
 
@@ -863,3 +864,33 @@
   context work; accepting callbacks based only on whichever account is current when they finish;
   removing stores while old-generation tasks remain admitted; and calling an unconstrained Gem a
   locked dependency.
+
+### 2026-08-10 — V1 does not rename a linked multi-root item
+
+- **Chose:** Keep normalized-name changes for a single physical item, but make the name read-only
+  after multiple physical histories are linked into one logical item. The repository re-resolves
+  the component on save and atomically rejects a stale name edit if a remote link arrived after the
+  sheet opened. Quantity, art, storage, and expiry remain editable.
+- **Why:** Two peers can concurrently know overlapping but incomplete portions of one inferred
+  component. Safely renaming that component would require a durable group-operation protocol and
+  deterministic expansion across members learned later. Name changes on already combined rows are
+  uncommon, and they are not part of the household-sharing goal, so that machinery is not justified
+  for the first release.
+- **Rejected:** Fanning random replacement claims across only the members currently visible (can
+  split an overlapping component); adding a group-rename CRDT/entity before product evidence; or
+  moving/deleting physical histories. Exact-name concurrent additions still converge losslessly.
+
+### 2026-08-10 — Private deletion completes only after CloudKit confirms absence
+
+- **Chose:** Delete an unshared household through the normal Core Data transaction, but persist its
+  mapped CloudKit record IDs in the existing lifecycle-transition store first. After a successful
+  post-delete export, read those IDs from the private CloudKit database and report completion only
+  when every record is absent. Resume the read-only verification after a crash; no new backend or
+  direct mutation of Core Data-managed CloudKit records is introduced.
+- **Why:** Saving a local deletion only queues mirroring work, and a successful container export is
+  not a record-specific absence acknowledgement. Without the final fetch, uninstalling immediately
+  could discard the queued local work and a later install could import data the UI had called
+  permanently deleted.
+- **Rejected:** Treating the local save or a generic export event as completion; directly deleting
+  Core Data-generated records through a parallel CloudKit writer; or creating a new server solely
+  for deletion acknowledgement.

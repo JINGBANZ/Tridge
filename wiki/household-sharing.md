@@ -26,6 +26,11 @@ link captures both items' identity revisions; if Alex had concurrently corrected
 "Cream," that stale Milk link becomes inactive and the two histories stay separate. An expired,
 zero, or deleted Milk remains a closed batch; a later purchase starts a new one.
 
+Once multiple physical histories are linked into one logical item, the first sharing release keeps
+that item's name read-only. Quantity, art, storage, and expiry remain editable. A name correction is
+still available while an item has only one physical history. This small restriction avoids adding a
+distributed group-rename protocol merely for an uncommon edit.
+
 Clear All also has an offline-safe rule. If Maya and Alex both clear while offline, neither clear
 "wins" by deleting the other's later work. Each clear creates a branch in the household's causal
 inventory frontier, so groceries added after either clear remain after synchronization. A later
@@ -50,6 +55,7 @@ different behavior.
 | Is synchronization live? | No hard real-time promise. Local writes are immediate and CloudKit converges eventually. |
 | What happens to concurrent quantities? | Immutable stock operations compose; no increment or decrement is overwritten by a scalar last-writer-wins merge. |
 | What happens to simultaneous same-name creation? | Exact-name active items converge to one logical item. Tridge retains every physical row and stock event, joins matching identity revisions with immutable merge claims, and sums the histories; a concurrent rename deactivates a stale claim, and Tridge never transfers then deletes a duplicate. |
+| Can a linked logical item be renamed? | Not when it contains multiple physical histories in the first sharing release. Its name is read-only while quantity, art, storage, and expiry remain editable. A single-root item can be renamed, and the repository rechecks the component when saving so a stale sheet cannot split a newly linked group. |
 | What does Clear All mean offline? | It advances a causal household inventory frontier. Items from a superseded frontier stay in history but cannot reappear when an offline device reconnects. Concurrent clear branches coexist, so groceries added after either clear survive; a later clear that has imported both branches supersedes both. |
 | What happens when sharing ends? | A participant leaves without a copy. An owner may stop sharing and keep the data already visible on the owner's device, after a warning that another member's unseen offline edits cannot be recovered, or delete the shared fridge for everyone. |
 | Is old inventory migrated? | No. Test inventory resets automatically in place. The legacy SwiftData files remain available for rollback during normal use and have a separate explicit local-erasure action. |
@@ -436,16 +442,21 @@ once and sets `modifiedAt` to the later of `now` or the next representable Date 
 group's maximum, so the edit wins over every revision already visible to that device.
 
 A name edit has identity semantics. If normalization is unchanged, it follows the scalar metadata
-rule. If normalization changes, the repository resolves the current connected component, assigns
-the command's preallocated `identityRevisionID` plus the new name/normalized name to every currently
-known member, advances each `modifiedAt`, and inserts a replacement star of merge claims capturing
-that shared revision in the same transaction. This intentionally renames the one logical row without
-splitting it. By contrast, if an offline peer renames a physical root before learning about an
-inferred claim, that root's new identity revision does not match the claim: the claim becomes
-dormant, Milk and Cream project separately, and neither history is moved or deleted. A later exact-
-name edit may make the groups eligible for a fresh claim. Concurrent unseen scalar edits still
-resolve to one complete metadata winner—Tridge does not pretend to field-merge different art,
-storage, or expiry choices.
+rule. If normalization changes, the repository resolves the current connected component inside its
+writer transaction. It proceeds only when that component contains one physical member, assigning
+the command's preallocated `identityRevisionID` plus the new name/normalized name to that member.
+When the component contains multiple members, the command fails atomically with
+`.groupedNameEditUnsupported`; it never rewrites the members or creates replacement merge claims.
+`InventoryItemSnapshot` exposes `canChangeNormalizedName`, so Item Detail presents the name as
+read-only for an already linked group while keeping quantity, art, storage, and expiry editable. If
+the group expanded after a sheet opened, the same repository check rejects the stale save and the UI
+refreshes the draft with "This item was combined while you were editing. Its name can't be changed
+yet." By contrast, if an offline peer renames a physical root before learning about an inferred
+claim, that root's new identity revision does not match the claim: the claim becomes dormant, Milk
+and Cream project separately, and neither history is moved or deleted. A later exact-name edit may
+make the groups eligible for a fresh claim. Concurrent unseen scalar edits still resolve to one
+complete metadata winner—Tridge does not pretend to field-merge different art, storage, or expiry
+choices.
 
 Commands and stale sheets may address the logical id or any member id; the repository resolves the
 current revision-valid component inside its writer context and verifies every member's inventory
@@ -581,7 +592,7 @@ Every operation-producing command also carries preallocated ids for every object
 
 - manual add has one candidate item id and one StockChange id;
 - reviewed rows have a stable candidate item id and StockChange id per row;
-- a normalized-name update has one identity-revision id plus replacement ItemMerge ids;
+- a permitted single-member normalized-name update has one identity-revision id;
   update/eat/toss commands have one StockChange id, and delete fans its one terminal id/payload out
   to every current physical member;
 - Clear All has one clear-record id, one epoch id, and a StockChange id per logical item group in the
@@ -597,8 +608,8 @@ Allocate these values before entering `context.perform` and retain them for an i
 retry first fetches the StockChange id in the target household: an identical existing event means
 that part already succeeded; a conflicting payload is an integrity error. If a reviewed row now
 merges into an existing item, its candidate item id is unused but its StockChange id remains stable.
-The multirow add, logical name edit, and Clear All save atomically, so a crash cannot leave a
-half-applied command.
+The multirow add, permitted single-member identity rename, and Clear All save atomically, so a crash
+cannot leave a half-applied command.
 
 Delete is the fan-out exception to that singular retry shortcut. Each attempt resolves the complete
 revision-valid physical member set in its writer transaction, fetches **all** StockChange rows with
@@ -613,6 +624,11 @@ The Home screen keeps its existing title, grid, search, filters, and single bott
 does not gain a sync banner, account avatar, or tab bar. All existing inventory actions target the
 active household supplied by `HouseholdSession`, and it renders one row per projected logical item,
 not one row per physical FridgeItemRecord.
+
+Item Detail reads `canChangeNormalizedName` from its item snapshot. It presents the name as read-only
+for a linked multi-history item while keeping the other fields editable. A save that races with a
+newly imported link keeps the draft, writes nothing, and shows the stale-edit message specified
+above.
 
 Settings adds one first row to its existing everyday section:
 
@@ -852,8 +868,32 @@ activate the verified copy and finish instead of cloning again.
 ### Delete household data
 
 Delete Fridge is owner-only and appears only when no `CKShare` exists. It warns that the action is
-permanent, deletes the graph from the private store, selects/creates a fallback, and reconciles
-notifications. Never use this action as an implicit Stop Sharing operation.
+permanent. Never use this action as an implicit Stop Sharing operation. Because a local Core Data
+delete only queues a CloudKit export, Tridge does not call the action complete merely because the
+local graph disappeared. The action is available only while the account and network are available
+and the private store has no in-progress or failed sync event, then uses the existing account-scoped
+lifecycle-transition store:
+
+1. Resolve the complete private graph, capture every CloudKit record ID returned by
+   `NSPersistentCloudKitContainer.recordIDs(for:)`, and persist the household ID, record-name/zone-
+   name/zone-owner components, and phase `privateDeletePrepared` before mutation. These opaque
+   components are never logged. Objects with no mapped CloudKit record need only local deletion.
+2. Delete the graph in one private-store transaction, select/create a fallback, reconcile
+   notifications, hide the target household, advance to `privateDeleteAwaitingCloud`, and show
+   `Deleting from iCloud…` rather than success. On retry, `privateDeletePrepared` deletes the graph
+   if it is still present or advances when it is already absent.
+3. After the next successful current-generation private-store export completion observed after the
+   delete save, fetch the captured record IDs from the private CloudKit database. The export event
+   alone is not confirmation. Completion requires every ID to return
+   `CKError.Code.unknownItem`; a present record or any other fetch error keeps the transition
+   retryable. If the captured set is empty, the local save completes the transition immediately.
+4. Clear the transition and show the permanent-deletion completion only after that absence check.
+   On launch, resume a pending check before exposing the household. If the app is interrupted or
+   uninstalled first, it never claimed that CloudKit deletion completed.
+
+This adds no deletion backend or parallel sync engine: Core Data still performs the deletion, the
+existing store-scoped monitor supplies the export event, and a read-only CloudKit fetch verifies the
+server result.
 
 Delete Shared Fridge for Everyone is owner-only, records a crash-safe purge transition, calls
 `purgeObjectsAndRecordsInZone` without cloning, selects/creates a fallback, and reconciles
@@ -944,8 +984,8 @@ and households cannot collide. A newly imported lower-id merge member can change
 the desired-state diff removes the obsolete identifier in the same reconciliation. The account
 scope is the nonlogged hash, never the raw user record id.
 
-After every local save, processed remote-history batch, active-household switch, foreground event,
-revocation, leave/stop/delete, and first-run reset:
+After every local save, processed remote-history batch, active-household switch, reminder-hour
+change, foreground event, revocation, leave/stop/delete, and first-run reset:
 
 1. Build the desired T−2-day and expiry-day requests from active snapshots and the local reminder
    hour.
@@ -985,8 +1025,13 @@ The pure `NotificationPlan` diff is Linux-tested; the service is an Apple-platfo
 - Before release, update the Worker-hosted privacy policy and App Store privacy answers to disclose
   iCloud storage, invited-member access, retention, export, owner deletion, participant leave, and
   user-initiated household synchronization. The current policy must remain unchanged until the
-  feature ships because it describes today's local-only app. The owner makes the final App Store
-  disclosure classification; the coding agent must not guess legal answers.
+  feature ships because it describes today's local-only app. The sharing implementation PR does
+  **not** edit `server/src/privacy.ts`, because any merged `server/**` change may deploy before the
+  app release. It instead gives the owner exact proposed copy in the release handoff. After
+  two-account development acceptance and once the first sharing TestFlight/App Store rollout is
+  approved, a separate release-only PR updates and deploys the policy immediately before that build
+  is distributed. The owner makes the final App Store disclosure classification; the coding agent
+  must not guess legal answers.
 
 ## Implementation sequence
 
@@ -1015,10 +1060,12 @@ an invitation to redesign the preceding decisions.
    private/shared deletion, JSON export, encrypted-key/user-deleted-zone handling, fallbacks, and
    failure recovery against a fake SharingService before live CloudKit testing.
 7. **Repository verification:** run the full Gate, the macOS CI build/test job, inspect the final diff,
-   update README, `server/src/privacy.ts`, App Store disclosure handoff, and wiki/status docs, and
-   keep the implementation in one reviewable feature PR with logical Conventional Commits.
+   update README and wiki/status docs, prepare the exact privacy-policy/App Store disclosure handoff
+   without changing `server/src/privacy.ts`, and keep the implementation in one reviewable feature
+   PR with logical Conventional Commits.
 8. **CloudKit acceptance:** after owner provisioning, initialize only the development schema, run
-   the two-account matrix below, then promote that exact schema and validate an update via TestFlight.
+   the two-account matrix below with development builds, then promote that exact schema. Coordinate
+   the separate privacy-policy release and validate an update via TestFlight.
 
 Do not call `initializeCloudKitSchema` on ordinary launch. If automation is useful, add a
 `#if DEBUG`-only launch argument such as `-initializeCloudKitSchema`, fail closed outside Debug, and
@@ -1043,7 +1090,8 @@ Linux `swift test` covers:
   with two captured branches surviving a clear of only one branch, and a later multi-parent clear
   joining/superseding every observed branch;
 - deterministic active-household selection/fallback;
-- notification desired-state diffs plus exact obsolete-scope prefix selection; and
+- notification desired-state diffs plus exact obsolete-scope prefix selection;
+- a reminder-hour change replacing otherwise-identical pending requests with the new fire dates; and
 - command validation and snapshot mapping that does not expose receipt text.
 
 Apple-platform tests cover:
@@ -1053,9 +1101,9 @@ Apple-platform tests cover:
 - repository commands write one atomic graph and capability denial writes nothing;
 - a sequential same-name add appends to the existing group without a new root; reconciliation makes
   concurrent active same-name roots one snapshot without deleting either root, duplicate claims
-  remain harmless, and a late member operation changes the aggregate; a concurrent root rename
-  invalidates a stale claim, while an intentional logical-group rename replaces its claims
-  atomically;
+  remain harmless, and a late member operation changes the aggregate; a concurrent single-root
+  rename invalidates a stale claim, while a linked multi-member name change is unavailable and a
+  stale edit racing with a new link writes nothing;
 - Delete fans one stable terminal id/payload across every currently linked physical member, so a
   later dormant claim cannot resurrect a member that the user deleted; a retry with markers present
   on only some members fills the missing markers before reporting success;
@@ -1086,9 +1134,10 @@ Apple-platform tests cover:
   invoked;
 - stop-sharing transition retries never duplicate a copy and resume after each recorded phase;
 - stop-sharing requires the offline-edit warning but never claims peer acknowledgement;
-- participant leave makes no copy, owner deletion makes no copy, export includes zero/superseded-context
-  histories while omitting restricted fields, and explicit legacy erasure targets only the archived
-  store and sidecars;
+- participant leave makes no copy, owner deletion makes no copy, a private deletion remains pending
+  after local save/export until every captured CloudKit record ID is confirmed absent, export
+  includes zero/superseded-context histories while omitting restricted fields, and explicit legacy
+  erasure targets only the archived store and sidecars;
 - account-derived paths/tokens/selection differ for two user-record-id hashes; and
 - a delayed account-A command/history callback cannot apply after generation invalidation, task
   registration closes before teardown, and old stores are removed only after every registered
@@ -1132,8 +1181,9 @@ complete this contract.
   devices show one Milk whose quantity is the sum. Subsequent operations sent to either original
   member still update that one row, and neither physical history is deleted.
 - While one device is about to infer Milk, the other offline device renames its root to Cream; after
-  sync the stale claim is dormant and both products retain only their own quantities. Renaming an
-  already-linked logical Milk updates the whole known group without splitting it.
+  sync the stale claim is dormant and both products retain only their own quantities. After Milk is
+  already linked, its name is read-only while quantity, art, storage, and expiry remain editable; a
+  name edit opened before the link arrived is rejected without splitting the group.
 - While one device is offline with an unseen old-context item, the other runs Clear All; after sync the
   old-context item stays out of Home. An item added after the offline device imports the clear
   remains.
@@ -1143,17 +1193,19 @@ complete this contract.
 - On a fresh device for an account that already owns a cloud household, delay the initial import;
   Tridge stays in setup instead of creating `My Fridge`, then selects the imported household.
 - Renaming a shared household updates the title shown by a later invitation before ShareLink opens.
-- A remote expiry edit updates the other device's active-household notifications. Switching account
-  or household removes the old scope's already-delivered alert from Notification Center as well as
-  its pending requests.
+- A remote expiry edit updates the other device's active-household notifications. Changing the local
+  reminder hour immediately replaces pending requests at the old time. Switching account or
+  household removes the old scope's already-delivered alert from Notification Center as well as its
+  pending requests.
 - Participant leave and owner revocation remove access, cancel reminders, and choose a fallback
   without affecting remaining members.
 - Owner Stop Sharing displays the unseen-offline-edit limitation before either Tridge's explicit
   Stop action or Apple's Manage Sharing controller can initiate it, and retains one unshared copy
   with the same locally visible active item metadata/quantities; a deliberately unexported
   participant operation is not promised to survive.
-- Export produces a versioned JSON file without receipt/share/account data; owner deletion removes
-  the private or shared graph, while participant Leave states that the owner retains it.
+- Export produces a versioned JSON file without receipt/share/account data; unshared owner deletion
+  shows completion only after every captured CloudKit record is confirmed absent, shared-zone
+  deletion removes the shared graph, and participant Leave states that the owner retains it.
 - Updating while signed out still cancels legacy notifications and clears the badge; terminating
   before acknowledging the fresh-fridge notice causes it to appear again. Erase Old Local Inventory
   removes the exact archived store and sidecars without touching a current household.
@@ -1180,8 +1232,10 @@ external actions require the Apple account owner and are the only accepted hando
    acceptance.
 3. After development acceptance, promote the initialized CloudKit schema to production in CloudKit
    Console.
-4. Run the existing TestFlight workflow and perform the upgrade/two-account acceptance checklist.
-5. Review and publish the privacy-policy/App Store privacy disclosure update.
+4. Review the proposed privacy-policy/App Store disclosure copy. Once the sharing TestFlight/App
+   Store rollout is approved, merge/deploy it as a separate release-only PR immediately before
+   distributing that build.
+5. Run the existing TestFlight workflow and perform the upgrade/two-account acceptance checklist.
 
 If item 1 is not ready, the agent must still finish code, fakes, local tests, unsigned simulator
 build, CI, and documentation; it must report live CloudKit/TestFlight acceptance as externally
@@ -1194,6 +1248,8 @@ blocked rather than altering identifiers or inventing credentials.
 - [`NSPersistentCloudKitContainer`](https://developer.apple.com/documentation/coredata/nspersistentcloudkitcontainer)
 - [`NSPersistentCloudKitContainer.Event.storeIdentifier`](https://developer.apple.com/documentation/coredata/nspersistentcloudkitcontainer/event/storeidentifier)
 - [`NSPersistentCloudKitContainer.Event.identifier`](https://developer.apple.com/documentation/coredata/nspersistentcloudkitcontainer/event/identifier)
+- [`NSPersistentCloudKitContainer.recordIDs(for:)`](https://developer.apple.com/documentation/coredata/nspersistentcloudkitcontainer/recordidsformanagedobjectids%3A)
+- [`CKDatabase.records(for:desiredKeys:)`](https://developer.apple.com/documentation/cloudkit/ckdatabase/records%28for%3Adesiredkeys%3A%29)
 - [Consuming relevant store changes](https://developer.apple.com/documentation/coredata/consuming-relevant-store-changes)
 - [Shared records and CKShare lifecycle](https://developer.apple.com/documentation/cloudkit/shared-records)
 - [`CKAllowedSharingOptions`](https://developer.apple.com/documentation/cloudkit/ckallowedsharingoptions)
