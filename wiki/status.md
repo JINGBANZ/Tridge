@@ -19,16 +19,15 @@ bearer token solely for the local smoke harness. A dedicated production worker (
 isolated OpenAI key) is deferred — the code is env-driven so it drops in additively later
 (`server/README.md` → "Adding a production worker later").
 
-Household sharing has an independently reviewed contract in
-[`household-sharing.md`](./household-sharing.md), but no implementation. Four focused review
-corrections remain before implementation: persist owner-stop recovery before opening Apple's
-management UI, express invitation restrictions with the APIs available on iOS 18, make exact-store
-cleanup tolerate and remove validated remnants, and hash the CloudKit zone identity in pending
-invitation keys. None changes the chosen architecture or adds a subsystem. The plain-language graph
-and component map are in
+Household sharing has an independently reviewed, implementation-ready contract in
+[`household-sharing.md`](./household-sharing.md), but no implementation. Its final safety details
+stay inside the existing boundaries: owner-stop recovery is armed before Apple's management UI,
+invitation restrictions use the iOS 18-compatible APIs, explicit legacy erasure removes only exact
+validated remnants, and pending invitation keys hash their CloudKit zone identity. The
+plain-language graph and component map are in
 [`household-sharing-overview.html`](../design/household-sharing-overview.html). The contract uses
-Apple-native CloudKit Sharing with account-isolated private/shared Core Data stores, immutable stock/delete
-events behind a repository, revision-guarded merge claims that make concurrent exact-name active
+Apple-native CloudKit Sharing with account-isolated private/shared Core Data stores, immutable
+stock/delete events behind a repository, revision-guarded merge claims that make concurrent exact-name active
 items one lossless logical row without trapping concurrent renames, causal inventory frontiers that
 make Clear All cover unseen offline rows without discarding additions after a concurrent clear,
 system invitation/participant UI, and real export/deletion behavior. Sync observation starts before
@@ -45,16 +44,14 @@ Data/CloudKit for the sharing build.
 
 ## Next action
 
-First apply the four focused contract corrections in "Current phase" and resolve their review
-threads. Then implement household sharing in the fixed order under
+Implement household sharing in the fixed order under
 [`household-sharing.md`](./household-sharing.md) → *Implementation sequence*: pure contracts/tests →
 exact Core Data model and account-scoped two-store launch → repository migration of every inventory
 path plus lossless duplicate reconciliation and clear epochs → store-scoped sync status and
 history/notifications (including pre-load event buffering, initial-import bootstrap gating, and
 obsolete delivered-alert cleanup) →
-Household/invitation UI → lifecycle/export/deletion → full Gate/CI. Product and architecture
-decisions are closed there; the four corrections tighten their existing flows rather than reopening
-them.
+Household/invitation UI → lifecycle/export/deletion → full Gate/CI. Product, architecture, recovery,
+and privacy-boundary decisions are closed there; a coding agent should not redesign them.
 
 Live CloudKit/TestFlight completion has an explicit owner-only boundary: create/associate
 `iCloud.com.tridge.app` and refresh capabilities/provisioning, supply two iCloud test accounts/

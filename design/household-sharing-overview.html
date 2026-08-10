@@ -113,7 +113,6 @@
     }
 
     .badge--good { color: var(--good); background: var(--good-soft); }
-    .badge--attention { color: var(--attention); background: var(--attention-soft); }
     .badge--neutral { color: var(--muted); background: color-mix(in srgb, var(--line) 55%, transparent); }
 
     .plain-summary {
@@ -462,7 +461,7 @@
       </p>
       <div class="status-row" aria-label="Design status">
         <span class="badge badge--good">Core architecture settled</span>
-        <span class="badge badge--attention">4 focused corrections remain</span>
+        <span class="badge badge--good">Final review safeguards included</span>
         <span class="badge badge--neutral">Design only — not implemented</span>
       </div>
       <div class="plain-summary">
@@ -707,7 +706,7 @@
             <div class="component"><code>HouseholdShareItem</code><span>Lets ShareLink send the stable Apple invitation.</span></div>
             <div class="component"><code>CloudSharingController</code><span>Bridges Apple's participant-management screen into SwiftUI.</span></div>
             <div class="component"><code>ShareInvitationRouter</code><span>Handles invitation callbacks before or after app startup and serializes acceptance into the shared store.</span></div>
-            <div class="component"><code>PendingInvitationStore</code><span>Durably remembers that an accepted household should become active after its data imports.</span></div>
+            <div class="component"><code>PendingInvitationStore</code><span>Durably remembers that an accepted household should become active after import, keyed by account and a hashed CloudKit zone identity.</span></div>
           </div>
         </article>
 
@@ -749,10 +748,10 @@
     </section>
 
     <section aria-labelledby="changes-heading">
-      <h2 id="changes-heading">Design changes still required</h2>
+      <h2 id="changes-heading">Four focused safeguards in the final design</h2>
       <p class="section-intro">
-        The latest review found four concrete corrections. They tighten existing flows; they do not
-        add a server, a new database model, or another architectural layer.
+        The design keeps all four safeguards inside existing components. None adds a server, a new
+        database model, dependency, or architectural layer.
       </p>
 
       <div class="change-list">
@@ -760,13 +759,14 @@
           <span class="change-number">1</span>
           <div>
             <h3>Checkpoint before “Manage Sharing”</h3>
-            <span class="scope">Small lifecycle correction</span>
+            <span class="scope">Reuses the lifecycle-transition store</span>
           </div>
           <p class="why">
             Apple's management screen can stop a share before its delegate callback reaches Tridge.
-            Persist the existing copy/recovery intent <strong>before</strong> opening that screen. If
-            the app is killed, the next launch can inspect the share and either clear the checkpoint
-            or resume the same copy-before-purge flow. This reuses the existing recovery state machine.
+            Tridge stores a <code>manageStopArmed</code> checkpoint with a preallocated destination
+            <strong>before</strong> opening that screen. A direct private-CloudKit lookup of the
+            zone-wide share then clears the marker or advances it into the existing copy-before-purge
+            flow—even after process termination.
           </p>
         </article>
 
@@ -774,13 +774,12 @@
           <span class="change-number">2</span>
           <div>
             <h3>Use the iOS 18 sharing controls</h3>
-            <span class="scope">API compatibility correction</span>
+            <span class="scope">Uses only the iOS 18 SDK surface</span>
           </div>
           <p class="why">
-            The design currently names two convenience properties introduced after the app's iOS 18
-            minimum. Configure specified recipients and read/write access with the option-set APIs
-            available on iOS 18; only set the newer convenience booleans inside an availability check.
-            The product rule remains exactly the same: invite-only, read/write, owner invites.
+            ShareLink uses the option-set APIs available on iOS 18 for specified recipients and
+            read/write access. It omits the two iOS 26-only convenience properties because Apple
+            documents both defaults as false. The product remains invite-only and owner-invite-only.
           </p>
         </article>
 
@@ -788,12 +787,12 @@
           <span class="change-number">3</span>
           <div>
             <h3>Make exact store cleanup finish reliably</h3>
-            <span class="scope">Defensive cleanup correction</span>
+            <span class="scope">Exact three paths only</span>
           </div>
           <p class="why">
-            After asking Core Data to destroy a validated store, check only that store's exact base
-            file and sidecars. Remove any that remain and treat “already missing” as success. Keep the
-            existing strict path validation; do not build a general cleanup service or scan broad folders.
+            After Core Data destroys the validated archive, Tridge checks only its exact base, WAL,
+            and SHM paths. It removes a validated remnant and treats “already missing” as success.
+            It never scans the directory or introduces a general cleanup service.
           </p>
         </article>
 
@@ -801,21 +800,22 @@
           <span class="change-number">4</span>
           <div>
             <h3>Hash the pending invitation key</h3>
-            <span class="scope">Privacy correction</span>
+            <span class="scope">Uses Apple's existing CryptoKit</span>
           </div>
           <p class="why">
-            A CloudKit zone identifier contains the owner's CloudKit user identifier. Store a hash of
-            the canonical container + zone owner + zone name for matching instead of persisting those
-            raw values. Tridge still does not need a participant table or its own identity system.
+            A CloudKit zone identifier contains the owner's CloudKit user identifier. The pending
+            file stores a stable SHA-256 fingerprint of container + zone owner + zone name instead of
+            those raw values. Tridge still has no participant table or identity system.
           </p>
         </article>
       </div>
       <p class="small" style="margin-top: 14px;">
         API references:
         <a href="https://developer.apple.com/documentation/cloudkit/ckallowedsharingoptions/allowedparticipantaccessoptions">iOS-compatible participant access options</a>,
-        <a href="https://developer.apple.com/documentation/cloudkit/ckallowedsharingoptions/allowsaccessrequests">iOS 26 access-request control</a>,
+        <a href="https://developer.apple.com/documentation/cloudkit/ckallowedsharingoptions">sharing-option defaults</a>,
+        <a href="https://developer.apple.com/documentation/cloudkit/ckrecordnamezonewideshare">zone-wide share lookup</a>,
         <a href="https://developer.apple.com/documentation/cloudkit/ckrecordzone/id/ownername">CloudKit zone ownerName</a>, and
-        <a href="https://developer.apple.com/documentation/coredata/nspersistentstorecoordinator/destroypersistentstore%28at%3Aoftype%3Aoptions%3A%29">Core Data store destruction</a>.
+        <a href="https://developer.apple.com/documentation/coredata/nspersistentstorecoordinator/destroypersistentstore%28at%3Atype%3Aoptions%3A%29">Core Data store destruction</a>.
       </p>
     </section>
 
@@ -848,7 +848,7 @@
     </section>
 
     <section aria-labelledby="roadmap-heading">
-      <h2 id="roadmap-heading">Implementation path after the four edits</h2>
+      <h2 id="roadmap-heading">Implementation path</h2>
       <p class="section-intro">
         The detailed contract already fixes the order. An implementation agent can work through
         these checkpoints without reopening the product architecture.

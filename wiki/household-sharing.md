@@ -206,14 +206,18 @@ Application Support/HouseholdSharing/Accounts/<account-scope-hash>/private.sqlit
 Application Support/HouseholdSharing/Accounts/<account-scope-hash>/shared.sqlite
 ```
 
-Never persist or log the raw CloudKit user record id. Persist the last successfully validated hash
-only so a running, already validated session can survive an ordinary network outage. On a cold
-launch, do not expose a cached account's inventory until the current account identity is validated;
-if identity cannot be checked yet, show a retrying account state. Active-household ids, history
-tokens, notification prefixes, sharing-transition state, and store paths are scoped by this hash.
-The upgrade's persistence, legacy-side-effect-cleanup, reset-notice acknowledgement, and legacy-store
-erasure markers are installation-wide because they describe this installation rather than an iCloud
-account.
+Never persist or log the raw current-account CloudKit user record id as account identity; persist
+only the last successfully validated hash so a running, already validated session can survive an
+ordinary network outage. Opaque record/zone components may exist only inside a protected,
+account-scoped lifecycle transition when reconstructing those exact CloudKit targets is required to
+resume a purge/deletion; never log them and clear them with the completed transition. A
+comparison-only pending invitation does not need that exception and stores `invitationZoneHash`
+instead. On a cold launch, do not expose a cached account's inventory until the current account
+identity is validated; if identity cannot be checked yet, show a retrying account state.
+Active-household ids, history tokens, notification prefixes, sharing-transition state, and store
+paths are scoped by this hash. The upgrade's persistence, legacy-side-effect-cleanup, reset-notice
+acknowledgement, and legacy-store erasure markers are installation-wide because they describe this
+installation rather than an iCloud account.
 
 Both descriptions use the same model and `iCloud.com.tridge.app`. Set their CloudKit database scopes
 to `.private` and `.shared` respectively. Both enable:
@@ -508,7 +512,7 @@ Tridge/
 │  ├─ HouseholdSharingService.swift CKShare create/fetch/manage/leave/stop
 │  ├─ HouseholdShareItem.swift      Transferable used by ShareLink
 │  ├─ ShareInvitationRouter.swift   buffers cold/warm invitation metadata
-│  ├─ PendingInvitationStore.swift  durable account/zone-scoped selection intent
+│  ├─ PendingInvitationStore.swift  durable account/hashed-zone selection intent
 │  ├─ AppDelegate.swift             scene configuration + account events
 │  ├─ SceneDelegate.swift           CloudKit invitation callbacks
 │  └─ StoreScopedSyncMonitor.swift  current-store events → Tridge sync state
@@ -540,8 +544,8 @@ The component responsibilities are intentionally narrow:
 | `CoreDataInventoryRepository` | Validate commands, resolve the household/store, check capability, assign inserted objects, save atomically, and return snapshots. |
 | `HouseholdSession` | Main-actor observable UI state: available/active households, active items, account/capability/sync state, and command errors. |
 | `HouseholdSharingService` | Share APIs and owner/participant lifecycle; depends on a protocol so UI/lifecycle tests can use a fake. |
-| `ShareInvitationRouter` | Persist provisional then account/zone-scoped selection intent before acceptance, buffer metadata received before dependency setup, and serialize acceptance into the shared store. |
-| `PendingInvitationStore` | Atomically persist provisional delivery records and bound container/zone/account selection intent without saving a share URL or participant identity; clear only the matching marker after selection or explicit discard. |
+| `ShareInvitationRouter` | Persist provisional then account/hashed-zone selection intent before acceptance, buffer metadata received before dependency setup, and serialize acceptance into the shared store. |
+| `PendingInvitationStore` | Atomically persist provisional delivery records and bound account/invitation-zone-hash selection intent without saving a share URL or raw CloudKit identity; clear only the matching marker after selection or explicit discard. |
 | `DuplicateReconciler` | Persist immutable exact-name links after local saves/imports; never transfer or delete item histories. |
 | `PersistentHistoryProcessor` | Consume one history stream per store, run reconciliation, merge changes, refresh snapshots/reminders, then persist the token. |
 | `StoreScopedSyncMonitor` | Buffer setup/import events during store loading, then reduce only current-generation events for the two activated store identifiers plus reachability into Tridge sync state; it does not authorize account/store access. |
@@ -668,9 +672,12 @@ The Household row opens `HouseholdScreen`:
 - Loading and destructive actions disable inventory commands and cannot be started twice.
 
 Share Fridge/Send Invite uses `ShareLink` with a `HouseholdShareItem`. The share has title equal to
-the household name and a Tridge share type. Its `CKAllowedSharingOptions` permits only specified
-recipients and read/write access; both `allowsAccessRequests` and
-`allowsParticipantsToInviteOthers` remain false. `publicPermission` is `.none`.
+the household name and a Tridge share type. Its `CKAllowedSharingOptions` sets
+`allowedParticipantAccessOptions = .specifiedRecipientsOnly` and
+`allowedParticipantPermissionOptions = .readWrite`, which are available from iOS 16 and therefore
+cover both the iOS 18 deployment target and the repository's Xcode 16 CI SDK. Do not reference the
+iOS 26-only `allowsAccessRequests` or `allowsParticipantsToInviteOthers` properties; both default to
+false. `publicPermission` is `.none`.
 
 Manage Sharing presents `UICloudSharingController` for the existing share so Apple owns participant
 selection/removal and permission display. Tridge does not render a custom member list because
@@ -680,11 +687,25 @@ existing share; `CKAllowedSharingOptions` on `ShareLink` does not configure this
 removes public and read-only choices from the management controller as well as from invitation
 creation. Because the system controller can let an owner stop sharing before its delegate calls
 Tridge, an owner who taps Manage Sharing first sees the existing unseen-offline-edit disclosure with
-Cancel and Continue to Manage Sharing. Only after Continue does Tridge retain the existing share zone
-id and Household managed-object id and present the controller. Participants open the controller
-directly because they cannot stop the owner's share. If the delegate reports that the owner stopped
-sharing, feed the retained identifiers into the same resumable copy-before-purge state machine; do
-not implement a second stop path or a custom participant UI.
+Cancel and Continue to Manage Sharing. After Continue and **before** presenting the controller,
+Tridge preallocates the destination household UUID and persists the existing account-scoped
+lifecycle-transition record with source zone, source Household managed-object id, destination UUID,
+and phase `manageStopArmed`. This phase never copies or purges; it only closes the crash window
+between Apple's server-side stop and Tridge's delegate callback. While it is armed, commands for the
+source household remain disabled.
+
+If the controller dismisses normally, its presentation wrapper checks the share directly in
+CloudKit; Core Data's `fetchShares` APIs return only locally known shares and are not authoritative
+for this decision. Build a `CKRecord.ID` from `CKRecordNameZoneWideShare` and the persisted source
+zone, then call `record(for:)` on `CKContainer(identifier: "iCloud.com.tridge.app")`'s private
+database. A returned `CKShare` clears `manageStopArmed`; `CKError.Code.unknownItem` or
+`cloudSharingControllerDidStopSharing` atomically advances that same record to `copying` and enters
+the one copy-before-purge path below. Every other fetch/account/network error keeps the marker and
+offers Retry—it never guesses that sharing stopped. On launch, resolve every armed marker with the
+same server fetch before normal household selection, so termination after Apple stops the share but
+before the delegate runs still preserves the owner's visible inventory. Participants open the
+controller without this marker because they cannot stop the owner's share. Do not implement a
+second stop path, a new recovery service, or a custom participant UI.
 
 Export Fridge Data writes a temporary, versioned JSON document containing export date, household
 name, each logical item's projected metadata/current quantity, every physical member record, every
@@ -757,24 +778,30 @@ possibly shared object graph between record zones.
 Both warm and cold SwiftUI launches must be handled. `SceneDelegate` receives
 `CKShare.Metadata`. `ShareInvitationRouter` first verifies the container identifier, then writes a
 `PendingInvitationStore` record **before** invoking
-`acceptShareInvitations(from:into:)`. A bound record is keyed by container id + share zone id +
-account-scope hash; before account validation, a record instead has a fresh provisional delivery id
-plus its container/zone. The record also contains its received date and phase `received`,
-`accepting`, or `awaitingImport`, but never the share URL or participant identity. If persistence is
-not ready, the metadata stays in memory while the durable provisional selection intent already
-exists. Acceptance is serialized into the shared store and phase changes are persisted before
-publishing in-memory success.
+`acceptShareInvitations(from:into:)`. Before persistence, derive an `invitationZoneHash` with
+`CryptoKit.SHA256` (already used by the app): hash the ASCII domain tag
+`tridge.invitation-zone.v1`, followed in order by
+the UTF-8 bytes of the container identifier, `zoneID.ownerName`, and `zoneID.zoneName`, each prefixed
+with its four-byte big-endian byte length; persist the lowercase hexadecimal digest. A bound record
+is keyed by `(accountScopeHash, invitationZoneHash)`; before account validation, a record instead has
+a fresh provisional delivery id plus that hash. The record also contains its received date and phase
+`received`, `accepting`, or `awaitingImport`, but never the raw container/zone components, share URL,
+or participant identity. Raw `CKShare.Metadata` stays only in memory for the live acceptance attempt.
+If persistence is not ready, the metadata stays in memory while the durable provisional selection
+intent already exists. Acceptance is serialized into the shared store and phase changes are
+persisted before publishing in-memory success.
 
 `PendingInvitationStore` is a small actor-backed Codable file at
 `Application Support/HouseholdSharing/pending-invitations.json`, outside either account's Core Data
 stores because it must work before those stores load. Writes use atomic replacement and
 `completeUntilFirstUserAuthentication` protection. If account identity is unavailable, persist an
 unbound `received` marker under that delivery id but wait to accept. Within that same live metadata-
-handling attempt, after account validation, atomically rekey it to `(container, zone, account hash)`
-before acceptance. If that bound key already exists, merge with that account's marker and remove
-only this attempt's provisional record. After a restart, a provisional marker stays inert until the
-user reopens the invitation; never bind an old provisional record merely to whichever account
-happens to be current. A marker bound to another account is neither accepted nor selected in the
+handling attempt, after account validation, atomically rekey it to
+`(accountScopeHash, invitationZoneHash)` before acceptance. If that bound key already exists, merge
+with that account's marker and remove only this attempt's provisional record. After a restart, a
+provisional marker stays inert until the user reopens the invitation; never bind an old provisional
+record merely to whichever account happens to be current. A marker bound to another account is
+neither accepted nor selected in the
 current session. This permits accounts A and B to hold independent pending intent for the same
 shared zone on one installation. The marker deliberately cannot resume an unstarted acceptance
 without metadata: after a crash before CloudKit accepts, the UI asks the user to open the invitation
@@ -839,11 +866,15 @@ delegate resumes the same best-effort copy and Tridge repeats the limitation in 
 notice.
 
 The resumable path must not lose stock already visible to the owner. It is used both by Tridge's
-explicit Stop action and the `UICloudSharingController` delegate callback:
+explicit Stop action and after a `manageStopArmed` transition confirms that Apple's UI stopped the
+share:
 
-1. Allocate the destination household UUID and persist a local, account-scoped transition keyed by
-   source zone with phase `copying`. The phases are `copying`, `copySaved`, and `purgePending`.
-   Suppress both source and destination from normal interaction until the transition completes.
+1. For the explicit Stop action, allocate the destination household UUID and persist a local,
+   account-scoped transition keyed by source zone with phase `copying`. For the system-UI path,
+   reuse the UUID already stored by `manageStopArmed` and atomically advance that record to
+   `copying`. The phases are `manageStopArmed`, `copying`, `copySaved`, and `purgePending`; only the
+   system-UI path uses the first one. Suppress both source and destination from normal interaction
+   from `copying` until the transition completes.
 2. Disable commands for the household and snapshot every logical item group with no terminal
    delete/clear event and projected quantity greater than zero.
 3. In one private-store transaction, create a new unshared Household with the preallocated UUID and
@@ -861,9 +892,10 @@ explicit Stop action and the `UICloudSharingController` delegate callback:
    source household from the picker until cleanup completes.
 
 The copy-before-purge rule follows Apple's warning that the purge API removes both CloudKit records
-and the local Core Data graph. On launch, resume every incomplete transition before normal household
-selection. `zoneNotFound`/`userDeletedZone` while `purgePending` means purge already completed, so
-activate the verified copy and finish instead of cloning again.
+and the local Core Data graph. On launch, resolve `manageStopArmed` as specified above and resume
+every confirmed copy/purge transition before normal household selection. `zoneNotFound`/
+`userDeletedZone` while `purgePending` means purge already completed, so activate the verified copy
+and finish instead of cloning again.
 
 ### Delete household data
 
@@ -902,14 +934,17 @@ owner's CloudKit data; Leave removes only their access/local shared-zone mirror.
 
 Erase Old Local Inventory is separate from household deletion because the archived pre-sharing
 store is installation-wide and has no safe account/household mapping. After explicit confirmation,
-verify that the resolved target is exactly `Application Support/default.store`, is a regular local
-SQLite store rather than a symbolic link, and is outside `HouseholdSharing/`. With no context or
-store attached to it, call `NSPersistentStoreCoordinator.destroyPersistentStore` for that exact URL
-and `NSSQLiteStoreType`, which removes its SQLite sidecars as part of the store destruction. Mark the
-erasure complete only after the base store and known `-wal`/`-shm` sidecars are absent. A failure
-shows Retry and never broadens the target or deletes current Core Data stores. Current household
-Delete actions disclose that this old local archive is controlled by the separate action while it
-exists.
+resolve and validate exactly `Application Support/default.store` plus its known `-wal` and `-shm`
+sidecar URLs. Every existing target must be a regular local file rather than a symbolic link and
+must be outside `HouseholdSharing/`; any mismatch fails closed. With no context or store attached to
+it, if the base file exists, call the current typed
+`NSPersistentStoreCoordinator.destroyPersistentStore(at:type:options:)` for that exact URL and
+`.sqlite`. After successful store destruction—or on Retry when the base file is already absent—use
+`FileManager.removeItem` only for those same validated base/sidecar URLs that still exist. Treat
+file-not-found as success; any other destroy or removal error shows Retry. Mark erasure complete only
+after all three exact paths are absent. Never enumerate the directory, follow a link, broaden the
+target, or touch current Core Data stores. Current household Delete actions disclose that this old
+local archive is controlled by the separate action while it exists.
 
 ## Account and failure behavior
 
@@ -1014,7 +1049,10 @@ The pure `NotificationPlan` diff is Linux-tested; the service is an Apple-platfo
 - Do not log item/household names, stock values, participant names/emails, share URLs, CloudKit
   record payloads, or invitation metadata. Diagnostics may include opaque ids, event type, CKError
   code, store scope, and timestamp.
-- Do not cache participant identity outside system APIs. Do not send membership to the scan Worker.
+- Do not cache participant names/emails or build profiles outside system APIs. Protected lifecycle
+  transitions may retain only opaque record/zone components needed to reconstruct their exact purge
+  or deletion target; pending invitations retain only `invitationZoneHash`. Do not send membership
+  to the scan Worker.
 - Local SQLite files use data protection and eligible user-content CloudKit fields enable encrypted
   values before schema promotion.
 - HouseholdScreen provides a portable JSON export. Owner Delete Fridge/Delete Shared Fridge purges
@@ -1122,22 +1160,35 @@ Apple-platform tests cover:
 - invitation selection intent persists before acceptance; termination after CloudKit accepts but
   before phase update still auto-selects the matching imported zone exactly once; an unbound marker
   left before acceptance stays inert across an account switch until matching metadata is reopened;
-- account A and account B can each retain independent pending intent for the same container/zone;
-  B reopening that share never overwrites, consumes, or becomes blocked by A's bound marker;
+  the serialized file contains the stable invitation-zone hash but no raw container id,
+  `ownerName`, or `zoneName`;
+- account A and account B can each retain independent pending intent for the same
+  `invitationZoneHash`; B reopening that share never overwrites, consumes, or becomes blocked by A's
+  bound marker;
 - a shared-household rename persists the new `CKShare` title; Send Invite retries a dirty title and
   does not present ShareLink after a metadata-write failure;
+- `HouseholdShareItem` registers `.specifiedRecipientsOnly` and `.readWrite`, and the app compiles
+  with the repository's Xcode 16/iOS 18 SDK without referencing the iOS 26-only convenience
+  properties (whose documented defaults are false);
 - every existing-share `UICloudSharingController` is configured with only `.allowPrivate` and
   `.allowReadWrite`;
 - an owner must acknowledge the unseen-offline-edit disclosure before Manage Sharing presents its
   controller, while a participant can open the controller without that owner-only warning;
+- an owner's Manage Sharing controller is not presented until `manageStopArmed` with its
+  preallocated destination is durable; a private-database zone-wide-share fetch returning a
+  `CKShare` clears it, while `CKError.Code.unknownItem` or the system delegate stop callback advances
+  it to `copying`; termination before that callback reaches the same result on launch, and every
+  other fetch error neither copies nor purges;
 - owner stop saves/verifies exactly one copied item per active logical group before a purge fake is
   invoked;
-- stop-sharing transition retries never duplicate a copy and resume after each recorded phase;
+- stop-sharing transition retries never duplicate a copy and resume after each recorded phase,
+  including the system-UI-only `manageStopArmed` phase;
 - stop-sharing requires the offline-edit warning but never claims peer acknowledgement;
 - participant leave makes no copy, owner deletion makes no copy, a private deletion remains pending
   after local save/export until every captured CloudKit record ID is confirmed absent, export
   includes zero/superseded-context histories while omitting restricted fields, and explicit legacy
-  erasure targets only the archived store and sidecars;
+  erasure removes only the validated archived base/WAL/SHM paths, skips store destruction when the
+  base is already absent, treats missing files as success, and rejects links or other paths;
 - account-derived paths/tokens/selection differ for two user-record-id hashes; and
 - a delayed account-A command/history callback cannot apply after generation invalidation, task
   registration closes before teardown, and old stores are removed only after every registered
@@ -1202,7 +1253,8 @@ complete this contract.
 - Owner Stop Sharing displays the unseen-offline-edit limitation before either Tridge's explicit
   Stop action or Apple's Manage Sharing controller can initiate it, and retains one unshared copy
   with the same locally visible active item metadata/quantities; a deliberately unexported
-  participant operation is not promised to survive.
+  participant operation is not promised to survive. Terminating after Apple's controller stops the
+  share but before its delegate callback, then relaunching, still retains exactly one private copy.
 - Export produces a versioned JSON file without receipt/share/account data; unshared owner deletion
   shows completion only after every captured CloudKit record is confirmed absent, shared-zone
   deletion removes the shared graph, and participant Leave states that the owner retains it.
@@ -1253,7 +1305,13 @@ blocked rather than altering identifiers or inventing credentials.
 - [Consuming relevant store changes](https://developer.apple.com/documentation/coredata/consuming-relevant-store-changes)
 - [Shared records and CKShare lifecycle](https://developer.apple.com/documentation/cloudkit/shared-records)
 - [`CKAllowedSharingOptions`](https://developer.apple.com/documentation/cloudkit/ckallowedsharingoptions)
+- [`CKAllowedSharingOptions.allowedParticipantAccessOptions`](https://developer.apple.com/documentation/cloudkit/ckallowedsharingoptions/allowedparticipantaccessoptions)
+- [`CKAllowedSharingOptions.allowsAccessRequests`](https://developer.apple.com/documentation/cloudkit/ckallowedsharingoptions/allowsaccessrequests)
+- [`CKRecordNameZoneWideShare`](https://developer.apple.com/documentation/cloudkit/ckrecordnamezonewideshare)
+- [`CKRecordZone.ID.ownerName`](https://developer.apple.com/documentation/cloudkit/ckrecordzone/id/ownername)
 - [`UICloudSharingController.availablePermissions`](https://developer.apple.com/documentation/uikit/uicloudsharingcontroller/availablepermissions)
+- [`UICloudSharingControllerDelegate.cloudSharingControllerDidStopSharing`](https://developer.apple.com/documentation/uikit/uicloudsharingcontrollerdelegate/cloudsharingcontrollerdidstopsharing%28_%3A%29)
+- [`NSPersistentStoreCoordinator.destroyPersistentStore(at:type:options:)`](https://developer.apple.com/documentation/coredata/nspersistentstorecoordinator/destroypersistentstore%28at%3Atype%3Aoptions%3A%29)
 - [`CKShareTransferRepresentation`](https://developer.apple.com/documentation/cloudkit/cksharetransferrepresentation)
 - [Accepting share invitations in a SwiftUI app](https://developer.apple.com/documentation/coredata/accepting-share-invitations-in-a-swiftui-app)
 - [Build apps that share data through CloudKit and Core Data (WWDC21)](https://developer.apple.com/videos/play/wwdc2021/10015/)

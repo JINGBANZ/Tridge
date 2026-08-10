@@ -894,3 +894,22 @@
 - **Rejected:** Treating the local save or a generic export event as completion; directly deleting
   Core Data-generated records through a parallel CloudKit writer; or creating a new server solely
   for deletion acknowledgement.
+
+### 2026-08-10 — Sharing boundary markers are crash-safe and privacy-minimized
+
+- **Chose:** Before an owner enters Apple's Manage Sharing UI, arm the existing account-scoped
+  lifecycle transition with a preallocated copy destination; a confirmed system stop advances that
+  record into the existing copy-before-purge phases, while an intact share clears it. Persist
+  invitation selection by account scope plus a SHA-256 fingerprint of the container/zone tuple,
+  keeping the raw zone owner identifier only in live CloudKit metadata because selection needs
+  comparison, not reconstruction.
+- **Why:** Apple's sharing UI changes the share before notifying its delegate, so process termination
+  between those events could otherwise bypass Tridge's promised private copy. A shared-zone
+  `ownerName` is also a CloudKit user identifier; writing it into a comparison-only pending marker
+  contradicts the account-isolation privacy boundary without providing recovery value.
+- **Rejected:** Relying only on an in-process delegate callback; beginning a copy before the owner
+  actually stops sharing; persisting a raw zone owner where a stable fingerprint is sufficient; or
+  adding a recovery backend, custom sharing UI, generic operation journal, or hashing dependency.
+- **Refines:** *2026-08-09 — Durable invitation intent and generation drains close transition races*
+  for the marker's persisted representation. Its per-account durability and selection semantics
+  stand. Exact behavior remains in [`household-sharing.md`](./household-sharing.md).

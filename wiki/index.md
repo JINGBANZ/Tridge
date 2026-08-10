@@ -29,8 +29,8 @@
   [decisions.md](./decisions.md) → *2026-07-11* entry.
 - [../design/household-sharing-overview.html](../design/household-sharing-overview.html) — a
   **plain-language visual map** of the proposed sharing architecture: the system graph, new module
-  responsibilities, everyday examples, implementation path, and any focused review corrections
-  still required. The normative contract remains [household-sharing.md](./household-sharing.md).
+  responsibilities, everyday examples, implementation path, and reviewed safety boundaries. The
+  normative contract remains [household-sharing.md](./household-sharing.md).
 - [household-sharing.md](./household-sharing.md) — the reviewed **household sharing architecture**:
   exact Apple capabilities/schema/store routing, account isolation, invitation and lifecycle UI,
   repository commands, multi-writer stock events, lossless exact-name item convergence, the reviewed
