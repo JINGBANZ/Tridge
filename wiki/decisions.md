@@ -660,3 +660,269 @@
   receipt request content in Responses); a separate policy hosting service (unnecessary operational
   surface when the existing Worker already has a stable public HTTPS URL).
 - **Supersedes:** the `store:true` portion of *2026-07-10 — Scan API auth is Apple App Attest*.
+
+### 2026-08-06 — Household sharing uses CloudKit Sharing behind a repository-backed Core Data stack
+
+- **Chose:** Model one shareable fridge/freezer/pantry inventory as a `Household` logical aggregate
+  placed in one private, zone-wide `CKShare`. Use `NSPersistentCloudKitContainer` with private and
+  shared stores, persistent history, and remote-change notifications; accepted members are trusted
+  read/write participants.
+  All views and the scan-confirm path submit household-scoped commands through an
+  `InventoryRepository` instead of mutating persistence objects directly. Quantity changes are
+  immutable stock operations reduced in `FridgeCore`, while deterministic UUID selection and
+  delayed tombstones converge concurrent same-name inserts. The existing Cloudflare Worker remains
+  receipt-scan-only: App Attest authenticates an installation to that billed endpoint, while
+  CloudKit identity and `CKShare` membership authorize household inventory.
+- **Why:** Tridge is iOS-only, every intended participant has iCloud, members are trusted household
+  editors, and offline convergence matters. CloudKit provides Apple-account identity, invitation
+  delivery, server-enforced share membership, device-to-device synchronization, and local-first
+  persistence without adding an account system or a second operational backend. A repository is the
+  necessary interception point for store routing, capability checks, conflict semantics,
+  notifications, and a future backend swap.
+- **Rejected:** SwiftData's managed CloudKit switch (it mirrors a user's private database, not the
+  shared database required here); retaining SwiftData as a cache under custom `CKSyncEngine`
+  instances (preserves the model syntax but makes Tridge own record mapping, sync state, tombstones,
+  and conflicts); extending the scan Worker with user accounts + an authoritative inventory database
+  (needed for Android/web or fine-grained roles, disproportionate for the accepted Apple-only
+  contract); synchronizing `FridgeItem.quantity` as a last-writer-wins scalar (concurrent household
+  changes can silently lose units). Full architecture: [`household-sharing.md`](./household-sharing.md).
+- **Superseded by:** *2026-08-08 — Sharing ships as an Apple-native, account-isolated implementation
+  contract* for automatic item deduplication and mutable tombstone mechanics. The CloudKit, two-store,
+  repository, and immutable quantity-operation choices stand.
+
+### 2026-08-06 — The sharing upgrade resets inventory in place without requiring an uninstall
+
+- **Chose:** The first sharing build opens its Core Data/CloudKit stores at a new explicit location,
+  ignores the legacy SwiftData store, bootstraps a fresh personal household, and records the new
+  persistence generation. Installed App Store/TestFlight users update normally. The one-time reset
+  cancels old expiry notifications and clears the badge, while retaining device preferences and the
+  existing App Attest registration. Legacy store files stay untouched for rollback; the app neither
+  migrates nor deletes them in this release, and it tells testers once that the sharing update starts
+  a fresh fridge.
+- **Why:** All existing inventory is test data, so preserving rows does not justify a cross-framework
+  migration. Requiring already-installed testers to uninstall is user-hostile and unreliable, while
+  deleting SQLite sidecars during launch adds destructive path risk for no product benefit. A new
+  store gives the clean schema the sharing model needs and makes rollback possible without a manual
+  install ritual.
+- **Rejected:** Asking every tester to uninstall first; a SwiftData-to-Core-Data item migration;
+  opening the old store with the new model; deleting the legacy database and sidecars on first launch;
+  clearing all `UserDefaults` or App Attest state along with the inventory. Full upgrade contract:
+  [`household-sharing.md`](./household-sharing.md) → *Upgrade from the shipping build*.
+- **Superseded by:** *2026-08-09 — Revision guards and household epochs make destructive
+  convergence explicit* only for indefinite legacy-file retention: automatic upgrade still retains
+  the archive, while an explicit user action can erase it safely.
+
+### 2026-08-08 — Sharing ships as an Apple-native, account-isolated implementation contract
+
+- **Chose:** Finish the household design as an executable contract before implementation. Core Data
+  uses a versioned, CloudKit-compatible three-entity model (`HouseholdRecord`, `FridgeItemRecord`,
+  `StockChangeRecord`) in account-scoped private/shared stores. Quantity, consumption, and deletion
+  derive from immutable stock events; per-command quantities stay 1–99 while concurrent aggregate
+  stock is never capped. The app requires an active iCloud account, hashes the container-specific
+  user record id for local store/token/selection paths, and never presents another account's cache.
+  Sharing is invite-only, read/write, owner-invite-only, with one active household at a time. Owner
+  stop-sharing uses a resumable copy-before-purge transition; owner deletion purges without a copy;
+  participants leave without deleting the owner's data. Household JSON export and real owner
+  deletion are part of the release. All runtime collaboration code uses Apple frameworks with no new
+  package.
+- **Why:** The architecture review found that the original design still required an implementer to
+  invent schema, account isolation, conflict, UI-selection, stop/leave, privacy, and recovery rules.
+  Immutable events preserve concurrent stock and make delete precedence monotonic. Account-scoped
+  files prevent an iCloud switch from exposing the prior account. Apple's Core Data sharing sample
+  already provides the correct two-store, history, invitation, and lifecycle patterns, so a wrapper
+  dependency would add policy and maintenance cost without removing the hard application-specific
+  work.
+- **Rejected:** Automatic cross-peer same-name repair (late offline operations can attach to an alias
+  after a one-time transfer/delete, while silently merging separate expiry batches is destructive);
+  hard-deleting duplicate rows after a successful import/export (that event does not prove every
+  peer observed the alias); a local-only fallback when iCloud is absent (requires a third store and
+  separate move rules); shared static store paths across iCloud accounts; a mutable scalar tombstone;
+  `CloudKitSyncMonitor` for a small event-state reducer; Automerge or another second persistence/CRDT
+  layer. Concurrent offline creates remain explicit separate rows, including the rare case of two
+  independently bootstrapped personal households; the owner can rename/delete an unshared extra.
+- **Owner-only boundary:** Repository code, fakes, tests, unsigned Simulator build, and CI are agent-
+  runnable. Creating/associating `iCloud.com.tridge.app`, refreshing Apple provisioning, production
+  schema promotion, App Store privacy metadata, and signed two-account TestFlight acceptance require
+  the Apple account owner. Exact handoff and evidence: [`household-sharing.md`](./household-sharing.md)
+  → *Owner handoff* and *Verification and definition of done*.
+- **Superseded by:** *2026-08-08 — Exact-name items converge losslessly; dependencies are
+  evidence-based* for the three-entity model, separate concurrent same-name rows, and blanket
+  no-package choice. Account isolation, lifecycle, data-rights, and owner-boundary choices stand.
+
+### 2026-08-08 — Exact-name items converge losslessly; dependencies are evidence-based
+
+- **Chose:** Preserve the shipping MergePlanner contract across devices. Two eligible active,
+  unexpired item roots with the same normalized name become one logical item through an immutable
+  `ItemMergeRecord`; a deterministic union projection sums both operation histories and never moves
+  or deletes either root. Expired, zero, and terminal groups remain distinct batches. This makes the
+  sharing model four entities and adds a Linux-testable `ItemGroupReducer` plus a persistent
+  `DuplicateReconciler`. Also replace the blanket third-party ban with evidence-based review and pin
+  MIT-licensed `CloudKitSyncMonitor` 3.1.0 behind `SyncStatusProviding` for overall setup/import/
+  export/network/account status. Core Data history, share lifecycle, account authorization, and
+  inventory convergence remain Tridge-owned.
+- **Why:** A user who adds Milk twice expects one Milk with accumulated quantity whether the second
+  add is sequential or originates concurrently on an offline household device. The prior
+  transfer-then-delete repair was unsafe because a late operation could still target the removed
+  root; a permanent add-only merge edge retains that history and is order-independent. The monitor
+  package has a narrow, tested responsibility and removes generic integration code, while its
+  protocol boundary prevents package types from owning the product model. Dependency value should
+  be decided on evidence, not prohibited categorically.
+- **Rejected:** Leaving independently created active Milk rows visible (breaks established product
+  behavior); copying operations to a winner and deleting aliases (can lose late writes); a Core Data
+  uniqueness constraint (unsupported by CloudKit models and cannot resolve offline races);
+  `SyncKit` replacing Apple's mirroring stack; Automerge as a second persistence/network layer; and
+  adding a package merely to avoid a small amount of domain-specific code. Exact implementation and
+  edge cases: [`household-sharing.md`](./household-sharing.md) → *Matching and lossless same-item
+  convergence* and *Adopt, do not reinvent*.
+- **Supersedes:** The cross-peer deduplication and no-package parts of *2026-08-08 — Sharing ships as
+  an Apple-native, account-isolated implementation contract*. It does not revive the delayed
+  tombstone/transfer design from *2026-08-06*.
+- **Superseded by:** *2026-08-09 — Revision guards and household epochs make destructive
+  convergence explicit* for unconditional permanent merge projection and the selected sync-monitor
+  package. Lossless physical histories and the evidence-based dependency policy stand.
+
+### 2026-08-09 — Revision guards and household epochs make destructive convergence explicit
+
+- **Chose:** Make an inferred same-name merge an immutable claim over both endpoints' captured
+  identity revisions, not an unconditional permanent union. A normalized-name edit advances
+  identity revision; stale claims stay stored but become inactive. An intentional logical-group
+  rename updates all currently known members and replacement claims atomically. Clear All advances
+  an immutable, Lamport-ordered household inventory epoch so unseen older-epoch rows cannot reappear.
+  Stop Sharing preserves the owner's local projection after an explicit warning that CloudKit cannot
+  prove every participant device exported. Sync status consumes raw
+  `NSPersistentCloudKitContainer.Event` values keyed by current store identifiers, event ids, and a
+  session generation. Upgrade side effects and reset-notice acknowledgement use separate markers,
+  and a separate explicit action can destroy the archived pre-sharing SQLite store.
+- **Why:** PR review exposed four false guarantees: Milk could be linked permanently while another
+  offline peer corrected it to Cream; per-visible-item Clear All could miss an offline row; an
+  owner's successful sync could not acknowledge every participant's pending writes; and a
+  process-wide event reducer could attribute account A's late completion to account B. Revision and
+  epoch tokens make the first two outcomes deterministic without deleting history, while the stop
+  warning states the unavoidable distributed-systems limit. Separate upgrade markers survive every
+  crash point and the erasure action makes the archived test data honestly deletable.
+- **Dependency result:** The evidence-based policy remains. `CloudKitSyncMonitor` 3.1.0 is not used
+  because its reducer discards `NSPersistentCloudKitContainer.Event.storeIdentifier`; wrapping its
+  published state cannot recover the store/session provenance this two-account design requires.
+  Using it only for network/account status would not materially reduce risk. Apple's event API and
+  reference sharing sample cover the selected boundary directly.
+- **Rejected:** Permanent inferred unions with no revision guard; transferring events and deleting
+  aliases; a Clear All confirmation that ignores unseen offline items; wall-clock-only or mutable
+  scalar clear generations; claiming local sync completion proves peer acknowledgement; timestamp-
+  only filtering of a process-wide package singleton; silently retaining archived inventory with no
+  user erasure path; and automatically deleting the archive during a normal update.
+- **Superseded by:** *2026-08-09 — Causal clear frontiers and pre-load observation close convergence
+  gaps* for selecting one concurrent clear epoch and beginning event tracking only after both stores
+  load; and *2026-08-10 — V1 does not rename a linked multi-root item* for intentional logical-group
+  renames. Revision-guarded merges, direct Apple event consumption, the stop limitation, and
+  separate upgrade markers stand.
+
+### 2026-08-09 — Causal clear frontiers and pre-load observation close convergence gaps
+
+- **Chose:** Represent Clear All as an immutable causal graph: every clear records the complete
+  frontier it observed as parent epoch ids, and every new item records its observed frontier.
+  Concurrent clear children remain simultaneous leaves rather than competing in a UUID tie-break;
+  a later clear joins every branch it has observed. Prepare the store-scoped CloudKit event observer
+  before persistent stores load, buffer events until the two store identifiers are known, and require
+  a successful initial private-store import before an empty fresh cache may bootstrap `My Fridge`.
+  Configure both invitation and existing-share system UI for private/read-write only, and remove
+  delivered as well as pending notifications when account or household scope changes.
+- **Why:** A total-order winner made valid groceries added after the "losing" concurrent clear
+  disappear. Post-load observation could miss the setup/import start it later required, while local
+  store-open completion could create a duplicate personal household before the first cloud import.
+  The ShareLink restrictions do not configure `UICloudSharingController`, and pending-only cleanup
+  leaves the previous account's item name visible in Notification Center. The causal frontier and
+  explicit startup/adapter boundaries preserve the intended data and make each invariant directly
+  testable.
+- **Rejected:** UUID or timestamp tie-breaking between concurrent clears; suppressing an entire
+  losing epoch; mutating/rebasing physical item history after sync; treating
+  `loadPersistentStores` as import completion; subscribing only after both stores load; allowing an
+  empty fresh cache to bootstrap while offline or importing; relying on ShareLink options to
+  constrain Manage Sharing; and removing only pending notifications.
+
+### 2026-08-09 — Durable invitation intent and generation drains close transition races
+
+- **Chose:** Persist invitation-selection intent before asking CloudKit to accept a share. Bound
+  markers use `(container, zone, account-scope hash)` so two invited accounts on one installation
+  cannot overwrite each other; pre-validation delivery uses a separate provisional id that is
+  atomically rekeyed within the live metadata-handling attempt. Every bound marker phase remains
+  valid selection intent until the matching Household imports and its UUID is durably selected, or
+  the user explicitly discards a terminal failure.
+  Bind store loading plus all account-scoped repository, history, reconciliation, sharing, and
+  reminder work to an immutable session generation through `AccountTaskRegistry`. An account
+  transition closes task admission, invalidates that generation, clears visible state, cancels
+  cooperative work, and awaits every registered load/context operation before removing stores; the
+  main-actor apply boundary also rejects stale results. Lock the release-only Fastlane dependency to
+  2.237.0 in both `Gemfile` and `Gemfile.lock`.
+- **Why:** CloudKit acceptance and local shared-record import are separate asynchronous events. A
+  process termination between them must not lose which household should become active. Likewise,
+  cancellation alone cannot stop a Core Data `context.perform` already executing: removing its
+  store or allowing its late snapshot to reach the next account can crash or disclose account A's
+  data under account B. Durable intent plus invalidate-and-drain makes both handoffs explicit and
+  testable. The lockfile makes the reviewed release tool version reproducible in CI.
+- **Rejected:** Recording invitation intent only after acceptance; clearing the marker before the
+  matching household is durably selected; relying on task cancellation without awaiting in-flight
+  context work; accepting callbacks based only on whichever account is current when they finish;
+  removing stores while old-generation tasks remain admitted; and calling an unconstrained Gem a
+  locked dependency.
+
+### 2026-08-10 — V1 does not rename a linked multi-root item
+
+- **Chose:** Keep normalized-name changes for a single physical item, but make the name read-only
+  after multiple physical histories are linked into one logical item. The repository re-resolves
+  the component on save and atomically rejects a stale name edit if a remote link arrived after the
+  sheet opened. Quantity, art, storage, and expiry remain editable.
+- **Why:** Two peers can concurrently know overlapping but incomplete portions of one inferred
+  component. Safely renaming that component would require a durable group-operation protocol and
+  deterministic expansion across members learned later. Name changes on already combined rows are
+  uncommon, and they are not part of the household-sharing goal, so that machinery is not justified
+  for the first release.
+- **Rejected:** Fanning random replacement claims across only the members currently visible (can
+  split an overlapping component); adding a group-rename CRDT/entity before product evidence; or
+  moving/deleting physical histories. Exact-name concurrent additions still converge losslessly.
+
+### 2026-08-10 — Private deletion completes only after CloudKit confirms absence
+
+- **Chose:** Delete an unshared household through the normal Core Data transaction, but persist its
+  mapped CloudKit record IDs in the existing lifecycle-transition store first. After a successful
+  post-delete export, read those IDs from the private CloudKit database and report completion only
+  when every record is absent. Resume the read-only verification after a crash; no new backend or
+  direct mutation of Core Data-managed CloudKit records is introduced.
+- **Why:** Saving a local deletion only queues mirroring work, and a successful container export is
+  not a record-specific absence acknowledgement. Without the final fetch, uninstalling immediately
+  could discard the queued local work and a later install could import data the UI had called
+  permanently deleted.
+- **Rejected:** Treating the local save or a generic export event as completion; directly deleting
+  Core Data-generated records through a parallel CloudKit writer; or creating a new server solely
+  for deletion acknowledgement.
+
+### 2026-08-10 — Sharing boundary markers are crash-safe and privacy-minimized
+
+- **Chose:** Before an owner enters Apple's Manage Sharing UI, arm the existing account-scoped
+  lifecycle transition with a preallocated copy destination; a confirmed system stop advances that
+  record into the existing copy-before-purge phases, while an intact share clears it. Persist
+  invitation selection by account scope plus a SHA-256 fingerprint of the container/zone tuple,
+  keeping the raw zone owner identifier only in live CloudKit metadata because selection needs
+  comparison, not reconstruction.
+- **Why:** Apple's sharing UI changes the share before notifying its delegate, so process termination
+  between those events could otherwise bypass Tridge's promised private copy. A shared-zone
+  `ownerName` is also a CloudKit user identifier; writing it into a comparison-only pending marker
+  contradicts the account-isolation privacy boundary without providing recovery value.
+- **Rejected:** Relying only on an in-process delegate callback; beginning a copy before the owner
+  actually stops sharing; persisting a raw zone owner where a stable fingerprint is sufficient; or
+  adding a recovery backend, custom sharing UI, generic operation journal, or hashing dependency.
+- **Refines:** *2026-08-09 — Durable invitation intent and generation drains close transition races*
+  for the marker's persisted representation. Its per-account durability and selection semantics
+  stand. Exact behavior remains in [`household-sharing.md`](./household-sharing.md).
+
+### 2026-08-10 — Current SDK and deployment support are separate decisions
+
+- **Chose:** Build CI and releases with Xcode 26 and the iOS 26 SDK while retaining iOS 18 as the
+  deployment target. Newer APIs may be used behind availability checks when they materially improve
+  the product. Sharing leaves `allowsAccessRequests` and `allowsParticipantsToInviteOthers` at their
+  documented false defaults because explicit assignments add no behavior.
+- **Why:** The release toolchain must satisfy the App Store's current SDK requirement, and CI should
+  compile with the same SDK that ships. Raising the runtime floor would remove only trivial
+  availability code while preventing existing iOS 18 installations from receiving the sharing
+  update; it would not simplify the Core Data/CloudKit sharing architecture.
+- **Rejected:** Treating the build SDK as the minimum runtime; keeping Xcode 16 as a compatibility
+  ceiling; or raising the deployment target solely to reference redundant convenience properties.

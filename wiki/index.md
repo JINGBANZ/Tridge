@@ -13,9 +13,10 @@
 ## Core pages
 
 - [../design/fridge-design.html](../design/fridge-design.html) — **the complete design & build
-  spec**: screen mocks, design tokens, all screens/interactions, SwiftData schema, the OpenAI
-  API contract with the verbatim receipt prompt, project layout, acceptance criteria, and build
-  order. Open in a browser for visuals; the text and mock CSS are the normative spec.
+  spec**: screen mocks, design tokens, all screens/interactions, the current Core Data sharing
+  schema summary, the OpenAI API contract with the verbatim receipt prompt, project layout,
+  acceptance criteria, and build order. Open in a browser for visuals; its sharing-release details
+  delegate explicitly to [household-sharing.md](./household-sharing.md).
 - [../design/backend-design.html](../design/backend-design.html) — the **backend design doc**
   for the receipt-scan API (`server/`, Cloudflare Worker): architecture, request-protection
   layers, API contract, test-vs-production posture, migration plan, and the hosting research
@@ -26,6 +27,17 @@
   the name-key identity model, name search, manual-add quick-fill chips, and tiered automatic
   art — with animated flow mocks and the competitor/platform research. The *why* lives in
   [decisions.md](./decisions.md) → *2026-07-11* entry.
+- [../design/household-sharing-overview.html](../design/household-sharing-overview.html) — a
+  **plain-language visual map** of the proposed sharing architecture: the system graph, new module
+  responsibilities, everyday examples, implementation path, and reviewed safety boundaries. The
+  normative contract remains [household-sharing.md](./household-sharing.md).
+- [household-sharing.md](./household-sharing.md) — the reviewed **household sharing architecture**:
+  exact Apple capabilities/schema/store routing, account isolation, invitation and lifecycle UI,
+  repository commands, multi-writer stock events, lossless exact-name item convergence, the reviewed
+  dependency boundary, notification reconciliation, privacy/export/deletion, the automatic
+  no-uninstall reset, implementation checkpoints, and owner-only handoff. Implementation state
+  lives in [status.md](./status.md); the *why* lives in
+  [decisions.md](./decisions.md) → *2026-08-06*, *2026-08-08*, and *2026-08-09* entries.
 
 ## Decisions
 

@@ -57,15 +57,16 @@ Mark breaking changes with `!` (`feat!:`) or a `BREAKING CHANGE:` footer. One lo
 Tridge is a native iOS app: photograph a grocery receipt, an LLM parses
 it into a fridge inventory with guessed expiration dates, and the home screen shows each item as an
 image on a minimal background, turning amber → red as expiry nears. Stack: iOS 18+, SwiftUI,
-SwiftData, no third-party packages. The LLM call lives behind `server/` — a Cloudflare
-Worker (TypeScript) that holds the OpenAI key; the app POSTs the receipt JPEG to it
-(`ProxyLLMService`) and carries no OpenAI key of its own. The complete build spec is
-`design/fridge-design.html`; start there (via @wiki/index.md).
+SwiftData today, with a reviewed migration to Core Data + CloudKit for household sharing. The LLM
+call lives behind `server/` — a Cloudflare Worker (TypeScript) that holds the OpenAI key; the app
+POSTs the receipt JPEG to it (`ProxyLLMService`) and carries no OpenAI key of its own. The complete
+build spec is `design/fridge-design.html`; start there (via @wiki/index.md).
 
 ## Setup
 
 - Development happens on a Linux box; Xcode/macOS exists only in CI (GitHub Actions macOS runners).
-  Structure pure-logic code (LLM response parsing, urgency rules) into targets
+  CI and release builds use Xcode 26 with the iOS 26 SDK while the app's deployment target remains
+  iOS 18. Structure pure-logic code (LLM response parsing, urgency rules) into targets
   that build and pass under `swift test` on Linux.
 - The OpenAI key is held server-side as a Cloudflare Worker secret (`wrangler secret put`, run from
   a dev machine) — never on the device or in the repo. The app authenticates to the worker with
@@ -90,10 +91,15 @@ Worker (TypeScript) that holds the OpenAI key; the app POSTs the receipt JPEG to
 
 ## Code style
 
-- SwiftUI + SwiftData idioms; `@Observable` for flow state; async/await for all I/O.
+- SwiftUI with SwiftData in the shipping app and Core Data in the approved sharing migration;
+  `@Observable` for flow state; async/await for all I/O.
 - All visual constants come from `AppTheme` (the design tokens in the spec) — no magic colors/sizes
   in views.
-- No third-party dependencies. Wrap external services behind protocols (`LLMService`).
+- Prefer platform APIs when they solve the requirement cleanly. Third-party dependencies are allowed
+  when they materially reduce implementation or maintenance risk. Before adding one, record the
+  need and alternatives, license, maintenance/security/privacy posture, exact version policy, and a
+  narrow replacement boundary; wrap external services and substantial libraries behind protocols
+  where practical (`LLMService`).
 
 ## Testing
 

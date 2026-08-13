@@ -17,7 +17,7 @@ browser. Agents: start with [`AGENTS.md`](AGENTS.md), then [`wiki/index.md`](wik
   fill in `SCAN_API_TOKEN`, then `swift test --filter ReceiptScanSmokeTests`. See
   [`Tests/ReceiptScanSmokeTests/Fixtures/README.md`](Tests/ReceiptScanSmokeTests/Fixtures/README.md)
   for how to add your own receipt images + expected inventory.
-- iOS app (macOS + Xcode 16): open `Tridge.xcodeproj`, or
+- iOS app (macOS + Xcode 26): open `Tridge.xcodeproj`, or
   `xcodebuild -scheme Tridge -destination 'generic/platform=iOS Simulator' build`.
   No build-time secret — the app authenticates to the scan worker with Apple App
   Attest, whose key is generated on-device at runtime.
@@ -88,7 +88,7 @@ replacement, update the two `APPLE_DEVELOPMENT_CERT_*` secrets, verify one relea
 then revoke the old certificate. Revoking development certificates does not affect
 builds already uploaded to TestFlight or the App Store.
 
-### With a Mac (Xcode 16+)
+### With a Mac (Xcode 26+)
 
 1. Clone the repo, open `Tridge.xcodeproj`.
 2. **Simulator:** pick any iPhone simulator and press Run. No Apple account
@@ -122,7 +122,7 @@ Analytics & Improvements → Analytics Data (share the newest
 - Expiry tracking with local notifications (T−2 days and expiry day)
 - Game-inventory-style home grid, sorted soonest-expiring first
 - Drag-to-consume, on-device OCR for printed "best by" dates
-- iOS 18+, SwiftUI + SwiftData, no third-party packages, no backend
+- iOS 18+, SwiftUI + SwiftData; receipt scanning uses the Cloudflare Worker described above
 
 ## Later
 

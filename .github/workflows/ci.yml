@@ -44,7 +44,8 @@ jobs:
 
   ios-build:
     name: build + tests (macOS)
-    runs-on: macos-15
+    # Match the release toolchain while keeping iOS 18 as the deployment target.
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v5
       - name: Full logic test suite
