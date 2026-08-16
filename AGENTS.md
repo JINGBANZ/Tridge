@@ -133,3 +133,23 @@ build spec is `design/fridge-design.html`; start there (via @wiki/index.md).
 
 - **Design source of truth:** @wiki/index.md — specs, architecture, decisions, and current status.
 - If using XcodeBuildMCP, use the installed XcodeBuildMCP skill before calling XcodeBuildMCP tools.
+
+## Agent skills
+
+These repository-specific paths override generic paths in the installed Matt Pocock skills.
+
+### Issue tracker
+
+Issues and specs are tracked in GitHub Issues for `JINGBANZ/Tridge`. See
+`wiki/agents/issue-tracker.md`.
+
+### Triage labels
+
+The five canonical triage roles use the default label names. See `wiki/agents/triage-labels.md`.
+
+### Domain docs
+
+Tridge uses a single context. Use `wiki/CONTEXT.md` for the domain glossary, creating it lazily when
+the first term is resolved; use `wiki/adr/` for new ADRs; and consult the historical decisions in
+`wiki/decisions.md`. Start at `wiki/index.md` and follow `wiki/AGENTS.md` for edits. See
+`wiki/agents/domain.md` for the complete mapping.

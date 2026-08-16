@@ -41,9 +41,16 @@
 
 ## Decisions
 
-- [decisions.md](./decisions.md) — the decision log: what was chosen and why, with the rejected
-  alternative. One page, no ADR folder by design; see [`AGENTS.md`](./AGENTS.md) → Convention 8.
+- [adr/0001-adopt-repository-local-matt-skill-layout.md](./adr/0001-adopt-repository-local-matt-skill-layout.md)
+  — why Matt's generic skill paths are mapped into Tridge's wiki.
+- [decisions.md](./decisions.md) — the legacy decision log for choices recorded before numbered
+  ADRs; read it for prior rationale but record new decisions under `adr/`.
 
 ## Meta
 
 - [AGENTS.md](./AGENTS.md) — conventions for maintaining this wiki. Read before editing any wiki file.
+- [agents/domain.md](./agents/domain.md) — repository-specific domain glossary and ADR paths for
+  installed engineering skills.
+- [agents/issue-tracker.md](./agents/issue-tracker.md) — GitHub issue operations used by planning and
+  triage skills.
+- [agents/triage-labels.md](./agents/triage-labels.md) — canonical triage-state label mapping.
