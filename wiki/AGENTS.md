@@ -31,7 +31,7 @@ substantive edits.
 Describe the system as it is now; after a change a page should read as if the old concept never existed.
 Delete on sight: "X was removed / replaced / deprecated"; "originally Y, now Z"; "Previously…", "No
 longer…", "Used to be…"; `~~struck~~` items; obsolete non-goals. The *why it changed* lives only in the
-git log and the decision log ([Convention 8](#8-log-load-bearing-decisions-in-one-place-dont-accumulate-decision-files)).
+git log and decision records ([Convention 8](#8-record-load-bearing-decisions-as-small-adrs)).
 
 ### 4. Reference source; don't paste code.
 
@@ -53,8 +53,8 @@ starts is the stub this forbids.
 
 ### 7. Default to extending a page. Promote to a new page only when earned.
 
-Start as a section in an existing page; don't pre-create `worker.md` / `wiki/agents/`. Promote to its
-own page only when one holds:
+Start as a section in an existing page; don't pre-create `worker.md`. Promote to its own page only
+when one holds:
 
 - **It's drowning its host** — past ~20% of the parent, or far deeper than its neighbors.
 - **Three+ places link into it** — it's earned a stable target.
@@ -67,16 +67,20 @@ until flat stops working; let taxonomy emerge. **Adding / renaming / removing a 
 [`index.md`](./index.md) in the same edit** (a page not in the index is invisible); keep it a lightweight
 map, not a second copy.
 
-### 8. Log load-bearing decisions in one place. Don't accumulate decision files.
+`agents/` is the deliberate exception to the flat layout: it holds the small operational mappings
+consumed by multiple installed skills, separate from product and architecture content.
 
-Decisions go in one running log, [`decisions.md`](./decisions.md): one dated entry each (what you chose,
-why, what you rejected), newest last. No numbered ADR folder — that's its own sync-and-cross-link burden.
-It's a dedicated page, not part of [`status.md`](./status.md): status is volatile current-state, the log
-is durable. Log only genuinely **load-bearing, non-obvious** choices — ones a reader would re-litigate or
-a dead end they'd re-walk; skip what the code or PR already explains. This is the **one** place past
-rationale persists, so [Convention 3](#3-write-in-the-present-dont-narrate-refactors) does *not* apply to
-it. **Supersede, don't rewrite:** when a later decision reverses an earlier one, leave it and append
-`**Superseded by:** <entry>` — the lifecycle a numbered ADR would carry, in one line.
+### 8. Record load-bearing decisions as small ADRs.
+
+New decisions live under `adr/` as `NNNN-short-title.md`, one decision per file, using the next
+sequential number. Keep the core decision to one to three sentences; add options or consequences
+only when they carry information. Create an ADR only when the choice is hard to reverse, surprising
+without context, and the result of a real trade-off. **Supersede, don't rewrite:** preserve the old
+ADR and link its replacement.
+
+[`decisions.md`](./decisions.md) is the read-only legacy log for decisions made before this layout.
+Consult it before changing an established choice, but do not append new entries. A reversal of a
+legacy decision gets a new ADR plus a `Superseded by` pointer on the old entry.
 
 ## Keep-in-sync checklist
 
@@ -84,9 +88,10 @@ Run in the **same change (PR or commit)** as the code, never as a later cleanup.
 documented behavior without a doc update is incomplete; stale docs erode trust faster than they rebuild.
 
 1. **[`status.md`](./status.md)** — move built things to "Built" with a file pointer; delete abandoned
-   "Not yet built" items (log why in `decisions.md` if load-bearing); update phase + next action.
+   "Not yet built" items (record a qualifying reversal as an ADR); update phase + next action.
 2. **Core page(s)** — create or update in place, present tense.
-3. **[`decisions.md`](./decisions.md)** — log any load-bearing decision.
+3. **Domain model** — update `CONTEXT.md` when terminology is resolved; record new load-bearing
+   decisions under `adr/`; consult [`decisions.md`](./decisions.md) for legacy rationale.
 4. **[`index.md`](./index.md)** — update if a page was added, renamed, or removed.
 5. **Links** — confirm every link and file pointer in touched pages still resolves.
 6. **Duplicated facts** — code ↔ wiki, page ↔ page, code ↔ config: collapse to one source or link
@@ -98,7 +103,7 @@ A change isn't done until a fresh agent could reconstruct what's built and where
 
 ## Not in the wiki
 
-- **Brainstorms, plans, scratch drafts** — extract any real decision to `decisions.md`, discard the rest.
+- **Brainstorms, plans, scratch drafts** — extract any qualifying decision to an ADR, discard the rest.
 - **Tutorials / quickstarts / user guides** — those serve external users; they go in `README.md`.
 - **Generated artifacts, logs, runtime output**, and **anything the code already states**
   ([Convention 4](#4-reference-source-dont-paste-code)).

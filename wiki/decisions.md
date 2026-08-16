@@ -1,14 +1,9 @@
-# Decisions
+# Legacy decisions
 
-> The project's decision log — *why* the system is the way it is. One entry per load-bearing,
-> non-obvious choice. Unlike the rest of the wiki, this page is **append-mostly and historical**: it is
-> the one place [`AGENTS.md`](./AGENTS.md) → Convention 3's "write in the present, delete the narration"
-> rule does **not** apply, because the rejected alternative is exactly what you don't want to lose.
-> No numbered files and no folder — a running list, newest last, each entry dated. When a decision is
-> reversed, **supersede it in place** (add the `Superseded by` / `Supersedes` lines); never delete it.
-> Keep it to genuinely load-bearing decisions (see [`AGENTS.md`](./AGENTS.md) → Convention 8); if a
-> choice doesn't earn its entry, leave it out. The *how it works* lives in the core pages — link to it,
-> don't restate it here.
+> Historical decision log for choices recorded before Tridge adopted numbered ADRs. Read this page
+> for earlier rationale, but do not append new entries; new decisions live under [`adr/`](./adr/).
+> When a new ADR reverses an entry here, preserve the entry and add a `Superseded by` link. The *how
+> it works* remains in the core pages—this file preserves why earlier choices were made.
 
 ### 2026-07-03 — LLM-first receipt scanning is the MVP core
 

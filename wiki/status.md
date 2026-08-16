@@ -147,7 +147,10 @@ isolated key.
   `Tridge/PrivacyInfo.xcprivacy` (declares the app's `UserDefaults`/`@AppStorage` required-reason
   API, `CA92.1`) — both required for App Store Connect upload validation (a missing icon hard-fails
   the upload; the privacy manifest is a required-reason compliance gap).
-- `AGENTS.md` / `CLAUDE.md` — agent instructions; shared-rules block syncs from JINGBANZ/rules.
+- `AGENTS.md` / `CLAUDE.md` + `wiki/agents/` — agent instructions and repository-specific Matt-skill
+  mappings; shared-rules block syncs from JINGBANZ/rules.
+- `wiki/adr/` — numbered ADRs for new load-bearing decisions; `wiki/decisions.md` preserves the
+  earlier running decision log.
 - `.github/workflows/sync-shared-rules.yml` — weekly shared-rules sync (stub → JINGBANZ/workflows).
 - `.github/workflows/claude.yml`, `.github/workflows/claude-code-review.yml` — @claude mentions and
   automatic PR review (need the `CLAUDE_CODE_OAUTH_TOKEN` secret via `/install-github-app`).
