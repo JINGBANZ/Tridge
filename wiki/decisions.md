@@ -687,6 +687,8 @@
 
 ### 2026-08-06 — The sharing upgrade resets inventory in place without requiring an uninstall
 
+- **Superseded by:** [ADR 0002 — Migrate legacy inventory into household sharing](./adr/0002-migrate-legacy-inventory-into-household-sharing.md).
+
 - **Chose:** The first sharing build opens its Core Data/CloudKit stores at a new explicit location,
   ignores the legacy SwiftData store, bootstraps a fresh personal household, and records the new
   persistence generation. Installed App Store/TestFlight users update normally. The one-time reset
@@ -708,6 +710,10 @@
   the archive, while an explicit user action can erase it safely.
 
 ### 2026-08-08 — Sharing ships as an Apple-native, account-isolated implementation contract
+
+- **Superseded by:** [ADR 0004 — Remove the 99-unit quantity cap](./adr/0004-remove-the-99-unit-quantity-cap.md)
+  for the per-command quantity limit. Immutable stock operations and uncapped aggregate projection
+  still stand.
 
 - **Chose:** Finish the household design as an executable contract before implementation. Core Data
   uses a versioned, CloudKit-compatible three-entity model (`HouseholdRecord`, `FridgeItemRecord`,
@@ -739,7 +745,7 @@
   runnable. Creating/associating `iCloud.com.tridge.app`, refreshing Apple provisioning, production
   schema promotion, App Store privacy metadata, and signed two-account TestFlight acceptance require
   the Apple account owner. Exact handoff and evidence: [`household-sharing.md`](./household-sharing.md)
-  → *Owner handoff* and *Verification and definition of done*.
+  → *Release handoff* and *Verification and definition of done*.
 - **Superseded by:** *2026-08-08 — Exact-name items converge losslessly; dependencies are
   evidence-based* for the three-entity model, separate concurrent same-name rows, and blanket
   no-package choice. Account isolation, lifecycle, data-rights, and owner-boundary choices stand.
@@ -774,9 +780,15 @@
   tombstone/transfer design from *2026-08-06*.
 - **Superseded by:** *2026-08-09 — Revision guards and household epochs make destructive
   convergence explicit* for unconditional permanent merge projection and the selected sync-monitor
-  package. Lossless physical histories and the evidence-based dependency policy stand.
+  package. [ADR 0010](./adr/0010-treat-zero-quantity-as-a-revivable-projection.md) replaces the
+  claim that a locally observed zero is permanently closed. Lossless physical histories and the
+  evidence-based dependency policy stand.
 
 ### 2026-08-09 — Revision guards and household epochs make destructive convergence explicit
+
+- **Superseded by:** [ADR 0005 — Make saved item names immutable](./adr/0005-make-saved-item-names-immutable.md)
+  for identity-revision guards and claim deactivation after a rename. Causal Household epochs,
+  direct Apple event consumption, the stop limitation, and separate upgrade markers still stand.
 
 - **Chose:** Make an inferred same-name merge an immutable claim over both endpoints' captured
   identity revisions, not an unconditional permanent union. A normalized-name edit advances
@@ -808,10 +820,14 @@
 - **Superseded by:** *2026-08-09 — Causal clear frontiers and pre-load observation close convergence
   gaps* for selecting one concurrent clear epoch and beginning event tracking only after both stores
   load; and *2026-08-10 — V1 does not rename a linked multi-root item* for intentional logical-group
-  renames. Revision-guarded merges, direct Apple event consumption, the stop limitation, and
-  separate upgrade markers stand.
+  renames. [ADR 0005](./adr/0005-make-saved-item-names-immutable.md) now replaces the revision guards
+  with immutable saved names and permanent claims. Direct Apple event consumption, the stop
+  limitation, and separate upgrade markers stand.
 
 ### 2026-08-09 — Causal clear frontiers and pre-load observation close convergence gaps
+
+- **Refined by:** [ADR 0009 — Use Household epochs as the only Clear All record](./adr/0009-use-household-epochs-as-the-only-clear-all-record.md),
+  which removes redundant item-level clear markers while retaining this causal frontier.
 
 - **Chose:** Represent Clear All as an immutable causal graph: every clear records the complete
   frontier it observed as parent epoch ids, and every new item records its observed frontier.
@@ -835,6 +851,10 @@
   constrain Manage Sharing; and removing only pending notifications.
 
 ### 2026-08-09 — Durable invitation intent and generation drains close transition races
+
+- **Superseded by:** [ADR 0013 — Require manual selection after invitation acceptance](./adr/0013-require-manual-selection-after-invitation-acceptance.md)
+  for persisted invitation intent and automatic selection. Generation-bound account-task admission,
+  invalidate/drain behavior, and the release dependency lock still stand.
 
 - **Chose:** Persist invitation-selection intent before asking CloudKit to accept a share. Bound
   markers use `(container, zone, account-scope hash)` so two invited accounts on one installation
@@ -861,6 +881,9 @@
   locked dependency.
 
 ### 2026-08-10 — V1 does not rename a linked multi-root item
+
+- **Superseded by:** [ADR 0005 — Make saved item names immutable](./adr/0005-make-saved-item-names-immutable.md),
+  which applies the read-only rule to every saved item and removes the distributed split entirely.
 
 - **Chose:** Keep normalized-name changes for a single physical item, but make the name read-only
   after multiple physical histories are linked into one logical item. The repository re-resolves
@@ -891,6 +914,11 @@
   for deletion acknowledgement.
 
 ### 2026-08-10 — Sharing boundary markers are crash-safe and privacy-minimized
+
+- **Superseded by:** [ADR 0012 — Omit Manage Sharing from the first rollout](./adr/0012-omit-manage-sharing-from-the-first-rollout.md)
+  removes the system-UI stop checkpoint, while [ADR 0013](./adr/0013-require-manual-selection-after-invitation-acceptance.md)
+  removes persisted invitation selection and its zone hash. Lifecycle transitions still minimize and
+  protect the opaque CloudKit identifiers genuinely required for purge/deletion recovery.
 
 - **Chose:** Before an owner enters Apple's Manage Sharing UI, arm the existing account-scoped
   lifecycle transition with a preallocated copy destination; a confirmed system stop advances that
