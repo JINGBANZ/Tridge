@@ -21,27 +21,28 @@ isolated OpenAI key) is deferred — the code is env-driven so it drops in addit
 
 Household sharing has an independently reviewed, implementation-ready contract in
 [`household-sharing.md`](./household-sharing.md), but no implementation. Its final safety details
-stay inside the existing boundaries: owner-stop recovery is armed before Apple's management UI,
-invitation restrictions use minimal system options with secure defaults, explicit legacy erasure
-removes only exact validated remnants, and pending invitation keys hash their CloudKit zone
-identity. The
+stay inside the existing boundaries: Tridge exposes one explicit resumable owner-stop path and no
+management UI, invitation restrictions use minimal system options with secure defaults, explicit
+legacy erasure removes only exact validated remnants, and invitation metadata stays in memory. The
 plain-language graph and component map are in
 [`household-sharing-overview.html`](../design/household-sharing-overview.html). The contract uses
 Apple-native CloudKit Sharing with account-isolated private/shared Core Data stores, immutable
-stock/delete events behind a repository, revision-guarded merge claims that make concurrent exact-name active
-items one lossless logical row without trapping concurrent renames, causal inventory frontiers that
-make Clear All cover unseen offline rows without discarding additions after a concurrent clear,
-system invitation/participant UI, and real export/deletion behavior. Sync observation starts before
-store loading, buffers setup/import events, then reduces only events for the activated account
+stock/delete events behind a repository, permanent merge claims that make concurrent exact-name
+active purchase roots one lossless logical row while saved names remain read-only, causal inventory
+frontiers that make Clear All cover unseen offline rows without discarding additions after a
+concurrent clear, system invitation UI, and real export/deletion behavior. Sync observation starts
+before store loading, buffers setup/import events, then reduces only events for the activated account
 session's two store identifiers; an empty fresh cache cannot bootstrap before its initial private
-import. Invitation-selection intent is durable before CloudKit acceptance, and account changes
-invalidate and drain generation-bound work before removing stores, so a crash or late callback
-cannot lose the invited household or expose the prior account. Persistent history, sharing,
+import. An accepted Household enters the picker without changing the active selection; termination
+before acceptance requires reopening the invitation. Account changes invalidate and drain
+generation-bound work before removing stores, so a late callback cannot expose the prior account.
+Persistent history, sharing,
 authorization, and inventory convergence stay application-owned. It keeps the scan Worker outside
-the inventory data plane and upgrades installed test builds automatically to a fresh shareable
-inventory without requiring users to uninstall. The authoritative HTML spec delegates sharing-
-release persistence, lifecycle, reset, and verification details to that page and specifies Core
-Data/CloudKit for the sharing build.
+the inventory data plane and migrates every active legacy item automatically into the first owned
+Household without requiring users to uninstall. The authoritative HTML spec delegates sharing-
+release persistence, lifecycle, migration, and verification details to that page and specifies Core
+Data/CloudKit for the sharing build. The first rollout supports one installation for a Household
+owner without pretending to enforce that constraint through an offline device lock.
 
 ## Next action
 
@@ -54,14 +55,15 @@ obsolete delivered-alert cleanup) →
 Household/invitation UI → lifecycle/export/deletion → full Gate/CI. Product, architecture, recovery,
 and privacy-boundary decisions are closed there; a coding agent should not redesign them.
 
-Live CloudKit/TestFlight completion has an explicit owner-only boundary: create/associate
+Live CloudKit/TestFlight completion has an explicit external release boundary: create/associate
 `iCloud.com.tridge.app` and refresh capabilities/provisioning, supply two iCloud test accounts/
 devices, promote the accepted development schema, review App Store privacy metadata, and run the
-signed two-account checklist. The agent can finish code, fakes, tests, unsigned build, CI, and docs
-without those actions and must report only the live acceptance as externally blocked.
+signed two-account checklist. That review includes `Tridge/PrivacyInfo.xcprivacy`. The agent can
+finish code, fakes, tests, unsigned build, CI, and docs without those actions and must report only
+the live acceptance as externally blocked.
 
 Separately, the scan worker's production posture is implemented and tested in the repo; its existing
-owner-only provisioning remains:
+release-owner provisioning remains:
 
 1. Create the `DEVICE_KV` namespace and paste its id into `server/wrangler.jsonc`
    (`wrangler kv namespace create DEVICE_KV`).
@@ -172,7 +174,8 @@ isolated key.
   capabilities, exact account-scoped private/shared persistence, repository commands, stock/delete
   and same-name item convergence, inventory epochs, store-scoped sync monitoring,
   Household/invitation/lifecycle UI, notification reconciliation, export/deletion, owner-only gates,
-  and the automatic no-uninstall reset; the subsystem itself is not implemented.
+  and the automatic no-uninstall active-inventory migration; the subsystem itself is not
+  implemented.
 
 ## Not yet built
 
@@ -186,7 +189,7 @@ isolated key.
   physical iPhone.
 - Household sharing implementation — specified in
   [`household-sharing.md`](./household-sharing.md), including exact model/operations/UI/lifecycle,
-  revision-safe same-name merge claims, causal household clear frontiers, pre-load/current-store
-  sync-session isolation, privacy/data-rights behavior, owner handoff, and the fresh-store upgrade for existing
-  App Store/TestFlight installations; no sharing model, persistence stack, repository, invite flow,
-  or sync reconciliation exists in code yet.
+  permanent same-name merge claims, causal household clear frontiers, pre-load/current-store
+  sync-session isolation, privacy/data-rights behavior, release handoff, and the active-inventory
+  migration for existing App Store/TestFlight installations; no sharing model, persistence stack,
+  repository, invite flow, or sync reconciliation exists in code yet.

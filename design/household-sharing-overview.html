@@ -456,8 +456,8 @@
       <p class="eyebrow">Tridge design snapshot</p>
       <h1>One fridge, shared by a household</h1>
       <p class="lede">
-        Tridge will let an owner invite other iCloud users into the same fridge. Everyone sees the
-        same inventory and can add, eat, toss, or edit items—even while temporarily offline.
+        Tridge will let a Household owner invite other iCloud users into the same fridge. Everyone
+        sees the same inventory and can add, eat, toss, or edit items—even while temporarily offline.
       </p>
       <div class="status-row" aria-label="Design status">
         <span class="badge badge--good">Core architecture settled</span>
@@ -467,11 +467,11 @@
       <div class="plain-summary">
         <div class="summary-card">
           <strong>No uninstall</strong>
-          <span>The App Store build updates in place. The accepted one-time reset clears old test inventory, not the app.</span>
+          <span>The App Store build updates in place and migrates every active legacy item into the first owned Household.</span>
         </div>
         <div class="summary-card">
           <strong>Apple owns membership</strong>
-          <span>CloudKit invitations and Apple's sharing screen handle access. Tridge does not build an account or member system.</span>
+          <span>CloudKit invitations and CKShare handle access. Tridge does not build an account or member system.</span>
         </div>
         <div class="summary-card">
           <strong>Offline-first</strong>
@@ -483,15 +483,17 @@
     <section aria-labelledby="plain-heading">
       <h2 id="plain-heading">The design in plain terms</h2>
       <p class="section-intro">
-        A household is one shared fridge. Tridge keeps a local copy on each device, while Apple
-        CloudKit carries changes between the owner's private database and each member's shared
+        A Household is one shared fridge. Tridge keeps a local copy on each device, while Apple
+        CloudKit carries changes between the Household owner's private database and each member's shared
         database. The app works with simple snapshots and commands instead of letting screens edit
         database objects directly.
       </p>
       <div class="note">
         <strong>Milk still behaves like Milk.</strong> Adding “Milk” twice produces one visible Milk
         row whose quantity includes both additions. Internally, Tridge keeps both histories so a
-        late offline update cannot be lost; the user does not see two active Milk rows.
+        late offline update cannot be lost; the user does not see two active Milk rows. A repeat
+        purchase keeps the established art, storage, and expiry unless the user explicitly edits a
+        field in the purchase form.
       </div>
     </section>
 
@@ -603,11 +605,11 @@
 
             <rect class="node node-new" x="45" y="574" width="300" height="74" rx="18"></rect>
             <text class="node-title" x="195" y="603" text-anchor="middle">Sharing UI + HouseholdSharingService</text>
-            <text class="node-copy" x="195" y="628" text-anchor="middle">invite, manage, leave, stop, delete, export</text>
+            <text class="node-copy" x="195" y="628" text-anchor="middle">invite, select, leave, stop, delete, export</text>
 
             <rect class="node node-new" x="395" y="574" width="320" height="74" rx="18"></rect>
             <text class="node-title" x="555" y="603" text-anchor="middle">ShareInvitationRouter</text>
-            <text class="node-copy" x="555" y="628" text-anchor="middle">accepts links safely and remembers pending selection</text>
+            <text class="node-copy" x="555" y="628" text-anchor="middle">accepts links; imported fridges enter the picker</text>
 
             <path class="edge" d="M345 611 H395"></path>
             <path class="edge edge-dashed" d="M715 611 C1000 611 1165 500 1260 300"></path>
@@ -628,7 +630,7 @@
             <rect class="node node-apple" x="1140" y="438" width="255" height="104" rx="18"></rect>
             <text class="node-title" x="1268" y="470" text-anchor="middle">Apple sharing UI</text>
             <text class="node-copy" x="1268" y="495" text-anchor="middle">ShareLink invitations</text>
-            <text class="node-copy" x="1268" y="516" text-anchor="middle">UICloudSharingController</text>
+            <text class="node-copy" x="1268" y="516" text-anchor="middle">no management surface in v1</text>
             <path class="edge" d="M345 600 C650 545 910 490 1140 490"></path>
           </svg>
         </div>
@@ -660,9 +662,9 @@
           <h3>1. UI and session</h3>
           <p class="role">What the user sees and which household is active.</p>
           <div class="component-list">
-            <div class="component"><code>HouseholdScreen</code><span>Lists owned and invited fridges and exposes invite, manage, leave, stop, delete, and export actions when allowed.</span></div>
+            <div class="component"><code>HouseholdScreen</code><span>Lists owned and received Households and exposes select, invite, leave, stop, delete, and export actions when allowed.</span></div>
             <div class="component"><code>HouseholdSession</code><span>Holds safe value snapshots for the active fridge, capabilities, errors, and sync state.</span></div>
-            <div class="component"><code>LaunchState</code><span>Shows loading, iCloud-required, retry, or one-time reset explanations.</span></div>
+            <div class="component"><code>LaunchState</code><span>Shows loading, iCloud-required, retry, or one-time migration explanations.</span></div>
           </div>
         </article>
 
@@ -681,7 +683,7 @@
           <p class="role">Pure logic that makes different devices reach the same answer.</p>
           <div class="component-list">
             <div class="component"><code>StockReducer</code><span>Combines immutable add/eat/toss operations without overwriting another device's change.</span></div>
-            <div class="component"><code>ItemGroupReducer</code><span>Projects linked same-name histories as one logical item and rejects stale links after a rename.</span></div>
+            <div class="component"><code>ItemGroupReducer</code><span>Projects permanently linked same-name histories as one logical item with a deterministic canonical metadata member.</span></div>
             <div class="component"><code>InventoryEpochReducer</code><span>Defines which items survive one or more offline Clear All operations.</span></div>
             <div class="component"><code>DuplicateReconciler</code><span>Creates safe exact-name links after local saves and remote imports; it never transfers then deletes history.</span></div>
           </div>
@@ -701,13 +703,11 @@
         <article class="card">
           <h3>5. Sharing and invitations</h3>
           <p class="role">Thin wrappers around Apple's supported sharing features.</p>
-          <div class="component-list">
-            <div class="component"><code>HouseholdSharingService</code><span>Creates/fetches a CKShare and performs owner/participant lifecycle operations behind a testable protocol.</span></div>
-            <div class="component"><code>HouseholdShareItem</code><span>Lets ShareLink send the stable Apple invitation.</span></div>
-            <div class="component"><code>CloudSharingController</code><span>Bridges Apple's participant-management screen into SwiftUI.</span></div>
-            <div class="component"><code>ShareInvitationRouter</code><span>Handles invitation callbacks before or after app startup and serializes acceptance into the shared store.</span></div>
-            <div class="component"><code>PendingInvitationStore</code><span>Durably remembers that an accepted household should become active after import, keyed by account and a hashed CloudKit zone identity.</span></div>
-          </div>
+            <div class="component-list">
+              <div class="component"><code>HouseholdSharingService</code><span>Creates/fetches a CKShare and performs Household owner/member lifecycle operations behind a testable protocol.</span></div>
+              <div class="component"><code>HouseholdShareItem</code><span>Lets ShareLink send the stable Apple invitation.</span></div>
+              <div class="component"><code>ShareInvitationRouter</code><span>Handles warm/cold callbacks in memory and serializes pending acceptance into the shared store.</span></div>
+            </div>
         </article>
 
         <article class="card">
@@ -758,15 +758,13 @@
         <article class="change-card">
           <span class="change-number">1</span>
           <div>
-            <h3>Checkpoint before “Manage Sharing”</h3>
-            <span class="scope">Reuses the lifecycle-transition store</span>
+            <h3>Keep one explicit Stop path</h3>
+            <span class="scope">No Manage Sharing in the first rollout</span>
           </div>
           <p class="why">
-            Apple's management screen can stop a share before its delegate callback reaches Tridge.
-            Tridge stores a <code>manageStopArmed</code> checkpoint with a preallocated destination
-            <strong>before</strong> opening that screen. A direct private-CloudKit lookup of the
-            zone-wide share then clears the marker or advances it into the existing copy-before-purge
-            flow—even after process termination.
+            Only Tridge's Stop Sharing action can start copy-before-purge. This removes the system-
+            management race, administrator-role ambiguity, and an extra recovery phase while keeping
+            the owner's locally visible Inventory safe.
           </p>
         </article>
 
@@ -799,13 +797,13 @@
         <article class="change-card">
           <span class="change-number">4</span>
           <div>
-            <h3>Hash the pending invitation key</h3>
-            <span class="scope">Uses Apple's existing CryptoKit</span>
+            <h3>Keep invitation state in memory</h3>
+            <span class="scope">Manual Household selection after import</span>
           </div>
           <p class="why">
-            A CloudKit zone identifier contains the owner's CloudKit user identifier. The pending
-            file stores a stable SHA-256 fingerprint of container + zone owner + zone name instead of
-            those raw values. Tridge still has no participant table or identity system.
+            Accepted Households enter the picker without changing the active one. Tridge persists no
+            invitation URL, zone hash, phase, or auto-selection intent; a pre-acceptance termination
+            simply requires the member to reopen the invitation.
           </p>
         </article>
       </div>
@@ -813,8 +811,7 @@
         API references:
         <a href="https://developer.apple.com/documentation/cloudkit/ckallowedsharingoptions/allowedparticipantaccessoptions">iOS-compatible participant access options</a>,
         <a href="https://developer.apple.com/documentation/cloudkit/ckallowedsharingoptions">sharing-option defaults</a>,
-        <a href="https://developer.apple.com/documentation/cloudkit/ckrecordnamezonewideshare">zone-wide share lookup</a>,
-        <a href="https://developer.apple.com/documentation/cloudkit/ckrecordzone/id/ownername">CloudKit zone ownerName</a>, and
+        <a href="https://developer.apple.com/documentation/coredata/accepting-share-invitations-in-a-swiftui-app">share invitation acceptance</a>, and
         <a href="https://developer.apple.com/documentation/coredata/nspersistentstorecoordinator/destroypersistentstore%28at%3Atype%3Aoptions%3A%29">Core Data store destruction</a>.
       </p>
     </section>
@@ -825,21 +822,23 @@
         <article class="card">
           <h3>Included in the first release</h3>
           <ul class="clean">
-            <li>One active household at a time, with owned and invited fridges listed.</li>
-            <li>Owner and accepted members can both edit inventory.</li>
+            <li>One Active Household at a time, with owned and received Households listed.</li>
+            <li>The Household owner and accepted members can both edit Inventory.</li>
             <li>Invite-only Apple sharing with no public or read-only role.</li>
             <li>Offline local writes and eventual CloudKit convergence.</li>
             <li>Export, leave, stop sharing, delete, and recovery behavior.</li>
-            <li>An in-place App Store update with one fresh-inventory reset.</li>
+            <li>An in-place App Store update with automatic active-inventory migration.</li>
           </ul>
         </article>
         <article class="card">
           <h3>Deliberately not added</h3>
           <ul class="clean">
-            <li>No Tridge login server, member database, or custom participant editor.</li>
-            <li>No public links, access requests, participant re-invites, or manual merge tool.</li>
+            <li>No Tridge login server, member database, or custom member editor.</li>
+            <li>No public links, access requests, member re-invites, or manual merge tool.</li>
+            <li>No Manage Sharing, individual-member removal, or persisted invitation auto-selection.</li>
+            <li>No enforced device lock; the first rollout supports one installation for the Household owner.</li>
             <li>No promise that every device updates instantly.</li>
-            <li>No migration of test inventory into the new shared data model.</li>
+            <li>No migration of eaten/tossed history or legacy receipt text into shared storage.</li>
             <li>No CRDT or sync package alongside Core Data and CloudKit.</li>
             <li>No third-party package merely to wrap a few app-specific rules.</li>
           </ul>
@@ -855,10 +854,10 @@
       </p>
       <div class="roadmap">
         <article class="phase"><h3>Pure rules</h3><p class="small">Commands, snapshots, stock, grouping, clear, selection, and notification tests.</p></article>
-        <article class="phase"><h3>Core Data stores</h3><p class="small">Exact model, private/shared stores, launch states, capabilities, and in-place reset.</p></article>
+        <article class="phase"><h3>Core Data stores</h3><p class="small">Exact model, private/shared stores, launch states, capabilities, and active-inventory migration.</p></article>
         <article class="phase"><h3>Repository migration</h3><p class="small">Move every inventory path from SwiftData objects to snapshots and commands.</p></article>
         <article class="phase"><h3>History and accounts</h3><p class="small">Remote imports, sync state, account isolation, grouping, reminders, and bootstrap.</p></article>
-        <article class="phase"><h3>Sharing UI</h3><p class="small">Household screen, invite, manage, and cold/warm invitation acceptance.</p></article>
+        <article class="phase"><h3>Sharing UI</h3><p class="small">Household picker, invitation sending, and in-memory cold/warm acceptance.</p></article>
         <article class="phase"><h3>Lifecycle and rights</h3><p class="small">Leave, stop, delete, export, recovery, and failure handling.</p></article>
         <article class="phase"><h3>Repository verification</h3><p class="small">Linux tests, macOS build/tests, CI, docs, and release handoff.</p></article>
         <article class="phase"><h3>Live acceptance</h3><p class="small">Two iCloud accounts, development schema, TestFlight update, then schema promotion.</p></article>
