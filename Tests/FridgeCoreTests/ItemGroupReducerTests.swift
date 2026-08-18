@@ -233,8 +233,8 @@ extension ItemGroupReducerTests {
         let cleared = UUID()
         let epochs = InventoryEpochReducer.reduce(
             initialEpochID: epoch,
-            clears: [HouseholdClearRecord(id: UUID(), epochID: cleared, parentEpochIDs: [epoch],
-                                          revision: 1, occurredAt: Date(timeIntervalSince1970: 1))])
+            clears: [HouseholdClearEvent(id: UUID(), epochID: cleared, parentEpochIDs: [epoch],
+                                         revision: 1, occurredAt: Date(timeIntervalSince1970: 1))])
         let old = root(1, context: [epoch])
         let new = root(2, context: [cleared])
         let projection = project([old, new], events: [old.id: [acquired(11, 5)],
@@ -250,10 +250,10 @@ extension ItemGroupReducerTests {
         let mine = UUID(), theirs = UUID()
         let epochs = InventoryEpochReducer.reduce(
             initialEpochID: epoch,
-            clears: [HouseholdClearRecord(id: UUID(), epochID: mine, parentEpochIDs: [epoch],
-                                          revision: 1, occurredAt: Date(timeIntervalSince1970: 1)),
-                     HouseholdClearRecord(id: UUID(), epochID: theirs, parentEpochIDs: [epoch],
-                                          revision: 1, occurredAt: Date(timeIntervalSince1970: 2))])
+            clears: [HouseholdClearEvent(id: UUID(), epochID: mine, parentEpochIDs: [epoch],
+                                         revision: 1, occurredAt: Date(timeIntervalSince1970: 1)),
+                     HouseholdClearEvent(id: UUID(), epochID: theirs, parentEpochIDs: [epoch],
+                                         revision: 1, occurredAt: Date(timeIntervalSince1970: 2))])
         let onMine = root(1, context: [mine])
         let onTheirs = root(2, context: [theirs])
         let projection = project([onMine, onTheirs], events: [onMine.id: [acquired(11, 1)],

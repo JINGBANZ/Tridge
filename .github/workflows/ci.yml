@@ -64,3 +64,24 @@ jobs:
           -destination 'generic/platform=iOS Simulator'
           build
           CODE_SIGNING_ALLOWED=NO
+      # Core Data model rules, two-store loading, and store routing can only run
+      # on an Apple platform, so they live in the TridgeTests bundle.
+      - name: Pick an available iPhone simulator
+        id: simulator
+        run: |
+          udid=$(xcrun simctl list devices available --json \
+            | jq -r '.devices | to_entries | map(select(.key | test("iOS"))) | .[].value[]
+                     | select(.name | test("iPhone")) | .udid' \
+            | head -1)
+          if [ -z "$udid" ]; then echo "no iPhone simulator on this runner" >&2; exit 1; fi
+          echo "udid=$udid" >> "$GITHUB_OUTPUT"
+      - name: Apple-platform tests
+        run: >
+          xcodebuild
+          -project Tridge.xcodeproj
+          -scheme Tridge
+          -configuration Debug
+          -derivedDataPath build
+          -destination "platform=iOS Simulator,id=${{ steps.simulator.outputs.udid }}"
+          test
+          CODE_SIGNING_ALLOWED=NO

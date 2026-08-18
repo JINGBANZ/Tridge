@@ -266,7 +266,7 @@ public struct ClearHouseholdCommand: Hashable, Sendable {
     /// clear-record id carrying different parents would be read as a
     /// conflicting record and drop both copies, leaving the frontier unmoved
     /// while the UI reported success.
-    public func clearRecord(from reduction: InventoryEpochReduction) -> HouseholdClearRecord? {
+    public func clearRecord(from reduction: InventoryEpochReduction) -> HouseholdClearEvent? {
         InventoryEpochReducer.makeClear(recordID: clearRecordID, epochID: epochID,
                                         occurredAt: occurredAt, from: reduction)
     }

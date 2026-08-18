@@ -82,6 +82,7 @@ build spec is `design/fridge-design.html`; start there (via @wiki/index.md).
 | Test     | `swift test` (Linux-runnable logic targets)                              |
 | LLM smoke test | `swift test --filter ReceiptScanSmokeTests` (live API, local-only; key from env or `.env` — copy `env.sample`; skips without key) |
 | Build    | `xcodebuild -scheme Tridge -destination 'generic/platform=iOS Simulator' build` (CI/macOS only) |
+| Apple-platform tests | `xcodebuild -scheme Tridge -destination 'platform=iOS Simulator,name=<device>' test` (CI/macOS only; the `TridgeTests` bundle — Core Data model rules and store routing) |
 | Server test | `cd server && npm run typecheck && npm test` (Vitest + tsc; Node 22+) |
 | Server deploy | `cd server && npm run deploy` (or CI, on `main`, once `CLOUDFLARE_API_TOKEN` is set) |
 | TestFlight | GitHub → Actions → **TestFlight** → Run workflow (`bundle exec fastlane ios beta`; macOS/CI; needs the App Store Connect secrets — see `README.md`) |

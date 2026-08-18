@@ -21,8 +21,10 @@ isolated OpenAI key) is deferred — the code is env-driven so it drops in addit
 
 Household sharing has an independently reviewed, implementation-ready contract in
 [`household-sharing.md`](./household-sharing.md). Its step-1 pure contracts are implemented and
-Linux-tested in `Tridge/Core/`; the persistence, repository, sync, sharing, and lifecycle layers are
-not built. Its final safety details
+Linux-tested in `Tridge/Core/`, and step 2's exact Core Data model, account-scoped two-store stack,
+and capability declarations are in `Tridge/Persistence/` with an Apple-platform `TridgeTests` bundle
+running in macOS CI. The account session, repository, sync, sharing, lifecycle, and legacy-migration
+layers are not built. Its final safety details
 stay inside the existing boundaries: Tridge exposes one explicit resumable owner-stop path and no
 management UI, invitation restrictions use minimal system options with secure defaults, explicit
 legacy erasure removes only exact validated remnants, and invitation metadata stays in memory. The
@@ -49,11 +51,12 @@ owner without pretending to enforce that constraint through an offline device lo
 ## Next action
 
 Continue household sharing in the fixed order under
-[`household-sharing.md`](./household-sharing.md) → *Implementation sequence*, resuming at step 2:
-exact Core Data model and account-scoped two-store launch → repository migration of every inventory
-path plus lossless duplicate reconciliation and clear epochs → store-scoped sync status and
-history/notifications (including pre-load event buffering, initial-import bootstrap gating, and
-obsolete delivered-alert cleanup) →
+[`household-sharing.md`](./household-sharing.md) → *Implementation sequence*. The stores now open, so
+the next pieces are the account session that owns them — a fresh generation and task registry before
+store construction, sync observation prepared before loading, and the initial-import barrier that
+gates creating `My Fridge` — then the automatic legacy-inventory migration, then step 3's repository
+migration of every inventory path plus lossless duplicate reconciliation and clear epochs →
+store-scoped sync status and history/notifications (including obsolete delivered-alert cleanup) →
 Household/invitation UI → lifecycle/export/deletion → full Gate/CI. Product, architecture, recovery,
 and privacy-boundary decisions are closed there; a coding agent should not redesign them.
 
@@ -62,7 +65,9 @@ Live CloudKit/TestFlight completion has an explicit external release boundary: c
 devices, promote the accepted development schema, review App Store privacy metadata, and run the
 signed two-account checklist. That review includes `Tridge/PrivacyInfo.xcprivacy`. The agent can
 finish code, fakes, tests, unsigned build, CI, and docs without those actions and must report only
-the live acceptance as externally blocked.
+the live acceptance as externally blocked. Signed builds now request the iCloud container through
+`Tridge/Tridge.entitlements`, so the **TestFlight lane needs that container created and the App ID
+services enabled before it can archive again**; unsigned simulator builds and CI do not.
 
 Separately, the scan worker's production posture is implemented and tested in the repo; its existing
 release-owner provisioning remains:
@@ -98,15 +103,31 @@ isolated key.
   commands/errors/quantity parsing and the same-name purchase metadata planner
   (`InventoryCommands.swift`), the immutable stock projection (`StockReducer.swift`), permanent
   exact-name convergence (`ItemGroupReducer.swift`), the causal Clear All frontier
-  (`InventoryEpochReducer.swift`), Active Household choice (`HouseholdSelection.swift`), and the
-  desired-vs-scheduled reminder diff (`NotificationPlan.swift`). The persistence, sharing, and UI
+  (`InventoryEpochReducer.swift`), Active Household choice (`HouseholdSelection.swift`), the
+  desired-vs-scheduled reminder diff (`NotificationPlan.swift`), and the account-scope digest that
+  store paths and defaults keys hang from (`AccountScope.swift`). The repository, sharing, and UI
   layers that consume them are not built yet.
+- `Tridge/Persistence/` — step 2's persistence stack: the CloudKit-compatible model
+  (`TridgeModel.xcdatamodeld` + hand-written `ManagedObjects/*Record` classes, with encryption
+  enabled on user-content fields before schema promotion) and `PersistenceController.swift`, which
+  opens one account's private and shared stores under one model, exposes the stack only after
+  **both** load, tears a half-open stack down into a retryable error rather than a `fatalError`, and
+  owns store routing plus the view/`app.inventory`/`app.reconcile` contexts. `Tridge/App/` adds
+  `AccountIdentity.swift` (validated iCloud account → hashed scope; the raw record id never leaves
+  it) and `LaunchState.swift`. `Tridge/Tridge.entitlements` plus the `CKSharingSupported` and
+  remote-notification Info.plist settings declare the capabilities. Nothing consumes the stack yet —
+  the app still runs on SwiftData until the repository migration.
 - `Tests/FridgeCoreTests/` — parsing (incl. fenced/prose-wrapped output), urgency
   thresholds, name-key, merge-planner, art-inference, and search-ranking tests, plus the
   household-sharing contract tests (civil days, byte order, record validation, command validation
   and receipt-text discard, stock order-independence/idempotency/overflow/zero-revival/deletion,
-  claim-order-independent convergence, causal clear branches, Household selection, and reminder
-  diffs); all pass via `swift test`.
+  claim-order-independent convergence, causal clear branches, Household selection, account-scope
+  validation, and reminder diffs); all pass via `swift test`.
+- `TridgeTests/` — the Apple-platform bundle for what Linux cannot compile: Core Data model rules
+  (optional/defaulted attributes, inverses, delete rules, indexes, the exact CloudKit-encrypted set,
+  no constraints or transformables), two isolated stores per account, store assignment and
+  cross-store rejection, retryable load failure, context confinement, and the built app's sharing
+  capabilities. Runs in macOS CI on a simulator.
 - `Tests/ReceiptScanSmokeTests/` — live regression harness: fixture receipt images +
   fuzzy `expected.json` inventories (see its `Fixtures/README.md`), sent through the deployed
   worker via `ProxyLLMService`; local-only — the bearer token comes from the environment or a
@@ -141,7 +162,8 @@ isolated key.
   see the decision log for why it's hand-authored.
 - `.github/workflows/ci.yml` — Linux `swift test`; server typecheck + Vitest; release-lane syntax;
   Xcode 26/iOS 26 SDK `swift test` + a Debug simulator build with an iOS 18 deployment target
-  (compile-only gate, `CODE_SIGNING_ALLOWED=NO`).
+  (compile-only gate, `CODE_SIGNING_ALLOWED=NO`) + the `TridgeTests` bundle on the runner's first
+  available iPhone simulator.
 - `.github/workflows/testflight.yml` + `fastlane/` (`Fastfile`, `Appfile`) + `Gemfile`/
   `Gemfile.lock` (Fastlane exactly pinned to 2.237.0) — the
   manual TestFlight release lane: `workflow_dispatch` imports a reusable Apple Development identity
@@ -202,10 +224,11 @@ isolated key.
 - Verification of the spec's acceptance checklist on a test build: a local Simulator covers the
   simulator-safe items; the camera items and a live App Attest scan need a TestFlight build on a
   physical iPhone.
-- Household sharing steps 2–8 — specified in
-  [`household-sharing.md`](./household-sharing.md) → *Implementation sequence*: the exact Core Data
-  model and account-scoped two-store launch, the repository migration off runtime SwiftData,
-  pre-load/current-store sync-session isolation and per-store history, the Household/invitation UI,
-  lifecycle and data rights, and the active-inventory migration for existing App Store/TestFlight
-  installations. Step 1's pure contracts exist (see "Built"); no persistence stack, repository,
-  invite flow, or sync reconciliation does.
+- Household sharing steps 3–8, plus the account session and legacy migration that finish step 2 —
+  specified in [`household-sharing.md`](./household-sharing.md) → *Implementation sequence*: the
+  generation-bound account session and initial-import bootstrap barrier, the repository migration
+  off runtime SwiftData, pre-load/current-store sync-session isolation and per-store history, the
+  Household/invitation UI, lifecycle and data rights, and the active-inventory migration for
+  existing App Store/TestFlight installations. Steps 1 and 2's model, stores, and capabilities exist
+  (see "Built"); no account session, repository, invite flow, or sync reconciliation does, and the
+  running app still reads and writes SwiftData.

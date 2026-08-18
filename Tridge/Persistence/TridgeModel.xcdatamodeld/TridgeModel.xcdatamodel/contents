@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<model type="com.apple.IDECoreDataModeler.DataModel" documentVersion="1.0" lastSavedToolsVersion="23504" systemVersion="24F74" minimumToolsVersion="Automatic" sourceLanguage="Swift" usedWithCloudKit="YES" userDefinedModelVersionIdentifier="">
+    <entity name="HouseholdRecord" representedClassName="HouseholdRecord" syncable="YES">
+        <attribute name="createdAt" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="id" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="initialInventoryEpochID" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="modelVersion" optional="YES" attributeType="Integer 16" defaultValueString="1" usesScalarValueType="YES"/>
+        <attribute name="modifiedAt" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="name" optional="YES" attributeType="String" allowsCloudEncryption="YES"/>
+        <relationship name="clearEvents" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="HouseholdClearRecord" inverseName="household" inverseEntity="HouseholdClearRecord"/>
+        <relationship name="itemMerges" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="ItemMergeRecord" inverseName="household" inverseEntity="ItemMergeRecord"/>
+        <relationship name="items" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="FridgeItemRecord" inverseName="household" inverseEntity="FridgeItemRecord"/>
+    </entity>
+    <entity name="FridgeItemRecord" representedClassName="FridgeItemRecord" syncable="YES">
+        <attribute name="artKey" optional="YES" attributeType="String" allowsCloudEncryption="YES"/>
+        <attribute name="createdAt" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="expiryDay" optional="YES" attributeType="Integer 32" defaultValueString="0" usesScalarValueType="YES" allowsCloudEncryption="YES"/>
+        <attribute name="expirySourceRaw" optional="YES" attributeType="String" allowsCloudEncryption="YES"/>
+        <attribute name="id" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="inventoryEpochContextRaw" optional="YES" attributeType="String"/>
+        <attribute name="modelVersion" optional="YES" attributeType="Integer 16" defaultValueString="1" usesScalarValueType="YES"/>
+        <attribute name="modifiedAt" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="name" optional="YES" attributeType="String" allowsCloudEncryption="YES"/>
+        <attribute name="normalizedName" optional="YES" attributeType="String" allowsCloudEncryption="YES"/>
+        <attribute name="purchaseDay" optional="YES" attributeType="Integer 32" defaultValueString="0" usesScalarValueType="YES" allowsCloudEncryption="YES"/>
+        <attribute name="storageRaw" optional="YES" attributeType="String" allowsCloudEncryption="YES"/>
+        <relationship name="household" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="HouseholdRecord" inverseName="items" inverseEntity="HouseholdRecord"/>
+        <relationship name="stockChanges" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="StockChangeRecord" inverseName="item" inverseEntity="StockChangeRecord"/>
+        <fetchIndex name="byNormalizedName">
+            <fetchIndexElement property="normalizedName" type="Binary" order="ascending"/>
+        </fetchIndex>
+    </entity>
+    <entity name="StockChangeRecord" representedClassName="StockChangeRecord" syncable="YES">
+        <attribute name="delta" optional="YES" attributeType="Integer 64" defaultValueString="0" usesScalarValueType="YES" allowsCloudEncryption="YES"/>
+        <attribute name="id" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="modelVersion" optional="YES" attributeType="Integer 16" defaultValueString="1" usesScalarValueType="YES"/>
+        <attribute name="occurredAt" optional="YES" attributeType="Date" usesScalarValueType="NO" allowsCloudEncryption="YES"/>
+        <attribute name="reasonRaw" optional="YES" attributeType="String" allowsCloudEncryption="YES"/>
+        <relationship name="item" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="FridgeItemRecord" inverseName="stockChanges" inverseEntity="FridgeItemRecord"/>
+    </entity>
+    <entity name="ItemMergeRecord" representedClassName="ItemMergeRecord" syncable="YES">
+        <attribute name="createdAt" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="id" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="leftItemID" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="modelVersion" optional="YES" attributeType="Integer 16" defaultValueString="1" usesScalarValueType="YES"/>
+        <attribute name="rightItemID" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>
+        <relationship name="household" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="HouseholdRecord" inverseName="itemMerges" inverseEntity="HouseholdRecord"/>
+        <fetchIndex name="byLeftItemID">
+            <fetchIndexElement property="leftItemID" type="Binary" order="ascending"/>
+        </fetchIndex>
+        <fetchIndex name="byRightItemID">
+            <fetchIndexElement property="rightItemID" type="Binary" order="ascending"/>
+        </fetchIndex>
+    </entity>
+    <entity name="HouseholdClearRecord" representedClassName="HouseholdClearRecord" syncable="YES">
+        <attribute name="epochID" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="id" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="modelVersion" optional="YES" attributeType="Integer 16" defaultValueString="1" usesScalarValueType="YES"/>
+        <attribute name="occurredAt" optional="YES" attributeType="Date" usesScalarValueType="NO" allowsCloudEncryption="YES"/>
+        <attribute name="parentEpochIDsRaw" optional="YES" attributeType="String"/>
+        <attribute name="revision" optional="YES" attributeType="Integer 64" defaultValueString="0" usesScalarValueType="YES"/>
+        <relationship name="household" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="HouseholdRecord" inverseName="clearEvents" inverseEntity="HouseholdRecord"/>
+        <fetchIndex name="byRevision">
+            <fetchIndexElement property="revision" type="Binary" order="ascending"/>
+        </fetchIndex>
+    </entity>
+</model>

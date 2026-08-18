@@ -42,9 +42,9 @@ final class InventoryEpochReducerTests: XCTestCase {
 
     private func clear(_ epoch: UUID, parents: Set<UUID>, revision: Int64,
                        recordID: UUID = UUID(), at instant: TimeInterval = 0)
-    -> HouseholdClearRecord {
-        HouseholdClearRecord(id: recordID, epochID: epoch, parentEpochIDs: parents,
-                             revision: revision, occurredAt: Date(timeIntervalSince1970: instant))
+    -> HouseholdClearEvent {
+        HouseholdClearEvent(id: recordID, epochID: epoch, parentEpochIDs: parents,
+                            revision: revision, occurredAt: Date(timeIntervalSince1970: instant))
     }
 
     func testFreshHouseholdFrontierIsItsInitialEpoch() {
