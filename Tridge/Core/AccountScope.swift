@@ -3,7 +3,7 @@ import Foundation
 /// Which CloudKit database a household's records live in. The pair is fixed:
 /// one private store for households this account owns, one shared store for
 /// households that arrived through someone else's share.
-public enum HouseholdDatabaseScope: String, CaseIterable, Sendable {
+public enum HouseholdDatabaseScope: String, Sendable {
     case privateDatabase = "private"
     case sharedDatabase = "shared"
 
