@@ -17,6 +17,9 @@ final class AccountScopeTests: XCTestCase {
         XCTAssertNil(AccountScopeHash(digest: digest + "cd"))
         XCTAssertNil(AccountScopeHash(digest: ""))
         XCTAssertNil(AccountScopeHash(digest: String(repeating: "g", count: 64)))
+        // Unicode digits are numbers too, and they are not hexadecimal.
+        XCTAssertNil(AccountScopeHash(digest: String(repeating: "٣", count: 64)))
+        XCTAssertNil(AccountScopeHash(digest: String(repeating: "½", count: 64)))
     }
 
     func testARawCloudKitRecordNameCanNeverBecomeAScope() {

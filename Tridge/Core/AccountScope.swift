@@ -26,7 +26,7 @@ public struct AccountScopeHash: Hashable, Sendable {
 
     public init?(digest: String) {
         guard digest.count == 64,
-              digest.allSatisfy({ $0.isNumber || ("a"..."f").contains($0) })
+              digest.allSatisfy({ ("0"..."9").contains($0) || ("a"..."f").contains($0) })
         else { return nil }
         self.value = digest
     }
