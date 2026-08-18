@@ -20,7 +20,9 @@ isolated OpenAI key) is deferred — the code is env-driven so it drops in addit
 (`server/README.md` → "Adding a production worker later").
 
 Household sharing has an independently reviewed, implementation-ready contract in
-[`household-sharing.md`](./household-sharing.md), but no implementation. Its final safety details
+[`household-sharing.md`](./household-sharing.md). Its step-1 pure contracts are implemented and
+Linux-tested in `Tridge/Core/`; the persistence, repository, sync, sharing, and lifecycle layers are
+not built. Its final safety details
 stay inside the existing boundaries: Tridge exposes one explicit resumable owner-stop path and no
 management UI, invitation restrictions use minimal system options with secure defaults, explicit
 legacy erasure removes only exact validated remnants, and invitation metadata stays in memory. The
@@ -46,8 +48,8 @@ owner without pretending to enforce that constraint through an offline device lo
 
 ## Next action
 
-Implement household sharing in the fixed order under
-[`household-sharing.md`](./household-sharing.md) → *Implementation sequence*: pure contracts/tests →
+Continue household sharing in the fixed order under
+[`household-sharing.md`](./household-sharing.md) → *Implementation sequence*, resuming at step 2:
 exact Core Data model and account-scoped two-store launch → repository migration of every inventory
 path plus lossless duplicate reconciliation and clear epochs → store-scoped sync status and
 history/notifications (including pre-load event buffering, initial-import bootstrap gating, and
@@ -89,9 +91,22 @@ isolated key.
   (`NameKey.swift`), merge decisions (`MergePlanner.swift`), search ranking (`NameSearch.swift`),
   and name→art inference (`ArtInference.swift`). The scan-API client
   (`../Services/ProxyLLMService.swift`) lives here too so the smoke test can drive it on Linux.
+- The household-sharing **pure contracts** (step 1 of the implementation sequence), also in
+  `Tridge/Core/` and carrying no Core Data, CloudKit, or SwiftUI dependency: civil calendar days
+  (`InventoryDay.swift`), the shared byte-order tie-break (`UUIDOrder.swift`), value snapshots plus
+  validated record mapping and content-free integrity findings (`InventorySnapshots.swift`),
+  commands/errors/quantity parsing and the same-name purchase metadata planner
+  (`InventoryCommands.swift`), the immutable stock projection (`StockReducer.swift`), permanent
+  exact-name convergence (`ItemGroupReducer.swift`), the causal Clear All frontier
+  (`InventoryEpochReducer.swift`), Active Household choice (`HouseholdSelection.swift`), and the
+  desired-vs-scheduled reminder diff (`NotificationPlan.swift`). The persistence, sharing, and UI
+  layers that consume them are not built yet.
 - `Tests/FridgeCoreTests/` — parsing (incl. fenced/prose-wrapped output), urgency
-  thresholds, name-key, merge-planner, art-inference, and search-ranking tests; all
-  pass via `swift test`.
+  thresholds, name-key, merge-planner, art-inference, and search-ranking tests, plus the
+  household-sharing contract tests (civil days, byte order, record validation, command validation
+  and receipt-text discard, stock order-independence/idempotency/overflow/zero-revival/deletion,
+  claim-order-independent convergence, causal clear branches, Household selection, and reminder
+  diffs); all pass via `swift test`.
 - `Tests/ReceiptScanSmokeTests/` — live regression harness: fixture receipt images +
   fuzzy `expected.json` inventories (see its `Fixtures/README.md`), sent through the deployed
   worker via `ProxyLLMService`; local-only — the bearer token comes from the environment or a
@@ -187,9 +202,10 @@ isolated key.
 - Verification of the spec's acceptance checklist on a test build: a local Simulator covers the
   simulator-safe items; the camera items and a live App Attest scan need a TestFlight build on a
   physical iPhone.
-- Household sharing implementation — specified in
-  [`household-sharing.md`](./household-sharing.md), including exact model/operations/UI/lifecycle,
-  permanent same-name merge claims, causal household clear frontiers, pre-load/current-store
-  sync-session isolation, privacy/data-rights behavior, release handoff, and the active-inventory
-  migration for existing App Store/TestFlight installations; no sharing model, persistence stack,
-  repository, invite flow, or sync reconciliation exists in code yet.
+- Household sharing steps 2–8 — specified in
+  [`household-sharing.md`](./household-sharing.md) → *Implementation sequence*: the exact Core Data
+  model and account-scoped two-store launch, the repository migration off runtime SwiftData,
+  pre-load/current-store sync-session isolation and per-store history, the Household/invitation UI,
+  lifecycle and data rights, and the active-inventory migration for existing App Store/TestFlight
+  installations. Step 1's pure contracts exist (see "Built"); no persistence stack, repository,
+  invite flow, or sync reconciliation does.

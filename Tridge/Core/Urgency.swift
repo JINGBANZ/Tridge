@@ -51,3 +51,15 @@ public enum UrgencyRules {
         }
     }
 }
+
+extension UrgencyRules {
+    /// Civil-day urgency — the same end-of-expiry-day rule as the instant-based
+    /// overloads, for inventory stored as `InventoryDay` (ADR 0003).
+    public static func daysLeft(until expiry: InventoryDay, from today: InventoryDay) -> Int {
+        expiry.days(since: today)
+    }
+
+    public static func isExpired(expiry: InventoryDay, today: InventoryDay) -> Bool {
+        daysLeft(until: expiry, from: today) < 0
+    }
+}
