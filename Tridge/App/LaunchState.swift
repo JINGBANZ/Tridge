@@ -12,6 +12,10 @@ enum LaunchState: Equatable {
     /// Neither store is exposed. The id is content-free and safe to quote in a
     /// support report.
     case persistenceUnavailable(diagnosticID: String)
+    /// Both stores opened, but this account's cache is empty and its first
+    /// CloudKit import has not succeeded yet. Creating `My Fridge` now would
+    /// duplicate a household that is still arriving.
+    case finishingCloudSetup
     case ready
 
     init(accountError: AccountIdentityError) {
@@ -31,7 +35,7 @@ enum LaunchState: Equatable {
         switch self {
         case .preparing, .ready: false
         case .iCloudAccountRequired(let availability): availability.isTransient
-        case .persistenceUnavailable: true
+        case .persistenceUnavailable, .finishingCloudSetup: true
         }
     }
 }

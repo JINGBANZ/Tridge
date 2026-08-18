@@ -12,7 +12,14 @@ let package = Package(
         .target(
             name: "FridgeCore",
             path: "Tridge",
-            sources: ["Core", "Services/LLMService.swift", "Services/ProxyLLMService.swift"]
+            // App/AccountTaskRegistry.swift is Foundation-only and holds the
+            // account-transition drain, so it is tested on Linux too.
+            sources: [
+                "Core",
+                "Services/LLMService.swift",
+                "Services/ProxyLLMService.swift",
+                "App/AccountTaskRegistry.swift",
+            ]
         ),
         .testTarget(
             name: "FridgeCoreTests",
