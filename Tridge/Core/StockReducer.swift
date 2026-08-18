@@ -134,7 +134,7 @@ public enum StockReducer {
 
 extension StockIntegrityIssue {
     /// Stable ordering so two devices report the same diagnostic sequence.
-    fileprivate var sortKey: String {
+    var sortKey: String {
         switch self {
         case .conflictingDuplicate(let id): "1.\(id.uuidString)"
         case .malformedEvent(let id): "2.\(id.uuidString)"

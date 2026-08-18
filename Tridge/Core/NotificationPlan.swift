@@ -32,16 +32,23 @@ public struct ReminderIdentifier: Hashable, Sendable {
 
     /// Parses structurally rather than by prefix, so one scope can never match
     /// another that merely begins with the same characters.
+    ///
+    /// The fixed tail is matched from the end and everything between `account.`
+    /// and it is the scope, so an identifier round-trips even if the scope
+    /// itself contains the separator. A scope that could not be parsed back
+    /// would strand its reminders in Notification Center forever.
     public init?(parsing raw: String) {
         let parts = raw.split(separator: ".", omittingEmptySubsequences: false)
-        guard parts.count == 7, parts[0] == "account", parts[2] == "household", parts[4] == "item",
-              !parts[1].isEmpty,
-              let householdID = UUID(uuidString: String(parts[3])),
-              let itemID = UUID(uuidString: String(parts[5])),
-              let kind = ReminderKind(rawValue: String(parts[6]))
+        guard parts.count >= 7, parts[0] == "account" else { return nil }
+        let tail = parts.suffix(5)
+        let scope = parts[1..<(parts.count - 5)].joined(separator: ".")
+        guard tail[tail.startIndex] == "household", tail[tail.startIndex + 2] == "item",
+              !scope.isEmpty,
+              let householdID = UUID(uuidString: String(tail[tail.startIndex + 1])),
+              let itemID = UUID(uuidString: String(tail[tail.startIndex + 3])),
+              let kind = ReminderKind(rawValue: String(tail[tail.startIndex + 4]))
         else { return nil }
-        self.init(accountScope: String(parts[1]), householdID: householdID, itemID: itemID,
-                  kind: kind)
+        self.init(accountScope: scope, householdID: householdID, itemID: itemID, kind: kind)
     }
 }
 

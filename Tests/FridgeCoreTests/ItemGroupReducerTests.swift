@@ -264,6 +264,19 @@ extension ItemGroupReducerTests {
         XCTAssertEqual(projection.items.first?.quantity, 2)
     }
 
+    func testDiagnosticOrderDoesNotDependOnGroupIterationOrder() {
+        // Groups reduce in dictionary order; the reported sequence must not.
+        let first = root(1, name: "Rice"), second = root(2, name: "Oats")
+        let events = [first.id: [acquired(11, .max), acquired(12, 1)],
+                      second.id: [acquired(13, 4), acquired(14, -1)]]
+        let forward = project([first, second], events: events)
+        let reversed = project([second, first], events: events)
+
+        XCTAssertFalse(forward.stockIssues.isEmpty)
+        XCTAssertEqual(forward.stockIssues, reversed.stockIssues)
+        XCTAssertEqual(forward.stockIssues, project([first, second], events: events).stockIssues)
+    }
+
     func testACorruptStockHistoryWithholdsOnlyThatItem() {
         let good = root(1), overflowing = root(2, name: "Rice")
         let projection = project([good, overflowing],
@@ -285,9 +298,9 @@ extension ItemGroupReducerTests {
         XCTAssertEqual(before.items.count, 1)
 
         let command = ClearHouseholdCommand(householdID: UUID(), commandID: UUID(),
-                                            clearRecordID: UUID(), epochID: UUID())
-        let record = command.clearRecord(from: frontier,
-                                         occurredAt: Date(timeIntervalSince1970: 1))!
+                                            clearRecordID: UUID(), epochID: UUID(),
+                                            occurredAt: Date(timeIntervalSince1970: 1))
+        let record = command.clearRecord(from: frontier)!
         let cleared = InventoryEpochReducer.reduce(initialEpochID: epoch, clears: [record])
 
         // The item disappears, and its stock history is untouched.

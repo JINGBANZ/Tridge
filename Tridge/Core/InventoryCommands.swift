@@ -74,15 +74,21 @@ public struct PurchaseDraft: Hashable, Sendable {
     /// Confirms one reviewed receipt row. The row's raw receipt text stays in
     /// the in-memory draft and is dropped here: nothing derived from a receipt
     /// image is ever persisted or synchronized.
+    /// The draft starts with no explicit metadata fields: every value here is a
+    /// model guess, and only what the user then changes in Review counts as an
+    /// edit that may overwrite an existing item's established metadata.
     public init(reviewing parsed: ParsedItem, itemID: UUID, stockChangeID: UUID,
-                purchaseDay: InventoryDay,
-                explicitMetadataFields: Set<ExplicitMetadataField> = [],
-                occurredAt: Date = Date()) {
+                purchaseDay: InventoryDay, occurredAt: Date = Date()) {
+        // `shelf_life_days` is an unbounded integer in the scan API's schema, so
+        // a hallucinated value can exceed the supported civil range. Clamping
+        // keeps the row usable; falling back to the purchase day would stamp it
+        // "expires today" and fire an immediate reminder.
+        let shelfLife = min(parsed.shelfLifeDays, InventoryDay.latest.days(since: purchaseDay))
         self.init(itemID: itemID, stockChangeID: stockChangeID, name: parsed.name,
                   quantity: Int64(parsed.quantity), artKey: parsed.id.rawValue,
                   storage: parsed.storage, purchaseDay: purchaseDay,
-                  expiryDay: purchaseDay.adding(days: parsed.shelfLifeDays) ?? purchaseDay,
-                  expirySource: .llmEstimate, explicitMetadataFields: explicitMetadataFields,
+                  expiryDay: purchaseDay.adding(days: shelfLife) ?? purchaseDay,
+                  expirySource: .llmEstimate, explicitMetadataFields: [],
                   occurredAt: occurredAt)
     }
 
@@ -242,17 +248,25 @@ public struct ClearHouseholdCommand: Hashable, Sendable {
     public let commandID: UUID
     public let clearRecordID: UUID
     public let epochID: UUID
+    public let occurredAt: Date
 
-    public init(householdID: UUID, commandID: UUID, clearRecordID: UUID, epochID: UUID) {
+    public init(householdID: UUID, commandID: UUID, clearRecordID: UUID, epochID: UUID,
+                occurredAt: Date = Date()) {
         self.householdID = householdID
         self.commandID = commandID
         self.clearRecordID = clearRecordID
         self.epochID = epochID
+        self.occurredAt = occurredAt
     }
 
     /// Nil when the frontier cannot produce a valid successor revision.
-    public func clearRecord(from reduction: InventoryEpochReduction,
-                            occurredAt: Date) -> HouseholdClearRecord? {
+    ///
+    /// The frontier snapshot is part of the record's payload, so a retry must
+    /// replay the record this returns rather than build a second one: the same
+    /// clear-record id carrying different parents would be read as a
+    /// conflicting record and drop both copies, leaving the frontier unmoved
+    /// while the UI reported success.
+    public func clearRecord(from reduction: InventoryEpochReduction) -> HouseholdClearRecord? {
         InventoryEpochReducer.makeClear(recordID: clearRecordID, epochID: epochID,
                                         occurredAt: occurredAt, from: reduction)
     }
@@ -323,6 +337,49 @@ public enum PurchasePlanner {
                     ? UUIDOrder.isBefore(left.id, right.id)
                     : left.purchaseDay < right.purchaseDay
             }
+    }
+
+    /// Plans a whole multirow save. A review-time rename can make two rows of
+    /// one receipt share a name; carrying each planned row forward means the
+    /// first row establishes the metadata and the second copies it, instead of
+    /// both stamping their own guess and letting UUID order decide which shows.
+    public static func plan(rows: [PurchaseDraft], in items: [InventoryItemSnapshot],
+                            today: InventoryDay) -> [PurchasePlan] {
+        var candidates = items
+        var plans: [PurchasePlan] = []
+        for row in rows {
+            let existing = match(name: row.name, in: candidates, today: today)
+            let plan = plan(for: row, matching: existing)
+            plans.append(plan)
+
+            // Represent the resulting group so a later same-name row sees it,
+            // including any edit that will land on its canonical member.
+            let group = candidate(for: row, plan: plan, replacing: existing)
+            if let index = candidates.firstIndex(where: { $0.id == group.id }) {
+                candidates[index] = group
+            } else {
+                candidates.append(group)
+            }
+        }
+        return plans
+    }
+
+    private static func candidate(for row: PurchaseDraft, plan: PurchasePlan,
+                                  replacing existing: InventoryItemSnapshot?)
+    -> InventoryItemSnapshot {
+        let metadata = plan.rootMetadata
+        let edit = plan.canonicalEdit
+        return InventoryItemSnapshot(
+            id: existing?.id ?? row.itemID,
+            memberIDs: existing.map { $0.memberIDs + [row.itemID] } ?? [row.itemID],
+            name: metadata.name,
+            normalizedName: NameKey.normalize(metadata.name),
+            quantity: (existing?.quantity ?? 0) + row.quantity,
+            artKey: edit?.artKey ?? metadata.artKey,
+            storage: edit?.storage ?? metadata.storage,
+            purchaseDay: metadata.purchaseDay,
+            expiryDay: edit?.expiryDay ?? metadata.expiryDay,
+            expirySource: metadata.expirySource)
     }
 
     public static func plan(for draft: PurchaseDraft,

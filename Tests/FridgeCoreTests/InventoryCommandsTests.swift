@@ -273,6 +273,48 @@ final class PurchasePlannerTests: XCTestCase {
                        newer.id)
     }
 
+    func testTwoRowsOfOneSaveSharingANameDoNotRaceForMetadata() {
+        // A review-time rename can collide two receipt lines.
+        let first = draft(name: "Milk", art: .milk, storage: .fridge, expiresInDays: 5)
+        let second = draft(name: "MILK", art: .unknown, storage: .pantry, expiresInDays: 30)
+        let plans = PurchasePlanner.plan(rows: [first, second], in: [], today: today)
+
+        XCTAssertEqual(plans.count, 2)
+        XCTAssertEqual(plans[0].rootMetadata.name, "Milk")
+        XCTAssertNil(plans[0].canonicalEdit)
+        // The second row copies what the first established rather than stamping
+        // its own guess and letting UUID order decide which one shows.
+        XCTAssertEqual(plans[1].rootMetadata.name, "Milk")
+        XCTAssertEqual(plans[1].rootMetadata.storage, .fridge)
+        XCTAssertEqual(plans[1].rootMetadata.expiryDay, today.adding(days: 5))
+        XCTAssertNil(plans[1].canonicalEdit, "an untouched guess is not an edit")
+    }
+
+    func testASecondRowsExplicitEditReachesTheCanonicalMember() {
+        let first = draft(name: "Milk", storage: .fridge)
+        let second = draft(name: "Milk", storage: .freezer, explicit: [.storage])
+        let plans = PurchasePlanner.plan(rows: [first, second], in: [], today: today)
+
+        XCTAssertEqual(plans[1].rootMetadata.storage, .fridge)
+        XCTAssertEqual(plans[1].canonicalEdit?.storage, .freezer)
+    }
+
+    func testRowsMatchingAnExistingItemAllCopyItsMetadata() {
+        let established = existing(name: "Milk", storage: .fridge)
+        let plans = PurchasePlanner.plan(rows: [draft(name: "Milk"), draft(name: "milk")],
+                                         in: [established], today: today)
+        XCTAssertEqual(plans.map(\.rootMetadata.storage), [.fridge, .fridge])
+        XCTAssertEqual(plans.map(\.rootMetadata.expiryDay),
+                       [established.expiryDay, established.expiryDay])
+    }
+
+    func testDifferentlyNamedRowsAreStillPlannedIndependently() {
+        let plans = PurchasePlanner.plan(
+            rows: [draft(name: "Milk", storage: .fridge), draft(name: "Rice", storage: .pantry)],
+            in: [], today: today)
+        XCTAssertEqual(plans.map(\.rootMetadata.storage), [.fridge, .pantry])
+    }
+
     func testTiedPurchaseDaysResolveDeterministically() {
         let ids = UUIDOrder.sorted([UUID(), UUID()])
         let candidates = ids.map {

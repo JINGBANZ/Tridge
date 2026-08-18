@@ -162,7 +162,9 @@ public enum ItemGroupReducer {
                                          expiryDay: canonical.expiryDay,
                                          expirySource: canonical.expirySource)
         }
-        let stockIssues = groups.flatMap(\.stock.issues)
+        // Groups reduce in dictionary order, so the concatenation has to be
+        // re-sorted to keep the diagnostic sequence identical across devices.
+        let stockIssues = Set(groups.flatMap(\.stock.issues)).sorted { $0.sortKey < $1.sortKey }
         return ItemGroupProjection(
             items: visible.sorted {
                 $0.expiryDay == $1.expiryDay ? UUIDOrder.isBefore($0.id, $1.id)

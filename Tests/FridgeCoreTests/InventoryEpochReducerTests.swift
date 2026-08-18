@@ -248,6 +248,21 @@ final class InventoryEpochReducerTests: XCTestCase {
         XCTAssertTrue(applied.issues.isEmpty)
     }
 
+    func testTheSameEpochStatedUnderTwoCommandIdsKeepsTheLowerOne() {
+        // Peers must agree on which record id is pending, not merely on the
+        // frontier, or their diagnostics disagree.
+        let ids = UUIDOrder.sorted([UUID(), UUID()])
+        let epochID = UUID(), missingParent = UUID()
+        let records = ids.map {
+            clear(epochID, parents: [missingParent], revision: 2, recordID: $0)
+        }
+        XCTAssertEqual(InventoryEpochReducer.reduce(initialEpochID: initial,
+                                                    clears: records).pendingRecordIDs, [ids[0]])
+        XCTAssertEqual(InventoryEpochReducer.reduce(initialEpochID: initial,
+                                                    clears: records.reversed()).pendingRecordIDs,
+                       [ids[0]])
+    }
+
     func testAnItemCarryingNoContextIsNeverSupported() {
         let reduction = InventoryEpochReducer.reduce(initialEpochID: initial, clears: [])
         XCTAssertFalse(reduction.supports(context: []))

@@ -36,6 +36,19 @@ final class NotificationPlanTests: XCTestCase {
         XCTAssertNil(ReminderIdentifier(parsing: "fridge.\(scope).household.\(household.uuidString).item.\(UUID().uuidString).pre"))
     }
 
+    func testAnAccountScopeContainingTheSeparatorStillRoundTrips() {
+        // An identifier that cannot be parsed back would strand its pending and
+        // delivered alerts in Notification Center forever.
+        let awkward = ReminderIdentifier(accountScope: "9f.2c", householdID: household,
+                                         itemID: UUID(), kind: .day)
+        XCTAssertEqual(ReminderIdentifier(parsing: awkward.rawValue), awkward)
+        XCTAssertEqual(NotificationPlan.identifiers(in: [awkward.rawValue],
+                                                    scope: .account("9f.2c")),
+                       [awkward.rawValue])
+        XCTAssertTrue(NotificationPlan.identifiers(in: [awkward.rawValue],
+                                                   scope: .account("9f")).isEmpty)
+    }
+
     func testEachActiveItemWantsATwoDayWarningAndAnExpiryDayReminder() {
         let milk = item(expiresInDays: 5)
         let requests = desired([milk])

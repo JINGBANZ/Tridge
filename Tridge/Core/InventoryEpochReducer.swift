@@ -184,9 +184,17 @@ public enum InventoryEpochReducer {
         for record in byRecordID.values where !conflictingRecordIDs.contains(record.id) {
             // A second record for the same epoch is harmless when it says the
             // same thing, and corrupt when it does not.
-            if let rival = byEpochID[record.epochID], !rival.describesSameEpoch(as: record) {
-                issues.insert(.conflictingEpoch(record.epochID))
-                conflictingEpochIDs.insert(record.epochID)
+            if let rival = byEpochID[record.epochID] {
+                guard rival.describesSameEpoch(as: record) else {
+                    issues.insert(.conflictingEpoch(record.epochID))
+                    conflictingEpochIDs.insert(record.epochID)
+                    byEpochID[record.epochID] = record
+                    continue
+                }
+                // Same epoch stated twice under different command ids: keep the
+                // lower one so peers agree on which record id is pending or
+                // diagnosed, not merely on the frontier.
+                guard UUIDOrder.isBefore(record.id, rival.id) else { continue }
             }
             byEpochID[record.epochID] = record
         }
