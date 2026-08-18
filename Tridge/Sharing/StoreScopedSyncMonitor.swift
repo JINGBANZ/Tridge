@@ -233,7 +233,9 @@ extension SyncEvent {
     /// clock comparison would be a weaker one.
     init?(_ event: NSPersistentCloudKitContainer.Event) {
         guard let kind = SyncEventKind(event.type) else { return nil }
-        self.init(identifier: event.identifier,
+        // The event id is a UUID and the store id a string; the reducer only
+        // ever compares them, so one opaque key type keeps it simple.
+        self.init(identifier: event.identifier.uuidString,
                   storeIdentifier: event.storeIdentifier,
                   kind: kind,
                   isComplete: event.endDate != nil,
