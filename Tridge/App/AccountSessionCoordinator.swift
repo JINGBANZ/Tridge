@@ -39,6 +39,10 @@ final class AccountSessionCoordinator {
     /// applying its result on the main actor checks this, so a value produced
     /// for the previous account cannot land on the current one.
     private var currentGeneration: AccountGeneration?
+    /// What an invalidated generation still owns: sync observation to end and
+    /// stores to release, once the registry has drained.
+    private var retiredGeneration: AccountGeneration?
+    private var retiredSession: AccountSession?
     private var accountObserver: NSObjectProtocol?
     private var transitionTask: Task<Void, Never>?
     private var barrierWatch: Task<Void, Never>?
@@ -90,10 +94,14 @@ final class AccountSessionCoordinator {
         }
     }
 
-    /// The account changed: rebuild everything under a new generation. Queued
-    /// behind any transition already running, so two notifications cannot tear
-    /// down the same stack twice.
+    /// The account changed: rebuild everything under a new generation.
+    ///
+    /// Invalidation is synchronous so a load that is already in flight cannot
+    /// activate the previous account's stores once it returns. The rest is
+    /// queued behind any transition already running, so two notifications
+    /// cannot tear down the same stack twice.
     func accountDidChange() {
+        invalidateVisibleState()
         Task { await self.enqueueTransition { await self.restart() } }
     }
 
@@ -117,27 +125,35 @@ final class AccountSessionCoordinator {
         await validateAndLoad()
     }
 
+    /// Stops results of the current generation from reaching the UI, and hands
+    /// what it still owns to the transition that will drain it. Synchronous on
+    /// purpose: everything after this point can suspend, and none of it may run
+    /// while account A's inventory is still on screen.
+    private func invalidateVisibleState() {
+        if let currentGeneration { retiredGeneration = currentGeneration }
+        if let session { retiredSession = session }
+        currentGeneration = nil
+        session = nil
+        launchState = .preparing
+        hasCompletedInitialPrivateImport = false
+        barrierWatch?.cancel()
+        barrierWatch = nil
+    }
+
     /// The account transition, in the order the stores require: invalidate and
     /// close admission, close inventory UI, drain every registered operation,
     /// end sync observation, and only then release the stores.
     private func invalidateCurrentSession() async {
-        let previousGeneration = currentGeneration
-        currentGeneration = nil
+        invalidateVisibleState()
         await tasks.close()
-
-        launchState = .preparing
-        let previousSession = session
-        session = nil
-        hasCompletedInitialPrivateImport = false
-        barrierWatch?.cancel()
-        barrierWatch = nil
-
         await tasks.cancelAndDrain()
 
-        if let previousGeneration {
-            syncMonitor.endSession(generation: previousGeneration)
+        if let retiredGeneration {
+            syncMonitor.endSession(generation: retiredGeneration)
         }
-        previousSession?.persistence.tearDown()
+        retiredSession?.persistence.tearDown()
+        retiredGeneration = nil
+        retiredSession = nil
     }
 
     private func validateAndLoad() async {
