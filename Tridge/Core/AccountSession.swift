@@ -10,12 +10,6 @@ public struct AccountGeneration: Hashable, Sendable {
     public init() {
         self.id = UUID()
     }
-
-    /// Only for tests that need two comparable generations; production code
-    /// always mints a fresh one.
-    public init(id: UUID) {
-        self.id = id
-    }
 }
 
 /// What work started *before* the stores exist can know: which account, and

@@ -30,6 +30,7 @@ final class AccountSessionCoordinatorTests: XCTestCase {
         coordinator = AccountSessionCoordinator(
             identity: identity, syncMonitor: monitor,
             barrier: BootstrapBarrierStore(defaults: defaults),
+            activeHouseholds: ActiveHouseholdStore(defaults: defaults),
             makePersistence: loader.closure)
     }
 
@@ -50,21 +51,42 @@ final class AccountSessionCoordinatorTests: XCTestCase {
 
     /// Puts a household in the account's private store before the coordinator
     /// opens it, which is what an existing validated cache looks like.
-    private func seedExistingHousehold(scope: AccountScopeHash) async throws {
+    @discardableResult
+    private func seedExistingHousehold(
+        scope: AccountScopeHash, name: String = "My Fridge",
+        ownership: HouseholdOwnership = .owned, createdAt: Date = Date(),
+        corrupt: Bool = false
+    ) async throws -> UUID {
         let controller = try await PersistenceController.load(
             configuration: .localOnly(accountScope: scope, baseDirectory: baseDirectory))
+        defer { controller.tearDown() }
+        return try await insertHousehold(into: controller, name: name, ownership: ownership,
+                                         createdAt: createdAt, corrupt: corrupt)
+    }
+
+    /// Writes through a stack that is already open, which is how a row would
+    /// actually appear during an import — rather than opening a second
+    /// coordinator on the same files.
+    @discardableResult
+    private func insertHousehold(
+        into controller: PersistenceController, name: String,
+        ownership: HouseholdOwnership = .owned, createdAt: Date = Date(),
+        corrupt: Bool = false
+    ) async throws -> UUID {
+        let id = UUID()
+        let store = ownership == .owned ? controller.privateStore : controller.sharedStore
         let context = controller.newWriterContext()
         try await context.perform {
             let household = HouseholdRecord(context: context)
-            household.id = UUID()
-            household.name = "My Fridge"
+            household.id = id
+            household.name = corrupt ? "" : name
             household.initialInventoryEpochID = UUID()
-            household.createdAt = Date()
-            household.modifiedAt = household.createdAt
-            try StoreRouting.assign([household], to: controller.privateStore, in: context)
+            household.createdAt = createdAt
+            household.modifiedAt = createdAt
+            try StoreRouting.assign([household], to: store, in: context)
             try context.save()
         }
-        controller.tearDown()
+        return id
     }
 
     /// Emits the setup and import a store reports on its first successful sync.
@@ -91,11 +113,13 @@ final class AccountSessionCoordinatorTests: XCTestCase {
     // MARK: - Launch
 
     func testAValidAccountOpensBothStoresAndBecomesReady() async throws {
-        try await seedExistingHousehold(scope: Self.scope())
+        let seeded = try await seedExistingHousehold(scope: Self.scope())
 
         await coordinator.start()
 
         XCTAssertEqual(coordinator.launchState, .ready)
+        XCTAssertEqual(coordinator.activeHouseholdID, seeded)
+        XCTAssertEqual(coordinator.households.map(\.id), [seeded])
         let session = try XCTUnwrap(coordinator.session)
         XCTAssertEqual(session.context.accountScope, Self.scope())
         XCTAssertEqual(session.context.storeIdentifiers,
@@ -189,8 +213,107 @@ final class AccountSessionCoordinatorTests: XCTestCase {
         await coordinator.start()
 
         XCTAssertEqual(coordinator.launchState, .ready)
+        XCTAssertNotNil(coordinator.activeHouseholdID)
         XCTAssertFalse(coordinator.hasCompletedInitialPrivateImport,
                        "rendering a cache is not evidence that an import succeeded")
+    }
+
+    // MARK: - Active Household selection
+
+    func testAnEmptyAccountCreatesMyFridgeOnceTheBarrierOpens() async throws {
+        await coordinator.start()
+        XCTAssertNil(coordinator.activeHouseholdID)
+
+        let session = try XCTUnwrap(coordinator.session)
+        completeInitialSync(of: session.context.privateStoreIdentifier)
+        await waitUntil("My Fridge to be created") { self.coordinator.activeHouseholdID != nil }
+
+        XCTAssertEqual(coordinator.launchState, .ready)
+        XCTAssertEqual(coordinator.households.count, 1)
+        XCTAssertEqual(coordinator.households.first?.name, "My Fridge")
+        XCTAssertEqual(coordinator.households.first?.ownership, .owned)
+        XCTAssertEqual(coordinator.activeHouseholdID, coordinator.households.first?.id)
+    }
+
+    /// The whole point of the barrier: a Household that arrives in the first
+    /// import is selected instead of being duplicated by a second `My Fridge`.
+    func testAnImportedHouseholdIsSelectedInsteadOfCreatingADuplicate() async throws {
+        await coordinator.start()
+        XCTAssertEqual(coordinator.launchState, .finishingCloudSetup)
+        let session = try XCTUnwrap(coordinator.session)
+
+        // The import lands the account's existing Household before the barrier
+        // opens, exactly as a real initial import would.
+        let imported = try await insertHousehold(into: session.persistence, name: "Kitchen")
+        completeInitialSync(of: session.context.privateStoreIdentifier)
+        await waitUntil("the imported Household to be selected") {
+            self.coordinator.activeHouseholdID != nil
+        }
+
+        XCTAssertEqual(coordinator.activeHouseholdID, imported)
+        XCTAssertEqual(coordinator.households.map(\.name), ["Kitchen"])
+    }
+
+    func testTheOldestOwnedHouseholdWinsOverAReceivedOne() async throws {
+        let older = Date(timeIntervalSince1970: 1_000)
+        let owned = try await seedExistingHousehold(scope: Self.scope(), name: "Owned",
+                                                    createdAt: older.addingTimeInterval(60))
+        try await seedExistingHousehold(scope: Self.scope(), name: "Received",
+                                        ownership: .received, createdAt: older)
+
+        await coordinator.start()
+
+        XCTAssertEqual(coordinator.activeHouseholdID, owned)
+        XCTAssertEqual(Set(coordinator.households.map(\.ownership)), [.owned, .received])
+    }
+
+    func testAReceivedHouseholdIsSelectedWhenNoneIsOwned() async throws {
+        let received = try await seedExistingHousehold(scope: Self.scope(), name: "Theirs",
+                                                       ownership: .received)
+
+        await coordinator.start()
+
+        XCTAssertEqual(coordinator.launchState, .ready)
+        XCTAssertEqual(coordinator.activeHouseholdID, received)
+        XCTAssertEqual(coordinator.households.first?.ownership, .received)
+    }
+
+    func testASavedSelectionIsRestoredAndPersistedPerAccount() async throws {
+        let first = try await seedExistingHousehold(scope: Self.scope(), name: "A",
+                                                    createdAt: Date(timeIntervalSince1970: 10))
+        let second = try await seedExistingHousehold(scope: Self.scope(), name: "B",
+                                                     createdAt: Date(timeIntervalSince1970: 20))
+        // Deterministic fallback picks the oldest owned one.
+        await coordinator.start()
+        XCTAssertEqual(coordinator.activeHouseholdID, first)
+
+        ActiveHouseholdStore(defaults: defaults).save(second, for: Self.scope())
+        await coordinator.start()
+        XCTAssertEqual(coordinator.activeHouseholdID, second)
+
+        // Another account's key never satisfies this one.
+        XCTAssertNil(ActiveHouseholdStore(defaults: defaults).savedID(for: Self.scope("b")))
+    }
+
+    /// A household that was left, revoked, or deleted must not be restored
+    /// from a stale default.
+    func testAStaleSavedSelectionFallsBackToAnAccessibleHousehold() async throws {
+        let accessible = try await seedExistingHousehold(scope: Self.scope())
+        ActiveHouseholdStore(defaults: defaults).save(UUID(), for: Self.scope())
+
+        await coordinator.start()
+
+        XCTAssertEqual(coordinator.activeHouseholdID, accessible)
+    }
+
+    func testACorruptHouseholdIsOmittedRatherThanSelected() async throws {
+        try await seedExistingHousehold(scope: Self.scope(), corrupt: true)
+        let valid = try await seedExistingHousehold(scope: Self.scope(), name: "Valid")
+
+        await coordinator.start()
+
+        XCTAssertEqual(coordinator.households.map(\.id), [valid])
+        XCTAssertEqual(coordinator.activeHouseholdID, valid)
     }
 
     func testARecordedMarkerSkipsTheBarrierOnTheNextLaunch() async throws {
@@ -293,6 +416,8 @@ final class AccountSessionCoordinatorTests: XCTestCase {
 
         XCTAssertFalse(coordinator.hasCompletedInitialPrivateImport)
         XCTAssertNil(coordinator.session)
+        XCTAssertNil(coordinator.activeHouseholdID)
+        XCTAssertTrue(coordinator.households.isEmpty)
         await waitUntil("the next account's session") { self.coordinator.session != nil }
         let second = try XCTUnwrap(coordinator.session)
         XCTAssertEqual(second.context.accountScope, Self.scope("b"))

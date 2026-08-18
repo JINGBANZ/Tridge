@@ -27,12 +27,18 @@ final class AccountSessionCoordinator {
     /// Whether `My Fridge` may be created for an empty cache — see
     /// `HouseholdSelection.choose(saved:available:hasCompletedInitialImport:)`.
     private(set) var hasCompletedInitialPrivateImport = false
+    /// Every Household this account can reach, across both stores.
+    private(set) var households: [HouseholdSnapshot] = []
+    /// The selected Household, resolved by the deterministic fallback and
+    /// revalidated on every launch.
+    private(set) var activeHouseholdID: UUID?
 
     let tasks: AccountTaskRegistry
     let syncMonitor: any SyncStatusProviding
 
     private let identity: any AccountIdentityProviding
     private let barrier: BootstrapBarrierStore
+    private let activeHouseholds: ActiveHouseholdStore
     private let makePersistence: @Sendable (AccountScopeHash) async throws -> PersistenceController
 
     /// The coordinator's own mirror of the registry's open generation. Work
@@ -54,12 +60,14 @@ final class AccountSessionCoordinator {
          syncMonitor: any SyncStatusProviding,
          tasks: AccountTaskRegistry = AccountTaskRegistry(),
          barrier: BootstrapBarrierStore = BootstrapBarrierStore(),
+         activeHouseholds: ActiveHouseholdStore = ActiveHouseholdStore(),
          makePersistence: @escaping @Sendable (AccountScopeHash) async throws
              -> PersistenceController = AccountSessionCoordinator.loadCloudKitStack) {
         self.identity = identity
         self.syncMonitor = syncMonitor
         self.tasks = tasks
         self.barrier = barrier
+        self.activeHouseholds = activeHouseholds
         self.makePersistence = makePersistence
     }
 
@@ -135,6 +143,8 @@ final class AccountSessionCoordinator {
         session = nil
         launchState = .preparing
         hasCompletedInitialPrivateImport = false
+        households = []
+        activeHouseholdID = nil
         barrierWatch?.cancel()
         barrierWatch = nil
     }
@@ -231,21 +241,61 @@ final class AccountSessionCoordinator {
             accountScope: context.accountScope,
             privateStoreIdentifier: context.privateStoreIdentifier)
 
-        // A cache that already holds a household renders immediately: selection
-        // resolves it without ever reaching the create-`My Fridge` fallback.
-        launchState = hasCompletedInitialPrivateImport || hasAnyHousehold(in: controller)
-            ? .ready : .finishingCloudSetup
+        selectActiveHousehold(for: context, controller: controller)
 
         if !hasCompletedInitialPrivateImport {
             watchInitialImport(for: context)
         }
     }
 
-    private func hasAnyHousehold(in controller: PersistenceController) -> Bool {
-        let request = HouseholdRecord.fetchRequest()
-        request.fetchLimit = 1
-        let households = (try? controller.viewContext.fetch(request)) ?? []
-        return !households.isEmpty
+    /// Runs the deterministic fallback and settles the launch state.
+    ///
+    /// An existing cache resolves at step 1–3 and renders immediately; only a
+    /// cache with nothing to select waits, because creating `My Fridge` while
+    /// this account's household may still be importing is what would duplicate
+    /// it. Re-run whenever the set of accessible Households changes.
+    private func selectActiveHousehold(for context: AccountSessionContext,
+                                       controller: PersistenceController) {
+        let (available, issues) = controller.householdSnapshots()
+        households = available
+        for issue in issues {
+            AppLog.household.error("Omitted a corrupt record: \(issue.diagnosticDescription)")
+        }
+
+        switch HouseholdSelection.choose(
+            saved: activeHouseholds.savedID(for: context.accountScope),
+            available: available,
+            hasCompletedInitialImport: hasCompletedInitialPrivateImport
+        ) {
+        case .select(let id):
+            activate(householdID: id, for: context)
+        case .createDefaultHousehold:
+            createDefaultHousehold(for: context, controller: controller)
+        case .waitForInitialImport:
+            activeHouseholdID = nil
+            launchState = .finishingCloudSetup
+        }
+    }
+
+    private func activate(householdID: UUID, for context: AccountSessionContext) {
+        activeHouseholdID = householdID
+        activeHouseholds.save(householdID, for: context.accountScope)
+        launchState = .ready
+    }
+
+    private func createDefaultHousehold(for context: AccountSessionContext,
+                                        controller: PersistenceController) {
+        do {
+            let created = try controller.createOwnedHousehold(
+                named: HouseholdSelection.defaultHouseholdName)
+            // Reached only when nothing was selectable, so this is the set.
+            households = [created]
+            activate(householdID: created.id, for: context)
+        } catch {
+            // The stores opened but the account has no usable Household, so
+            // there is nothing to show. Retry rebuilds the stack.
+            launchState = .persistenceUnavailable(diagnosticID: "household.create")
+        }
     }
 
     private func watchInitialImport(for context: AccountSessionContext) {
@@ -275,6 +325,9 @@ final class AccountSessionCoordinator {
         barrier.recordInitialImport(accountScope: context.accountScope,
                                     privateStoreIdentifier: context.privateStoreIdentifier)
         hasCompletedInitialPrivateImport = true
-        if launchState == .finishingCloudSetup { launchState = .ready }
+        guard let session, session.context.generation == context.generation else { return }
+        // The import may have brought this account's existing Household with
+        // it, so selection runs again rather than assuming an empty cache.
+        selectActiveHousehold(for: context, controller: session.persistence)
     }
 }

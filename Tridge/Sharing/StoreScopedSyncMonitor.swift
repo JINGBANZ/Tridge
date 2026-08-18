@@ -80,7 +80,10 @@ final class StoreScopedSyncMonitor: SyncStatusProviding {
         let (stream, continuation) = AsyncStream<SyncStatus>.makeStream()
         let id = statusStreams.add(continuation)
         continuation.yield(currentStatus)
-        continuation.onTermination = { [statusStreams] _ in statusStreams.remove(id) }
+        // Weak: the registry owns the continuation, which owns this closure.
+        // A strong capture would keep the registry alive forever and its
+        // `deinit` — the thing that finishes the streams — could never run.
+        continuation.onTermination = { [weak statusStreams] _ in statusStreams?.remove(id) }
         return stream
     }
 
