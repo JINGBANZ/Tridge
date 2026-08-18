@@ -9,10 +9,19 @@ final class AppCapabilitiesTests: XCTestCase {
     private var app: Bundle { Bundle(for: HouseholdRecord.self) }
 
     func testTheAppAcceptsShareInvitationsAndWakesForRemoteChanges() {
-        // A string "YES" would silently not register the app as a share target.
+        // Both come from Tridge-Info.plist: Xcode's INFOPLIST_KEY_ settings drop
+        // keys outside its own table, and a string "YES" would not register the
+        // app as a share target either.
         XCTAssertEqual(app.object(forInfoDictionaryKey: "CKSharingSupported") as? Bool, true)
         XCTAssertEqual(app.object(forInfoDictionaryKey: "UIBackgroundModes") as? [String],
                        ["remote-notification"])
+    }
+
+    func testTheGeneratedInfoPlistKeysSurviveTheMerge() {
+        // Adding a partial Info.plist must not displace what the build settings
+        // still generate.
+        XCTAssertNotNil(app.object(forInfoDictionaryKey: "NSCameraUsageDescription"))
+        XCTAssertNotNil(app.object(forInfoDictionaryKey: "UILaunchScreen"))
     }
 
     func testTheDeploymentTargetStaysAtIOS18UnderTheNewerSDK() {

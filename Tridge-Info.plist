@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+	The two sharing keys the generated Info.plist cannot express: Xcode's
+	INFOPLIST_KEY_ build settings silently drop keys outside its own table, and
+	both of these landed missing rather than wrong. GENERATE_INFOPLIST_FILE stays
+	on, so everything else (camera usage, orientations, launch screen) is still
+	generated from build settings and merged over this file.
+
+	It lives beside the project rather than inside Tridge/ because that folder is
+	a file-system synchronized group, where an Info.plist would also be picked up
+	as a resource to copy.
+-->
+<plist version="1.0">
+<dict>
+	<!-- Lets the system hand CloudKit share invitations to this app. -->
+	<key>CKSharingSupported</key>
+	<true/>
+	<!-- Wakes the app for CloudKit's silent change notifications. -->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>remote-notification</string>
+	</array>
+</dict>
+</plist>

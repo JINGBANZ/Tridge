@@ -133,7 +133,7 @@ final class PersistenceControllerTests: XCTestCase {
         }
     }
 
-    func testAChildAssignedToTheOtherStoreFailsBeforeItCanBeSaved() async throws {
+    func testAnObjectFromTheOtherStoreIsRejectedBeforeItCanBeLinked() async throws {
         let controller = try await makeController(for: scope())
         let context = controller.newWriterContext()
 
