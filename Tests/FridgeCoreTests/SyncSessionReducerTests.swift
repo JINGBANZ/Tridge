@@ -18,9 +18,9 @@ final class SyncSessionReducerTests: XCTestCase {
     }
 
     private func failure(_ id: String, _ store: String, _ kind: SyncEventKind,
-                         network: Bool = false) -> SyncEvent {
+                         transient: Bool = false) -> SyncEvent {
         SyncEvent(identifier: id, storeIdentifier: store, kind: kind, isComplete: true,
-                  succeeded: false, isNetworkFailure: network)
+                  succeeded: false, isTransientFailure: transient)
     }
 
     /// Drives both stores through setup and import so the session is settled.
@@ -111,7 +111,7 @@ final class SyncSessionReducerTests: XCTestCase {
                        .needsAttention)
     }
 
-    func testNonNetworkFailureNeedsAttentionEvenWhenOffline() {
+    func testPermanentFailureNeedsAttentionEvenWhenOffline() {
         var reducer = settledSession()
         reducer.record(start("e1", privateStore, .exportChanges))
         reducer.record(failure("e1", privateStore, .exportChanges))
@@ -132,11 +132,11 @@ final class SyncSessionReducerTests: XCTestCase {
         XCTAssertEqual(reducer.status(account: .validated, isNetworkReachable: true), .syncing)
     }
 
-    /// A network failure retries, so it is unsettled rather than broken.
-    func testNetworkFailureWithNetworkBackIsSyncingNotUpToDate() {
+    /// A retried failure is unsettled rather than broken.
+    func testTransientFailureWithNetworkBackIsSyncingNotUpToDate() {
         var reducer = settledSession()
         reducer.record(start("e1", privateStore, .exportChanges))
-        reducer.record(failure("e1", privateStore, .exportChanges, network: true))
+        reducer.record(failure("e1", privateStore, .exportChanges, transient: true))
 
         XCTAssertEqual(reducer.status(account: .validated, isNetworkReachable: true), .syncing)
     }
@@ -188,7 +188,7 @@ final class SyncSessionReducerTests: XCTestCase {
         reducer.record(start("setup", privateStore, .setup))
         reducer.record(success("setup", privateStore, .setup))
         reducer.record(start("import", privateStore, .importChanges))
-        reducer.record(failure("import", privateStore, .importChanges, network: true))
+        reducer.record(failure("import", privateStore, .importChanges, transient: true))
 
         XCTAssertFalse(reducer.hasCompletedInitialImport(storeIdentifier: privateStore))
     }

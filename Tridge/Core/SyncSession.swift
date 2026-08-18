@@ -33,18 +33,18 @@ public struct SyncEvent: Equatable, Sendable {
     /// False while the event is still running; true once it has an end date.
     public let isComplete: Bool
     public let succeeded: Bool
-    /// A failed event that only lost the network. It is expected to retry, so
-    /// it never becomes `needsAttention`.
-    public let isNetworkFailure: Bool
+    /// A failure the system retries by itself — lost connectivity, throttling,
+    /// a busy zone. It is unsettled state, never something the user must fix.
+    public let isTransientFailure: Bool
 
     public init(identifier: String, storeIdentifier: String, kind: SyncEventKind,
-                isComplete: Bool, succeeded: Bool = false, isNetworkFailure: Bool = false) {
+                isComplete: Bool, succeeded: Bool = false, isTransientFailure: Bool = false) {
         self.identifier = identifier
         self.storeIdentifier = storeIdentifier
         self.kind = kind
         self.isComplete = isComplete
         self.succeeded = succeeded
-        self.isNetworkFailure = isNetworkFailure
+        self.isTransientFailure = isTransientFailure
     }
 }
 
@@ -65,8 +65,8 @@ public struct SyncSessionReducer: Equatable, Sendable {
 
     private enum Outcome: Equatable {
         case succeeded
-        case failedNetwork
-        case failedOther
+        case failedTransient
+        case failedPermanent
     }
 
     private var isActive = false
@@ -126,7 +126,7 @@ public struct SyncSessionReducer: Equatable, Sendable {
         if event.succeeded {
             outcomes[key] = .succeeded
         } else {
-            outcomes[key] = event.isNetworkFailure ? .failedNetwork : .failedOther
+            outcomes[key] = event.isTransientFailure ? .failedTransient : .failedPermanent
         }
     }
 
@@ -143,11 +143,11 @@ public struct SyncSessionReducer: Equatable, Sendable {
 
     public func status(account: SyncAccountState, isNetworkReachable: Bool) -> SyncStatus {
         if account == .unavailable { return .needsAttention }
-        if outcomes.values.contains(.failedOther) { return .needsAttention }
+        if outcomes.values.contains(.failedPermanent) { return .needsAttention }
         if !isNetworkReachable { return .offline }
-        // A network failure is not settled state: the container retries it, so
-        // the honest label is still "syncing" once the network is back.
-        if !isActive || !pendingStarts.isEmpty || outcomes.values.contains(.failedNetwork) {
+        // A retried failure is not settled state, so the honest label is still
+        // "syncing" once connectivity is back.
+        if !isActive || !pendingStarts.isEmpty || outcomes.values.contains(.failedTransient) {
             return .syncing
         }
         return activeStores.allSatisfy { hasCompletedInitialImport(storeIdentifier: $0) }

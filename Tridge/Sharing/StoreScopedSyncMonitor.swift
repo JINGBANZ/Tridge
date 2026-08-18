@@ -57,9 +57,13 @@ final class StoreScopedSyncMonitor: SyncStatusProviding {
     private var reducer = SyncSessionReducer()
     private var accountState: SyncAccountState = .validated
     private var isNetworkReachable = true
-    private var eventObserver: NSObjectProtocol?
+    /// Both are held in objects whose own `deinit` may clean them up: a
+    /// nonisolated `deinit` here could not touch main-actor state, and leaving
+    /// either behind means a dangling observer or a consumer that never
+    /// finishes iterating.
+    private let eventObserver = NotificationObserverToken()
+    private let statusStreams = StatusStreamRegistry()
     private var pathMonitor: NWPathMonitor?
-    private var statusContinuations: [UUID: AsyncStream<SyncStatus>.Continuation] = [:]
     private var importWaiters: [ImportWaiter] = []
 
     private(set) var currentStatus: SyncStatus = .syncing
@@ -74,12 +78,9 @@ final class StoreScopedSyncMonitor: SyncStatusProviding {
 
     var statusUpdates: AsyncStream<SyncStatus> {
         let (stream, continuation) = AsyncStream<SyncStatus>.makeStream()
-        let id = UUID()
-        statusContinuations[id] = continuation
+        let id = statusStreams.add(continuation)
         continuation.yield(currentStatus)
-        continuation.onTermination = { [weak self] _ in
-            Task { @MainActor in self?.statusContinuations[id] = nil }
-        }
+        continuation.onTermination = { [statusStreams] _ in statusStreams.remove(id) }
         return stream
     }
 
@@ -111,7 +112,7 @@ final class StoreScopedSyncMonitor: SyncStatusProviding {
         guard generation == self.generation else { return }
         self.generation = nil
         reducer = SyncSessionReducer()
-        removeEventObserver()
+        eventObserver.remove()
         resumeAllWaiters(with: false)
         refreshStatus()
     }
@@ -128,23 +129,19 @@ final class StoreScopedSyncMonitor: SyncStatusProviding {
     }
 
     private func installEventObserver() {
-        guard eventObserver == nil else { return }
-        eventObserver = NotificationCenter.default.addObserver(
-            forName: NSPersistentCloudKitContainer.eventChangedNotification,
-            object: nil, queue: .main
-        ) { [weak self] notification in
-            guard let event = notification.userInfo?[
-                NSPersistentCloudKitContainer.eventNotificationUserInfoKey
-            ] as? NSPersistentCloudKitContainer.Event,
-                let syncEvent = SyncEvent(event) else { return }
-            MainActor.assumeIsolated { self?.receive(syncEvent) }
+        guard !eventObserver.isRegistered else { return }
+        eventObserver.register {
+            NotificationCenter.default.addObserver(
+                forName: NSPersistentCloudKitContainer.eventChangedNotification,
+                object: nil, queue: .main
+            ) { [weak self] notification in
+                guard let event = notification.userInfo?[
+                    NSPersistentCloudKitContainer.eventNotificationUserInfoKey
+                ] as? NSPersistentCloudKitContainer.Event,
+                    let syncEvent = SyncEvent(event) else { return }
+                MainActor.assumeIsolated { self?.receive(syncEvent) }
+            }
         }
-    }
-
-    private func removeEventObserver() {
-        guard let eventObserver else { return }
-        NotificationCenter.default.removeObserver(eventObserver)
-        self.eventObserver = nil
     }
 
     private func startPathMonitor() {
@@ -168,7 +165,7 @@ final class StoreScopedSyncMonitor: SyncStatusProviding {
                                     isNetworkReachable: isNetworkReachable)
         guard status != currentStatus else { return }
         currentStatus = status
-        for continuation in statusContinuations.values { continuation.yield(status) }
+        statusStreams.yield(status)
     }
 
     // MARK: - Bootstrap barrier
@@ -240,24 +237,44 @@ extension SyncEvent {
                   kind: kind,
                   isComplete: event.endDate != nil,
                   succeeded: event.succeeded,
-                  isNetworkFailure: Self.isNetworkFailure(event.error))
+                  isTransientFailure: Self.isTransientFailure(event.error))
     }
 
-    /// A failure that only lost the network retries by itself, so it must not
-    /// be reported as something the user has to fix.
-    static func isNetworkFailure(_ error: Error?) -> Bool {
+    /// A failure the system retries by itself — lost connectivity, throttling,
+    /// a busy zone — must not be reported as something the user has to fix.
+    /// Anything else, including a TLS or certificate failure, is permanent
+    /// until something changes, so it surfaces as `needsAttention`.
+    static func isTransientFailure(_ error: Error?) -> Bool {
         guard let error else { return false }
         let details = error as NSError
         switch details.domain {
         case CKErrorDomain:
-            return details.code == CKError.Code.networkUnavailable.rawValue
-                || details.code == CKError.Code.networkFailure.rawValue
+            return Self.retriedCloudKitCodes.contains(details.code)
         case NSURLErrorDomain:
-            return true
+            return Self.retriedURLCodes.contains(details.code)
         default:
             return false
         }
     }
+
+    private static let retriedCloudKitCodes: Set<Int> = [
+        CKError.Code.networkUnavailable.rawValue,
+        CKError.Code.networkFailure.rawValue,
+        CKError.Code.serviceUnavailable.rawValue,
+        CKError.Code.requestRateLimited.rawValue,
+        CKError.Code.zoneBusy.rawValue,
+    ]
+
+    private static let retriedURLCodes: Set<Int> = [
+        NSURLErrorNotConnectedToInternet,
+        NSURLErrorNetworkConnectionLost,
+        NSURLErrorTimedOut,
+        NSURLErrorCannotConnectToHost,
+        NSURLErrorCannotFindHost,
+        NSURLErrorDNSLookupFailed,
+        NSURLErrorInternationalRoamingOff,
+        NSURLErrorDataNotAllowed,
+    ]
 }
 
 extension SyncEventKind {
@@ -268,5 +285,32 @@ extension SyncEventKind {
         case .export: self = .exportChanges
         @unknown default: return nil
         }
+    }
+}
+
+/// Holds the status-stream continuations and finishes them when the monitor is
+/// released, so a consumer iterating `statusUpdates` cannot hang forever on a
+/// stream nobody will ever yield to again.
+private final class StatusStreamRegistry: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuations: [UUID: AsyncStream<SyncStatus>.Continuation] = [:]
+
+    func add(_ continuation: AsyncStream<SyncStatus>.Continuation) -> UUID {
+        let id = UUID()
+        lock.withLock { continuations[id] = continuation }
+        return id
+    }
+
+    func remove(_ id: UUID) {
+        _ = lock.withLock { continuations.removeValue(forKey: id) }
+    }
+
+    func yield(_ status: SyncStatus) {
+        let current = lock.withLock { Array(continuations.values) }
+        for continuation in current { continuation.yield(status) }
+    }
+
+    deinit {
+        for continuation in continuations.values { continuation.finish() }
     }
 }

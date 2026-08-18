@@ -37,7 +37,9 @@ final class AccountSessionCoordinatorTests: XCTestCase {
         await coordinator?.shutDown()
         coordinator = nil
         loader?.tearDownAll()
-        UserDefaults.standard.removeSuite(named: suiteName)
+        // `removeSuite(named:)` only drops the suite from `standard`'s search
+        // list, which this one was never in; the plist has to go explicitly.
+        defaults.removePersistentDomain(forName: suiteName)
         try? FileManager.default.removeItem(at: baseDirectory)
         try await super.tearDown()
     }
@@ -338,11 +340,23 @@ private final class StackLoader: @unchecked Sendable {
     private let baseDirectory: URL
     private var _controllers: [PersistenceController] = []
 
-    var gate: (@Sendable () async -> Void)?
-    var failure: Error?
+    private var _gate: (@Sendable () async -> Void)?
+    private var _failure: Error?
 
     init(baseDirectory: URL) {
         self.baseDirectory = baseDirectory
+    }
+
+    /// Loads run off the main actor while the test mutates these from it, so
+    /// both cross the same lock as `_controllers`.
+    var gate: (@Sendable () async -> Void)? {
+        get { lock.withLock { _gate } }
+        set { lock.withLock { _gate = newValue } }
+    }
+
+    var failure: Error? {
+        get { lock.withLock { _failure } }
+        set { lock.withLock { _failure = newValue } }
     }
 
     var controllers: [PersistenceController] { lock.withLock { _controllers } }

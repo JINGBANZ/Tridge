@@ -44,9 +44,8 @@ final class AccountSessionCoordinator {
     /// stores to release, once the registry has drained.
     @ObservationIgnored private var retiredGeneration: AccountGeneration?
     @ObservationIgnored private var retiredSession: AccountSession?
-    /// The `CKAccountChanged` observer token. It lives in a box because
-    /// `deinit` is nonisolated and cannot read a main-actor property — the box
-    /// unregisters itself when the coordinator releases it.
+    /// The `CKAccountChanged` observer, held in a token that unregisters
+    /// itself when the coordinator is released.
     @ObservationIgnored private let accountObserver = NotificationObserverToken()
     @ObservationIgnored private var transitionTask: Task<Void, Never>?
     @ObservationIgnored private var barrierWatch: Task<Void, Never>?
@@ -85,10 +84,12 @@ final class AccountSessionCoordinator {
     /// can drive transitions deterministically.
     func observeAccountChanges() {
         guard !accountObserver.isRegistered else { return }
-        accountObserver.value = NotificationCenter.default.addObserver(
-            forName: .CKAccountChanged, object: nil, queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.accountDidChange() }
+        accountObserver.register {
+            NotificationCenter.default.addObserver(
+                forName: .CKAccountChanged, object: nil, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.accountDidChange() }
+            }
         }
     }
 
@@ -275,24 +276,5 @@ final class AccountSessionCoordinator {
                                     privateStoreIdentifier: context.privateStoreIdentifier)
         hasCompletedInitialPrivateImport = true
         if launchState == .finishingCloudSetup { launchState = .ready }
-    }
-}
-
-/// Holds one `NotificationCenter` observer token and unregisters it when
-/// released, so an owner isolated to an actor does not need a `deinit` that
-/// reaches into its own isolated state.
-final class NotificationObserverToken: @unchecked Sendable {
-    private let lock = NSLock()
-    private var token: NSObjectProtocol?
-
-    var value: NSObjectProtocol? {
-        get { lock.withLock { token } }
-        set { lock.withLock { token = newValue } }
-    }
-
-    var isRegistered: Bool { value != nil }
-
-    deinit {
-        if let token { NotificationCenter.default.removeObserver(token) }
     }
 }
