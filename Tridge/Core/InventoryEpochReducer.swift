@@ -36,7 +36,7 @@ public enum InventoryEpochCodec {
 
 /// One immutable edge in a Household's causal epoch graph. Clear All records
 /// exactly one of these and no item-level stock event (ADR 0009).
-public struct HouseholdClearRecord: Hashable, Sendable {
+public struct HouseholdClearEvent: Hashable, Sendable {
     /// The clear command's id; a retry reuses it.
     public let id: UUID
     /// The leaf this clear creates.
@@ -92,12 +92,12 @@ public struct InventoryEpochReduction: Hashable, Sendable {
 public enum InventoryEpochReducer {
     /// Reduces one Household's clear records into its current causal frontier.
     public static func reduce(initialEpochID: UUID,
-                              clears: [HouseholdClearRecord]) -> InventoryEpochReduction {
+                              clears: [HouseholdClearEvent]) -> InventoryEpochReduction {
         var issues: Set<EpochIntegrityIssue> = []
         let candidates = deduplicate(clears, initialEpochID: initialEpochID, issues: &issues)
 
         var revisions: [UUID: Int64] = [initialEpochID: 0]
-        var accepted: [HouseholdClearRecord] = []
+        var accepted: [HouseholdClearEvent] = []
         var remaining = candidates
 
         // Repeatedly accept every record whose parents have all resolved. Import
@@ -105,7 +105,7 @@ public enum InventoryEpochReducer {
         var progressed = true
         while progressed {
             progressed = false
-            var deferred: [HouseholdClearRecord] = []
+            var deferred: [HouseholdClearEvent] = []
             for record in remaining {
                 let parentRevisions = record.parentEpochIDs.compactMap { revisions[$0] }
                 guard parentRevisions.count == record.parentEpochIDs.count else {
@@ -147,21 +147,21 @@ public enum InventoryEpochReducer {
     /// Builds the Clear All barrier for the frontier a device can currently see.
     /// Reusing the ids on retry produces an identical record, which reduces once.
     public static func makeClear(recordID: UUID, epochID: UUID, occurredAt: Date,
-                                 from reduction: InventoryEpochReduction) -> HouseholdClearRecord? {
+                                 from reduction: InventoryEpochReduction) -> HouseholdClearEvent? {
         let parents = reduction.frontier
         guard !parents.contains(epochID),
               let revision = nextRevision(after: parents.compactMap { reduction.revisions[$0] })
         else { return nil }
-        return HouseholdClearRecord(id: recordID, epochID: epochID, parentEpochIDs: parents,
-                                    revision: revision, occurredAt: occurredAt)
+        return HouseholdClearEvent(id: recordID, epochID: epochID, parentEpochIDs: parents,
+                                   revision: revision, occurredAt: occurredAt)
     }
 
     /// Collapses identical retries and rejects records that are corrupt on their
     /// own terms, before any graph reasoning.
-    private static func deduplicate(_ clears: [HouseholdClearRecord], initialEpochID: UUID,
+    private static func deduplicate(_ clears: [HouseholdClearEvent], initialEpochID: UUID,
                                     issues: inout Set<EpochIntegrityIssue>)
-    -> [HouseholdClearRecord] {
-        var byRecordID: [UUID: HouseholdClearRecord] = [:]
+    -> [HouseholdClearEvent] {
+        var byRecordID: [UUID: HouseholdClearEvent] = [:]
         var conflictingRecordIDs: Set<UUID> = []
         for record in clears {
             guard !record.parentEpochIDs.isEmpty,
@@ -179,7 +179,7 @@ public enum InventoryEpochReducer {
             byRecordID[record.id] = record
         }
 
-        var byEpochID: [UUID: HouseholdClearRecord] = [:]
+        var byEpochID: [UUID: HouseholdClearEvent] = [:]
         var conflictingEpochIDs: Set<UUID> = []
         for record in byRecordID.values where !conflictingRecordIDs.contains(record.id) {
             // A second record for the same epoch is harmless when it says the
@@ -204,8 +204,8 @@ public enum InventoryEpochReducer {
 
     /// True when following the record's unresolved ancestry returns to its own
     /// epoch — the only cycle shape provable without the missing records.
-    private static func descendsFromItself(_ record: HouseholdClearRecord,
-                                           among unresolved: [HouseholdClearRecord]) -> Bool {
+    private static func descendsFromItself(_ record: HouseholdClearEvent,
+                                           among unresolved: [HouseholdClearEvent]) -> Bool {
         let producers = Dictionary(unresolved.map { ($0.epochID, $0) }, uniquingKeysWith: { first, _ in first })
         var frontier = Array(record.parentEpochIDs)
         var seen: Set<UUID> = []
@@ -218,9 +218,9 @@ public enum InventoryEpochReducer {
     }
 }
 
-extension HouseholdClearRecord {
+extension HouseholdClearEvent {
     /// Two records describe the same epoch when only their command ids differ.
-    fileprivate func describesSameEpoch(as other: HouseholdClearRecord) -> Bool {
+    fileprivate func describesSameEpoch(as other: HouseholdClearEvent) -> Bool {
         epochID == other.epochID && parentEpochIDs == other.parentEpochIDs
             && revision == other.revision && occurredAt == other.occurredAt
     }
