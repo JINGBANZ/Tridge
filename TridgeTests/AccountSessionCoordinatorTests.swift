@@ -153,7 +153,9 @@ final class AccountSessionCoordinatorTests: XCTestCase {
         await coordinator.start()
 
         XCTAssertEqual(coordinator.launchState, .finishingCloudSetup)
-        XCTAssertTrue(coordinator.launchState.isRetryable)
+        // It clears itself when the import lands, so it offers no Retry:
+        // restarting would discard the setup that already succeeded.
+        XCTAssertFalse(coordinator.launchState.isRetryable)
         XCTAssertFalse(coordinator.hasCompletedInitialPrivateImport)
 
         let session = try XCTUnwrap(coordinator.session)
