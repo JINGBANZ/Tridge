@@ -38,14 +38,18 @@ final class AccountSessionCoordinator {
     /// The coordinator's own mirror of the registry's open generation. Work
     /// applying its result on the main actor checks this, so a value produced
     /// for the previous account cannot land on the current one.
-    private var currentGeneration: AccountGeneration?
+    /// Lifecycle bookkeeping rather than UI state, so none of it is observed.
+    @ObservationIgnored private var currentGeneration: AccountGeneration?
     /// What an invalidated generation still owns: sync observation to end and
     /// stores to release, once the registry has drained.
-    private var retiredGeneration: AccountGeneration?
-    private var retiredSession: AccountSession?
-    private var accountObserver: NSObjectProtocol?
-    private var transitionTask: Task<Void, Never>?
-    private var barrierWatch: Task<Void, Never>?
+    @ObservationIgnored private var retiredGeneration: AccountGeneration?
+    @ObservationIgnored private var retiredSession: AccountSession?
+    /// The `CKAccountChanged` observer token. It lives in a box because
+    /// `deinit` is nonisolated and cannot read a main-actor property — the box
+    /// unregisters itself when the coordinator releases it.
+    @ObservationIgnored private let accountObserver = NotificationObserverToken()
+    @ObservationIgnored private var transitionTask: Task<Void, Never>?
+    @ObservationIgnored private var barrierWatch: Task<Void, Never>?
 
     init(identity: any AccountIdentityProviding = CloudKitAccountIdentity(),
          syncMonitor: any SyncStatusProviding,
@@ -58,12 +62,6 @@ final class AccountSessionCoordinator {
         self.tasks = tasks
         self.barrier = barrier
         self.makePersistence = makePersistence
-    }
-
-    deinit {
-        if let accountObserver {
-            NotificationCenter.default.removeObserver(accountObserver)
-        }
     }
 
     static let loadCloudKitStack: @Sendable (AccountScopeHash) async throws -> PersistenceController = {
@@ -86,8 +84,8 @@ final class AccountSessionCoordinator {
     /// Begins observing `CKAccountChanged`. Separate from `start()` so tests
     /// can drive transitions deterministically.
     func observeAccountChanges() {
-        guard accountObserver == nil else { return }
-        accountObserver = NotificationCenter.default.addObserver(
+        guard !accountObserver.isRegistered else { return }
+        accountObserver.value = NotificationCenter.default.addObserver(
             forName: .CKAccountChanged, object: nil, queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.accountDidChange() }
@@ -277,5 +275,24 @@ final class AccountSessionCoordinator {
                                     privateStoreIdentifier: context.privateStoreIdentifier)
         hasCompletedInitialPrivateImport = true
         if launchState == .finishingCloudSetup { launchState = .ready }
+    }
+}
+
+/// Holds one `NotificationCenter` observer token and unregisters it when
+/// released, so an owner isolated to an actor does not need a `deinit` that
+/// reaches into its own isolated state.
+final class NotificationObserverToken: @unchecked Sendable {
+    private let lock = NSLock()
+    private var token: NSObjectProtocol?
+
+    var value: NSObjectProtocol? {
+        get { lock.withLock { token } }
+        set { lock.withLock { token = newValue } }
+    }
+
+    var isRegistered: Bool { value != nil }
+
+    deinit {
+        if let token { NotificationCenter.default.removeObserver(token) }
     }
 }
