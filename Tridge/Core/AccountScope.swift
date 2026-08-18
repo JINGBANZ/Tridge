@@ -25,8 +25,11 @@ public struct AccountScopeHash: Hashable, Sendable {
     public let value: String
 
     public init?(digest: String) {
-        guard digest.count == 64,
-              digest.allSatisfy({ ("0"..."9").contains($0) || ("a"..."f").contains($0) })
+        // Bytes, not characters: `Character` counts grapheme clusters and
+        // compares canonically, so "b" plus a combining acute would pass both a
+        // length check and an "a"..."f" range check.
+        guard digest.utf8.count == 64,
+              digest.utf8.allSatisfy({ (0x30...0x39).contains($0) || (0x61...0x66).contains($0) })
         else { return nil }
         self.value = digest
     }

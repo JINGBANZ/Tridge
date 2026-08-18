@@ -122,8 +122,8 @@ final class PersistenceControllerTests: XCTestCase {
         try await context.perform {
             let owned = self.makeHousehold(in: context, name: "Owned")
             let received = self.makeHousehold(in: context, name: "Received")
-            StoreRouting.assign([owned], to: controller.privateStore, in: context)
-            StoreRouting.assign([received], to: controller.sharedStore, in: context)
+            try StoreRouting.assign([owned], to: controller.privateStore, in: context)
+            try StoreRouting.assign([received], to: controller.sharedStore, in: context)
             try context.save()
 
             XCTAssertIdentical(StoreRouting.store(of: owned), controller.privateStore)
@@ -139,14 +139,11 @@ final class PersistenceControllerTests: XCTestCase {
 
         try await context.perform {
             let household = self.makeHousehold(in: context, name: "Owned")
-            StoreRouting.assign([household], to: controller.privateStore, in: context)
+            try StoreRouting.assign([household], to: controller.privateStore, in: context)
             try context.save()
 
-            let item = FridgeItemRecord(context: context)
-            item.id = UUID()
-            item.name = "Milk"
-            item.normalizedName = NameKey.normalize("Milk")
-            StoreRouting.assign([item], to: controller.sharedStore, in: context)
+            let item = self.makeItem(in: context, name: "Milk")
+            try StoreRouting.assign([item], to: controller.sharedStore, in: context)
             try context.save()
 
             XCTAssertThrowsError(
@@ -156,6 +153,39 @@ final class PersistenceControllerTests: XCTestCase {
             }
             XCTAssertNoThrow(try StoreRouting.validate([item], belongTo: controller.sharedStore))
         }
+    }
+
+    func testAMisroutedChildIsCaughtInsideTheTransactionThatInsertedIt() async throws {
+        // The repository inserts and saves once, so both objects are new. A
+        // temporary id has no store, so assignment resolves ids immediately —
+        // otherwise this cross-store link would only surface as an uncatchable
+        // exception at save time.
+        let controller = try await makeController(for: scope())
+        let context = controller.newWriterContext()
+
+        try await context.perform {
+            let household = self.makeHousehold(in: context, name: "Owned")
+            let item = self.makeItem(in: context, name: "Milk")
+            try StoreRouting.assign([household], to: controller.privateStore, in: context)
+            try StoreRouting.assign([item], to: controller.sharedStore, in: context)
+
+            XCTAssertThrowsError(
+                try StoreRouting.validate([item], belongTo: controller.privateStore)
+            ) { error in
+                XCTAssertEqual(error as? StoreRoutingError, .crossStoreRelationship)
+            }
+            context.delete(item)
+        }
+    }
+
+    private func makeItem(in context: NSManagedObjectContext, name: String) -> FridgeItemRecord {
+        let item = FridgeItemRecord(context: context)
+        item.id = UUID()
+        item.name = name
+        item.normalizedName = NameKey.normalize(name)
+        item.createdAt = Date()
+        item.modifiedAt = item.createdAt
+        return item
     }
 
     private func makeHousehold(in context: NSManagedObjectContext, name: String) -> HouseholdRecord {

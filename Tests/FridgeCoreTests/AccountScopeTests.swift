@@ -20,6 +20,9 @@ final class AccountScopeTests: XCTestCase {
         // Unicode digits are numbers too, and they are not hexadecimal.
         XCTAssertNil(AccountScopeHash(digest: String(repeating: "٣", count: 64)))
         XCTAssertNil(AccountScopeHash(digest: String(repeating: "½", count: 64)))
+        // 64 grapheme clusters, 192 bytes: a combining mark sorts inside a...f
+        // and would otherwise reach the file system.
+        XCTAssertNil(AccountScopeHash(digest: String(repeating: "b\u{0301}", count: 64)))
     }
 
     func testARawCloudKitRecordNameCanNeverBecomeAScope() {

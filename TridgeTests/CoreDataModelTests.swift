@@ -7,7 +7,12 @@ import XCTest
 /// changed casually after a field ships. These assertions are the offline
 /// equivalent of `initializeCloudKitSchema`, which needs a real account.
 final class CoreDataModelTests: XCTestCase {
-    private var model: NSManagedObjectModel { TridgeModel.managedObjectModel }
+    private var model: NSManagedObjectModel!
+
+    override func setUpWithError() throws {
+        try super.setUpWithError()
+        model = try XCTUnwrap(TridgeModel.managedObjectModel, "the compiled model is missing")
+    }
 
     private func entity(_ name: String) throws -> NSEntityDescription {
         try XCTUnwrap(model.entitiesByName[name], "missing entity \(name)")

@@ -7,15 +7,15 @@ import CoreData
 enum TridgeModel {
     static let name = "TridgeModel"
 
-    static let managedObjectModel: NSManagedObjectModel = {
+    /// Nil only when the compiled model did not reach the bundle, which is a
+    /// packaging failure rather than a runtime one — it still surfaces as a
+    /// launch state instead of taking the app down.
+    static let managedObjectModel: NSManagedObjectModel? = {
         // The model ships in whichever bundle the record classes ship in, which
         // is the app bundle both at runtime and under the hosted test target.
-        guard let url = Bundle(for: HouseholdRecord.self).url(forResource: name, withExtension: "momd"),
-              let model = NSManagedObjectModel(contentsOf: url)
-        else {
-            preconditionFailure("\(name).momd is missing from the app bundle")
-        }
-        return model
+        guard let url = Bundle(for: HouseholdRecord.self)
+            .url(forResource: name, withExtension: "momd") else { return nil }
+        return NSManagedObjectModel(contentsOf: url)
     }()
 }
 
@@ -87,24 +87,31 @@ final class PersistenceController {
     // MARK: - Launch
 
     static func load(configuration: Configuration) async throws -> PersistenceController {
-        let directory = try accountDirectory(for: configuration)
-        let privateURL = directory
-            .appendingPathComponent(HouseholdDatabaseScope.privateDatabase.storeFileName)
-        let sharedURL = directory
-            .appendingPathComponent(HouseholdDatabaseScope.sharedDatabase.storeFileName)
+        guard let model = TridgeModel.managedObjectModel else {
+            throw LoadError(diagnosticID: "model.missing")
+        }
 
-        let container = NSPersistentCloudKitContainer(
-            name: TridgeModel.name, managedObjectModel: TridgeModel.managedObjectModel)
+        let directory: URL
+        do {
+            directory = try accountDirectory(for: configuration)
+        } catch {
+            // The raw FileManager error carries the account-scoped path in its
+            // userInfo, which must not reach a log or the UI.
+            throw LoadError(diagnosticID: diagnosticID(for: error))
+        }
+
+        let container = NSPersistentCloudKitContainer(name: TridgeModel.name,
+                                                      managedObjectModel: model)
         container.persistentStoreDescriptions = [
-            description(at: privateURL, scope: .privateDatabase, configuration: configuration),
-            description(at: sharedURL, scope: .sharedDatabase, configuration: configuration),
+            description(at: directory, scope: .privateDatabase, configuration: configuration),
+            description(at: directory, scope: .sharedDatabase, configuration: configuration),
         ]
 
         let failures = await loadStores(in: container)
         let coordinator = container.persistentStoreCoordinator
         guard failures.isEmpty,
-              let privateStore = coordinator.persistentStore(for: privateURL),
-              let sharedStore = coordinator.persistentStore(for: sharedURL)
+              let privateStore = store(.privateDatabase, in: coordinator),
+              let sharedStore = store(.sharedDatabase, in: coordinator)
         else {
             // A half-open stack would hold its files against the retry.
             remove(loadedStoresOf: container)
@@ -113,6 +120,16 @@ final class PersistenceController {
 
         return PersistenceController(container: container, privateStore: privateStore,
                                      sharedStore: sharedStore)
+    }
+
+    /// Identifies a loaded store by the file name it was created with rather
+    /// than by URL equality, which a symlinked base directory would break long
+    /// after both stores opened successfully.
+    private static func store(_ scope: HouseholdDatabaseScope,
+                              in coordinator: NSPersistentStoreCoordinator) -> NSPersistentStore? {
+        coordinator.persistentStores.first {
+            $0.url?.lastPathComponent == scope.storeFileName
+        }
     }
 
     /// Releases both stores so a retry — or the next account — can open its own.
@@ -129,9 +146,10 @@ final class PersistenceController {
         return directory
     }
 
-    private static func description(at url: URL, scope: HouseholdDatabaseScope,
+    private static func description(at directory: URL, scope: HouseholdDatabaseScope,
                                     configuration: Configuration) -> NSPersistentStoreDescription {
-        let description = NSPersistentStoreDescription(url: url)
+        let description = NSPersistentStoreDescription(
+            url: directory.appendingPathComponent(scope.storeFileName, isDirectory: false))
         description.setOption(true as NSNumber, forKey: NSPersistentHistoryTrackingKey)
         description.setOption(true as NSNumber,
                               forKey: NSPersistentStoreRemoteChangeNotificationPostOptionKey)
@@ -279,11 +297,17 @@ enum StoreRouting {
     /// Routes every newly inserted object to the Household's resolved store. A
     /// member-created child is assigned to the shared store explicitly; nothing
     /// relies on Core Data picking a default.
+    ///
+    /// Permanent ids are obtained here rather than at save time, because a
+    /// temporary id has no store: without them `validate` would silently pass
+    /// every object a command just inserted — the exact case it exists for.
     static func assign(_ objects: [NSManagedObject], to store: NSPersistentStore,
-                       in context: NSManagedObjectContext) {
-        for object in objects where object.objectID.isTemporaryID {
+                       in context: NSManagedObjectContext) throws {
+        let inserted = objects.filter { $0.objectID.isTemporaryID }
+        for object in inserted {
             context.assign(object, to: store)
         }
+        try context.obtainPermanentIDs(for: inserted)
     }
 
     /// Fails the command when any already-persisted object lives somewhere else.
