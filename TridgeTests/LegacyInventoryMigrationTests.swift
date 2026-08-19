@@ -548,7 +548,9 @@ final class LegacyInventoryImportTests: XCTestCase {
     }
 
     func testAnEmptyArchiveWritesNothing() async throws {
-        XCTAssertEqual(try await controller.importLegacyInventory([], into: householdID), 0)
+        let migrated = try await controller.importLegacyInventory([], into: householdID)
+
+        XCTAssertEqual(migrated, 0)
         XCTAssertEqual(try storedItemCount(), 0)
     }
 }
