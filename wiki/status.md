@@ -23,8 +23,12 @@ Household sharing has an independently reviewed, implementation-ready contract i
 [`household-sharing.md`](./household-sharing.md). Its step-1 pure contracts are implemented and
 Linux-tested in `Tridge/Core/`, and step 2's exact Core Data model, account-scoped two-store stack,
 and capability declarations are in `Tridge/Persistence/` with an Apple-platform `TridgeTests` bundle
-running in macOS CI. The account session, repository, sync, sharing, lifecycle, and legacy-migration
-layers are not built. Its final safety details
+running in macOS CI. The generation-bound account session that owns those stores is now built too
+(`Tridge/App/AccountSessionCoordinator.swift`, `AccountTaskRegistry.swift`,
+`BootstrapBarrierStore.swift`, and `Tridge/Sharing/StoreScopedSyncMonitor.swift`): sync observation
+is prepared before the stores load, both stores load as one registered operation, and an empty
+account cache cannot create `My Fridge` until its first private import succeeds. The repository,
+sharing, lifecycle, and legacy-migration layers are not built. Its final safety details
 stay inside the existing boundaries: Tridge exposes one explicit resumable owner-stop path and no
 management UI, invitation restrictions use minimal system options with secure defaults, explicit
 legacy erasure removes only exact validated remnants, and invitation metadata stays in memory. The
@@ -50,15 +54,16 @@ owner without pretending to enforce that constraint through an offline device lo
 
 ## Next action
 
-Continue household sharing in the fixed order under
-[`household-sharing.md`](./household-sharing.md) → *Implementation sequence*. The stores now open, so
-the next pieces are the account session that owns them — a fresh generation and task registry before
-store construction, sync observation prepared before loading, and the initial-import barrier that
-gates creating `My Fridge` — then the automatic legacy-inventory migration, then step 3's repository
-migration of every inventory path plus lossless duplicate reconciliation and clear epochs →
-store-scoped sync status and history/notifications (including obsolete delivered-alert cleanup) →
-Household/invitation UI → lifecycle/export/deletion → full Gate/CI. Product, architecture, recovery,
-and privacy-boundary decisions are closed there; a coding agent should not redesign them.
+**Household sharing progress is tracked in GitHub issues, not here.** Each step of
+[`household-sharing.md`](./household-sharing.md) → *Implementation sequence* is one ticket carrying
+its own acceptance criteria and `Blocked by` links, so the next action is whichever ticket is open
+and unblocked — find it with `gh issue list --state open --label ready-for-agent` and check its
+blockers. This page describes what exists; the tickets say what to do next and when it is done.
+Close a ticket when its criteria are met, and reference it from the PR.
+
+At the time of writing the frontier is **#61 — Migrate active legacy Inventory without an
+uninstall**, unblocked once #60 lands. Product, architecture, recovery, and privacy-boundary
+decisions are closed in the contract; a coding agent should not redesign them.
 
 Live CloudKit/TestFlight completion has an explicit external release boundary: create/associate
 `iCloud.com.tridge.app` and refresh capabilities/provisioning, supply two iCloud test accounts/
@@ -107,6 +112,24 @@ isolated key.
   desired-vs-scheduled reminder diff (`NotificationPlan.swift`), and the account-scope digest that
   store paths and defaults keys hang from (`AccountScope.swift`). The repository, sharing, and UI
   layers that consume them are not built yet.
+- `Tridge/App/` + `Tridge/Sharing/` — step 2's account session (issue #60):
+  `AccountSession.swift` (the generation and the pre-load/loaded-store contexts every
+  account-bound call carries),
+  `AccountTaskRegistry.swift` (an actor that admits work for one generation, then closes admission,
+  cancels, and **awaits** every operation before its stores may be removed — cancellation alone
+  cannot stop a `context.perform` save), `SyncSession.swift` + `Sharing/StoreScopedSyncMonitor.swift`
+  (observation installed during `prepareSession` before any store load, events buffered until the two
+  loaded identifiers are known, and a completion accepted only when its own start was — so account
+  A's late import cannot settle account B's state), `BootstrapBarrierStore.swift` (the
+  `initialPrivateImportSucceeded` marker, keyed by account scope *and* private-store identifier), and
+  `AccountSessionCoordinator.swift`, which sequences all of it and gates creating `My Fridge` on a
+  successful first private import for an empty cache. `ActiveHouseholdStore.swift` +
+  `Persistence/HouseholdSnapshots.swift` run the deterministic Active Household fallback over
+  validated record snapshots, persist only the account-scoped UUID, and re-run selection when the
+  barrier opens — so a Household that arrives in the first import is selected rather than
+  duplicated. The reducer and registry are Foundation-only and run under Linux `swift test`; the
+  coordinator, monitor, and selection are covered by `TridgeTests`. Nothing consumes the session
+  yet — the repository migration is step 3 (issues #62/#63).
 - `Tridge/Persistence/` — step 2's persistence stack: the CloudKit-compatible model
   (`TridgeModel.xcdatamodeld` + hand-written `ManagedObjects/*Record` classes, with encryption
   enabled on user-content fields before schema promotion) and `PersistenceController.swift`, which
@@ -126,8 +149,11 @@ isolated key.
 - `TridgeTests/` — the Apple-platform bundle for what Linux cannot compile: Core Data model rules
   (optional/defaulted attributes, inverses, delete rules, indexes, the exact CloudKit-encrypted set,
   no constraints or transformables), two isolated stores per account, store assignment and
-  cross-store rejection, retryable load failure, context confinement, and the built app's sharing
-  capabilities. Runs in macOS CI on a simulator.
+  cross-store rejection, retryable load failure, context confinement, the built app's sharing
+  capabilities, the store/generation isolation of `StoreScopedSyncMonitor`, and the coordinator's
+  launch states, bootstrap gate, Active Household selection, and account transition (an account
+  change mid-load releases the stores that generation opened; registered work finishes before its
+  stores are removed). Runs in macOS CI on a simulator.
 - `Tests/ReceiptScanSmokeTests/` — live regression harness: fixture receipt images +
   fuzzy `expected.json` inventories (see its `Fixtures/README.md`), sent through the deployed
   worker via `ProxyLLMService`; local-only — the bearer token comes from the environment or a
@@ -224,11 +250,10 @@ isolated key.
 - Verification of the spec's acceptance checklist on a test build: a local Simulator covers the
   simulator-safe items; the camera items and a live App Attest scan need a TestFlight build on a
   physical iPhone.
-- Household sharing steps 3–8, plus the account session and legacy migration that finish step 2 —
-  specified in [`household-sharing.md`](./household-sharing.md) → *Implementation sequence*: the
-  generation-bound account session and initial-import bootstrap barrier, the repository migration
-  off runtime SwiftData, pre-load/current-store sync-session isolation and per-store history, the
+- Household sharing steps 3–8, plus the legacy migration that finishes step 2 — specified in
+  [`household-sharing.md`](./household-sharing.md) → *Implementation sequence*: the repository
+  migration off runtime SwiftData, per-store persistent history and remote reconciliation, the
   Household/invitation UI, lifecycle and data rights, and the active-inventory migration for
-  existing App Store/TestFlight installations. Steps 1 and 2's model, stores, and capabilities exist
-  (see "Built"); no account session, repository, invite flow, or sync reconciliation does, and the
-  running app still reads and writes SwiftData.
+  existing App Store/TestFlight installations. Steps 1 and 2's model, stores, capabilities, and
+  account session exist (see "Built"); no repository, invite flow, history processing, or
+  reconciliation does, and the running app still reads and writes SwiftData.

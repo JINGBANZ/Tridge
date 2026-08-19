@@ -12,6 +12,15 @@ enum LaunchState: Equatable {
     /// Neither store is exposed. The id is content-free and safe to quote in a
     /// support report.
     case persistenceUnavailable(diagnosticID: String)
+    /// Both stores opened, but this account's cache is empty and its first
+    /// CloudKit import has not succeeded yet. Creating `My Fridge` now would
+    /// duplicate a household that is still arriving.
+    ///
+    /// Like `preparing`, this clears itself: the container keeps importing and
+    /// the coordinator is already waiting on the barrier. It is deliberately
+    /// not `isRetryable`, because restarting would tear down stores that
+    /// opened fine and discard a setup that already succeeded.
+    case finishingCloudSetup
     case ready
 
     init(accountError: AccountIdentityError) {
@@ -29,7 +38,7 @@ enum LaunchState: Equatable {
     /// the Retry control — rather than needing the user to sign in.
     var isRetryable: Bool {
         switch self {
-        case .preparing, .ready: false
+        case .preparing, .finishingCloudSetup, .ready: false
         case .iCloudAccountRequired(let availability): availability.isTransient
         case .persistenceUnavailable: true
         }

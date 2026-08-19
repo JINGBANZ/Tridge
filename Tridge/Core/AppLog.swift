@@ -46,6 +46,9 @@ public enum AppLog {
     public static let scan = LogChannel("scan")
     public static let llm = LogChannel("llm")
     public static let ocr = LogChannel("ocr")
+    /// Household sharing: store lifecycle, sync state, and content-free
+    /// integrity findings. Never a household or item name.
+    public static let household = LogChannel("household")
     /// Key-storage failures only — status codes, never key material.
     public static let keychain = LogChannel("keychain")
 
