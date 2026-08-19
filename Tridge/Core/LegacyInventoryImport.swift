@@ -80,8 +80,14 @@ public enum LegacyInventoryPlanner {
         guard row.purchaseDate.timeIntervalSince1970.isFinite,
               row.expiryDate.timeIntervalSince1970.isFinite
         else { throw corrupt(.invalidInstant) }
+        // A purchase day was stamped with `Date()`, so one outside the range is
+        // corrupt. An expiry day was derived from an unbounded model-guessed
+        // shelf life with no clamp in the shipping build, so one past the range
+        // is a hallucinated number rather than a broken row: clamp it the way
+        // `PurchaseDraft(reviewing:)` clamps the same input today. Failing it
+        // would leave that installation unable to migrate anything, ever.
         guard let purchaseDay = InventoryDay(date: row.purchaseDate, calendar: calendar),
-              let expiryDay = InventoryDay(date: row.expiryDate, calendar: calendar)
+              let expiryDay = representableExpiryDay(row.expiryDate, calendar: calendar)
         else { throw corrupt(.invalidDay) }
 
         // The legacy id becomes both the root id and the acquisition's command
@@ -93,5 +99,16 @@ public enum LegacyInventoryPlanner {
                              purchaseDay: purchaseDay, expiryDay: expiryDay,
                              expirySource: expirySource, explicitMetadataFields: [],
                              occurredAt: row.purchaseDate)
+    }
+
+    /// The expiry day, or the last supported one for a date beyond it. Nil for a
+    /// date before the supported range, which no shipping path can produce.
+    private static func representableExpiryDay(_ date: Date,
+                                               calendar: Calendar) -> InventoryDay? {
+        if let day = InventoryDay(date: date, calendar: calendar) { return day }
+        guard let latest = InventoryDay.latest.startOfDay(in: calendar), date > latest else {
+            return nil
+        }
+        return .latest
     }
 }

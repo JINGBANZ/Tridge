@@ -82,3 +82,55 @@ extension XCTestCase {
         XCTFail("timed out waiting for \(description)", file: file, line: line)
     }
 }
+
+/// An archive whose contents a test controls, so the upgrade can be driven
+/// without a SwiftData store on disk.
+final class FakeLegacyArchive: LegacyInventoryArchiveReading, @unchecked Sendable {
+    private let lock = NSLock()
+    private var _rows: [LegacyInventoryRow]
+    private var _exists: Bool
+    private var _readFailure: Error?
+    private var _readCount = 0
+
+    init(rows: [LegacyInventoryRow], exists: Bool = true) {
+        self._rows = rows
+        self._exists = exists
+    }
+
+    /// The active rows the reader would return.
+    var rows: [LegacyInventoryRow] {
+        get { lock.withLock { _rows } }
+        set { lock.withLock { _rows = newValue } }
+    }
+
+    var exists: Bool {
+        get { lock.withLock { _exists } }
+        set { lock.withLock { _exists = newValue } }
+    }
+
+    var readFailure: Error? {
+        get { lock.withLock { _readFailure } }
+        set { lock.withLock { _readFailure = newValue } }
+    }
+
+    var readCount: Int { lock.withLock { _readCount } }
+
+    func readActiveRows() throws -> [LegacyInventoryRow] {
+        try lock.withLock {
+            _readCount += 1
+            if let _readFailure { throw _readFailure }
+            return _rows
+        }
+    }
+}
+
+final class RecordingLegacyEffects: LegacyEffectsCleaning, @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+
+    var clearCount: Int { lock.withLock { count } }
+
+    func clearScheduledAndDeliveredNotifications() {
+        lock.withLock { count += 1 }
+    }
+}

@@ -379,13 +379,36 @@ final class LegacyInventoryMigrationTests: XCTestCase {
         XCTAssertEqual(defaults.string(forKey: "appAttest.keyID"), "attest-key")
     }
 
-    func testAFreshInstallationMigratesNothingAndShowsNoNotice() async throws {
+    /// A store file exists on a fresh installation too — the app's own SwiftData
+    /// container creates it at first launch — so "there is a file" is not
+    /// evidence that a fridge moved. Nothing moved, so nothing is explained.
+    func testAnArchiveWithNoActiveRowsMovesNothingAndShowsNoNotice() async throws {
+        archive.rows = []
+
+        try await startAndBootstrap()
+        await awaitMigration()
+
+        let session = try XCTUnwrap(coordinator.session)
+        XCTAssertTrue(try migratedRows(in: session.persistence).isEmpty)
+        XCTAssertFalse(coordinator.showsMigrationNotice)
+        XCTAssertNil(coordinator.legacyMigrationFailure)
+        // Settled, not pending: the archive is not re-read on every later launch.
+        XCTAssertTrue(markers.hasMigratedLegacyInventory)
+        await waitUntil("the upgrade to finish") { self.markers.isOnCurrentPersistenceGeneration }
+
+        await coordinator.shutDown()
+        coordinator = makeCoordinator()
+        XCTAssertFalse(coordinator.showsMigrationNotice, "an empty archive raised a notice")
+    }
+
+    func testAnInstallationWithNoArchiveAtAllMigratesNothing() async throws {
         archive.exists = false
 
         try await startAndBootstrap()
 
         let session = try XCTUnwrap(coordinator.session)
         XCTAssertTrue(try migratedRows(in: session.persistence).isEmpty)
+        XCTAssertEqual(archive.readCount, 0)
         XCTAssertFalse(coordinator.showsMigrationNotice)
         XCTAssertFalse(markers.hasMigratedLegacyInventory)
         // The stack is still on the current generation: nothing is outstanding.
@@ -610,57 +633,5 @@ final class LegacyInventoryArchiveTests: XCTestCase {
     }
 }
 
-// MARK: - Fakes
-
+/// Stands in for a seeded record a helper could not read back.
 private struct MissingSeededRecord: Error {}
-
-/// An archive whose contents a test controls, so the upgrade can be driven
-/// without a SwiftData store on disk.
-final class FakeLegacyArchive: LegacyInventoryArchiveReading, @unchecked Sendable {
-    private let lock = NSLock()
-    private var _rows: [LegacyInventoryRow]
-    private var _exists = true
-    private var _readFailure: Error?
-    private var _readCount = 0
-
-    init(rows: [LegacyInventoryRow]) {
-        self._rows = rows
-    }
-
-    /// The active rows the reader would return.
-    var rows: [LegacyInventoryRow] {
-        get { lock.withLock { _rows } }
-        set { lock.withLock { _rows = newValue } }
-    }
-
-    var exists: Bool {
-        get { lock.withLock { _exists } }
-        set { lock.withLock { _exists = newValue } }
-    }
-
-    var readFailure: Error? {
-        get { lock.withLock { _readFailure } }
-        set { lock.withLock { _readFailure = newValue } }
-    }
-
-    var readCount: Int { lock.withLock { _readCount } }
-
-    func readActiveRows() throws -> [LegacyInventoryRow] {
-        try lock.withLock {
-            _readCount += 1
-            if let _readFailure { throw _readFailure }
-            return _rows
-        }
-    }
-}
-
-final class RecordingLegacyEffects: LegacyEffectsCleaning, @unchecked Sendable {
-    private let lock = NSLock()
-    private var count = 0
-
-    var clearCount: Int { lock.withLock { count } }
-
-    func clearScheduledAndDeliveredNotifications() {
-        lock.withLock { count += 1 }
-    }
-}

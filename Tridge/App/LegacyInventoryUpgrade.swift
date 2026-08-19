@@ -82,15 +82,25 @@ struct LegacyInventoryUpgrade {
     ///
     /// The migration is recorded only after the write can be refetched, so a
     /// crash between the two repeats the idempotent write rather than retiring
-    /// an archive that never landed. Returns how many rows this attempt wrote.
+    /// an archive that never landed. Returns how many rows the archive had to
+    /// move, which is stable across retries — unlike how many this attempt
+    /// happened to insert.
     func migrate(into householdID: UUID, accountScope: AccountScopeHash,
                  using controller: PersistenceController) async throws -> Int {
         do {
             let rows = try archive.readActiveRows()
             let drafts = try LegacyInventoryPlanner.plan(rows, calendar: calendar())
-            let migrated = try await controller.importLegacyInventory(drafts, into: householdID)
+            _ = try await controller.importLegacyInventory(drafts, into: householdID)
             markers.recordLegacyMigration(accountScope: accountScope, householdID: householdID)
-            return migrated
+            if drafts.isEmpty {
+                // Nothing moved, so there is nothing to explain. Settling the
+                // notice here rather than leaving it pending is what keeps a
+                // fresh installation — whose store file exists because the app
+                // created it, not because it holds a legacy fridge — from being
+                // told its fridge was moved.
+                markers.recordMigrationNoticeAcknowledgement()
+            }
+            return drafts.count
         } catch {
             throw LegacyMigrationFailure(error)
         }

@@ -131,10 +131,26 @@ final class LegacyInventoryPlannerTests: XCTestCase {
         assertCorrupt(.invalidInstant, [row(expiryDate: Date(timeIntervalSince1970: .infinity))])
     }
 
-    func testADayOutsideTheSupportedCivilRangeIsCorrupt() {
+    /// The shipping build derived expiry from an unbounded `shelf_life_days`
+    /// with no clamp, so a hallucinated shelf life really can sit past the
+    /// supported range. Clamping keeps the row — failing it would leave that
+    /// installation unable to migrate anything, ever.
+    func testAnExpiryPastTheSupportedRangeIsClampedRatherThanRejected() throws {
         // Year 10000, one day past the supported range.
         let farFuture = Date(timeIntervalSince1970: 253_402_300_800)
-        assertCorrupt(.invalidDay, [row(expiryDate: farFuture)])
+
+        let drafts = try LegacyInventoryPlanner.plan([row(expiryDate: farFuture)],
+                                                     calendar: calendar)
+
+        XCTAssertEqual(drafts.first?.expiryDay, .latest)
+        XCTAssertEqual(drafts.first?.purchaseDay, InventoryDay(year: 2026, month: 8, day: 19))
+    }
+
+    /// A purchase day cannot come from a model guess — the shipping build
+    /// stamped it with `Date()` — so an unrepresentable one is corrupt data.
+    func testAPurchaseDayOutsideTheSupportedRangeIsCorrupt() {
+        let farFuture = Date(timeIntervalSince1970: 253_402_300_800)
+        assertCorrupt(.invalidDay, [row(purchaseDate: farFuture)])
     }
 
     /// Two rows claiming one identity would write two records under one id.

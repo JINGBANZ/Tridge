@@ -31,6 +31,12 @@ final class AccountSessionCoordinatorTests: XCTestCase {
             identity: identity, syncMonitor: monitor,
             barrier: BootstrapBarrierStore(defaults: defaults),
             activeHouseholds: ActiveHouseholdStore(defaults: defaults),
+            // Every dependency is suite-scoped, including the upgrade: the
+            // production one would clear the test host's real notifications and
+            // write its markers into standard defaults this suite never cleans.
+            upgrade: LegacyInventoryUpgrade(archive: FakeLegacyArchive(rows: [], exists: false),
+                                            markers: UpgradeMarkers(defaults: defaults),
+                                            effects: RecordingLegacyEffects()),
             makePersistence: loader.closure)
     }
 
