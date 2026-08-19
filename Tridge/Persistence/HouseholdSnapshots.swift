@@ -33,6 +33,42 @@ extension HouseholdRecord {
     }
 }
 
+extension HouseholdClearRecord {
+    /// The validated value form the Linux-testable epoch reducer works with.
+    func event() throws -> HouseholdClearEvent {
+        let id = self.id ?? HouseholdRecord.unidentifiable
+        func corrupt(_ category: RecordIntegrityIssue.Category) -> RecordIntegrityIssue {
+            RecordIntegrityIssue(entity: .householdClear, id: id, category: category)
+        }
+
+        guard self.id != nil, let epochID, let occurredAt else { throw corrupt(.missingValue) }
+        guard let raw = parentEpochIDsRaw, let parents = InventoryEpochCodec.decode(raw) else {
+            throw corrupt(.invalidContext)
+        }
+        guard occurredAt.timeIntervalSince1970.isFinite else { throw corrupt(.invalidInstant) }
+        return HouseholdClearEvent(id: id, epochID: epochID, parentEpochIDs: parents,
+                                   revision: revision, occurredAt: occurredAt)
+    }
+}
+
+extension HouseholdRecord {
+    /// The complete causal frontier a new purchase root must capture, so a
+    /// concurrent Clear All can judge it by context rather than by clock.
+    ///
+    /// A corrupt clear record is dropped rather than allowed to suppress
+    /// otherwise valid inventory — the reducer treats the ones it can read as
+    /// the whole graph.
+    func inventoryFrontier() throws -> Set<UUID> {
+        guard let initialInventoryEpochID else {
+            throw RecordIntegrityIssue(entity: .household, id: id ?? Self.unidentifiable,
+                                       category: .invalidContext)
+        }
+        let clears = clearEvents.compactMap { try? $0.event() }
+        return InventoryEpochReducer.reduce(initialEpochID: initialInventoryEpochID,
+                                            clears: clears).frontier
+    }
+}
+
 extension PersistenceController {
     /// Creates this account's first owned Household in the private store.
     ///

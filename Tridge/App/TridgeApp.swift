@@ -7,7 +7,16 @@ struct TridgeApp: App {
 
     init() {
         do {
-            container = try ModelContainer(for: FridgeItem.self)
+            // The sharing build added the iCloud entitlement, and SwiftData's
+            // default `.automatic` would take that as permission to mirror this
+            // store — receipt text included — into the container the Core Data
+            // sharing stack owns. It stays local: the archive is only ever read
+            // by the one-time upgrade (wiki/household-sharing.md → "Upgrade from
+            // the shipping build"). Everything else about the configuration is
+            // the default, so the store URL is unchanged.
+            let configuration = ModelConfiguration(schema: Schema([FridgeItem.self]),
+                                                   cloudKitDatabase: .none)
+            container = try ModelContainer(for: FridgeItem.self, configurations: configuration)
         } catch {
             fatalError("Could not create the model container: \(error)")
         }
