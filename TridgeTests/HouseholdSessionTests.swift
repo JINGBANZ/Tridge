@@ -79,11 +79,12 @@ final class HouseholdSessionTests: XCTestCase {
         // Captured into a local: the closure is `@Sendable`, and this suite's
         // statics are main-actor isolated.
         let day = Self.today
+        let backing: any InventoryRepository = repository
+            ?? CoreDataInventoryRepository(persistence: controller, capabilities: capabilities)
         return HouseholdSession(
             householdID: householdID ?? self.householdID,
             accountContext: accountContext,
-            repository: repository ?? CoreDataInventoryRepository(persistence: controller,
-                                                                  capabilities: capabilities),
+            repository: backing,
             reconciler: DuplicateReconciler(persistence: controller, capabilities: capabilities),
             tasks: tasks,
             today: { day })
