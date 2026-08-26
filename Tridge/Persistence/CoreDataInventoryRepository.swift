@@ -133,32 +133,42 @@ final class CoreDataInventoryRepository: InventoryRepository {
                     throw InventoryRepositoryError.unreadableFrontier
                 }
 
+                // What this command still has to write, decided before anything
+                // is planned: a row it already landed is in the projection
+                // below, so planning it again would count its stock a second
+                // time and could refuse a legitimate retry as an overflow the
+                // fridge does not actually have.
+                var pending: [PurchaseDraft] = []
+                for draft in rows {
+                    if try Self.needsWriting(draft, in: household, store: store,
+                                             context: context) {
+                        pending.append(draft)
+                    }
+                }
+                guard !pending.isEmpty else {
+                    // Every row of this command already landed: an identical retry
+                    // is a no-op, not a second purchase.
+                    return HouseholdProjector.project(household, today: today)
+                }
+
                 // Planned against what the Household projects *now*, so a same-name
                 // purchase copies the established metadata instead of restamping a
                 // scan guess over it (ADR 0011). Planning also refuses a row that
                 // would push its group past the representable total, before any
                 // record is inserted.
                 let plans = try PurchasePlanner.plan(
-                    rows: rows,
+                    rows: pending,
                     in: HouseholdProjector.project(household, today: today).items,
                     today: today)
 
                 var inserted: [NSManagedObject] = []
                 var written: [(draft: PurchaseDraft, plan: PurchasePlan)] = []
-                for (draft, plan) in zip(rows, plans) {
-                    guard try Self.needsWriting(draft, in: household, store: store,
-                                                context: context)
-                    else { continue }
+                for (draft, plan) in zip(pending, plans) {
                     inserted.append(contentsOf: Self.insert(draft, metadata: plan.rootMetadata,
                                                             into: household,
                                                             inventoryEpochContextRaw: contextRaw,
                                                             in: context))
                     written.append((draft, plan))
-                }
-                guard !inserted.isEmpty else {
-                    // Every row of this command already landed: an identical retry
-                    // is a no-op, not a second purchase.
-                    return HouseholdProjector.project(household, today: today)
                 }
 
                 try StoreRouting.assign(inserted, to: store, in: context)

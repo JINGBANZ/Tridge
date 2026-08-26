@@ -336,6 +336,34 @@ final class InventoryRepositoryTests: XCTestCase {
         XCTAssertEqual(roots.map(\.deltas), [[2], [12]])
     }
 
+    /// A retry replays rows that already landed, and their stock is already in
+    /// the projection the planner reads. Counting it a second time would refuse
+    /// a legitimate retry as an overflow the fridge does not have, when an
+    /// identical retry has to be a no-op.
+    func testAnIdenticalRetryOfALargePurchaseIsStillANoOp() async throws {
+        let rice = draft("Rice", id: Self.id(1), stockChangeID: Self.id(11), quantity: .max)
+        try await addManual(rice)
+
+        let replayed = try await addManual(rice)
+
+        XCTAssertEqual(try storedRoots().map(\.id), [Self.id(1)])
+        XCTAssertEqual(replayed.items.map(\.quantity), [.max])
+    }
+
+    /// The same double count across a partial retry: the row that landed and the
+    /// row that did not total exactly the representable maximum, which is a
+    /// purchase the contract accepts.
+    func testAPartialRetryDoesNotCountTheLandedRowTwice() async throws {
+        let landed = draft("Rice", id: Self.id(1), stockChangeID: Self.id(11), quantity: .max - 1)
+        let missing = draft("rice", id: Self.id(2), stockChangeID: Self.id(12), quantity: 1)
+        try await addManual(landed)
+
+        let projection = try await addRows([landed, missing])
+
+        XCTAssertEqual(try storedRoots().map(\.id), [Self.id(1), Self.id(2)])
+        XCTAssertEqual(projection.items.map(\.quantity), [.max])
+    }
+
     /// A double-tap on Confirm submits one preallocated draft twice before the
     /// first save returns. Each command opens its own writer context, so
     /// nothing in Core Data orders their duplicate checks: unserialized, both
