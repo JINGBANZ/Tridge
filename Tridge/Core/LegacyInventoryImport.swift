@@ -62,6 +62,10 @@ public enum LegacyInventoryPlanner {
             RecordIntegrityIssue(entity: .item, id: row.id, category: category)
         }
 
+        // A nameless row is corrupt, not skippable: the name is the item's
+        // identity here and is immutable once saved, so there is nothing to
+        // migrate it as. Archives are taken to have none — inventing a
+        // placeholder would save a name the user could never change.
         guard !NameKey.normalize(row.name).isEmpty else { throw corrupt(.invalidName) }
         // The shipping build flips status to eaten/tossed at the last unit, so
         // an active row can only carry a positive quantity.
