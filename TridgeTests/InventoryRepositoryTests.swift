@@ -416,6 +416,18 @@ final class InventoryRepositoryTests: XCTestCase {
                        "a date the user chose is never overwritten by a later guess")
     }
 
+    /// The same rule on the purchase that establishes the item: there is no
+    /// canonical member to edit yet, so the root itself is what has to record
+    /// that the date came from the user rather than from the model (ADR 0011).
+    func testAFirstPurchasePersistsAnEditedExpiryDayAsUserSet() async throws {
+        try await addManual(draft("Whole Milk", id: Self.id(1), expiresInDays: 12,
+                                  explicit: [.expiryDay]))
+
+        let root = try XCTUnwrap(try storedRoots().first)
+        XCTAssertEqual(root.expiryDay, Self.today.adding(days: 12)!.ordinal)
+        XCTAssertEqual(root.expirySourceRaw, ExpirySource.userSet.rawValue)
+    }
+
     func testTwoSameNameRowsInOneReceiptEstablishMetadataOnce() async throws {
         let projection = try await addRows([
             draft("Whole Milk", id: Self.id(1), quantity: 2, art: .milk, expiresInDays: 5),

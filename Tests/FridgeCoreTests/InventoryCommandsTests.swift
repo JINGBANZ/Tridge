@@ -212,6 +212,25 @@ final class PurchasePlannerTests: XCTestCase {
         XCTAssertNil(plan.canonicalEdit)
     }
 
+    /// A date the user chose in Review or manual add is trusted even when the
+    /// purchase establishes the item: the plan has no canonical edit to carry
+    /// that intent, so the stamped source is the only thing that records it, and
+    /// a `.llmEstimate` source would leave a later guess free to overwrite it
+    /// (ADR 0011).
+    func testAFirstPurchaseStampsAnEditedExpiryDayAsUserSet() {
+        let edited = draft(explicit: [.expiryDay])
+        let plan = PurchasePlanner.plan(for: edited, matching: nil)
+
+        XCTAssertEqual(plan.rootMetadata.expiryDay, edited.expiryDay)
+        XCTAssertEqual(plan.rootMetadata.expirySource, .userSet)
+    }
+
+    func testAFirstPurchaseLeavesAnUntouchedGuessEstimated() {
+        let plan = PurchasePlanner.plan(for: draft(explicit: [.art, .storage]), matching: nil)
+
+        XCTAssertEqual(plan.rootMetadata.expirySource, .llmEstimate)
+    }
+
     func testASameNamePurchaseCopiesEstablishedCanonicalMetadata() {
         // A scan guess must not overwrite what the item already shows.
         let established = existing(name: "Milk", art: .milk, storage: .fridge)

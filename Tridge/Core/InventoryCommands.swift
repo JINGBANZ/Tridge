@@ -397,12 +397,21 @@ public enum PurchasePlanner {
     public static func plan(for draft: PurchaseDraft,
                             matching existing: InventoryItemSnapshot?) -> PurchasePlan {
         guard let existing else {
+            // A first purchase establishes the metadata itself, so it has no
+            // canonical edit to carry the user's intent — the source it stamps
+            // is the only record of it. `explicitMetadataFields` is what says
+            // the user chose this date instead of accepting the guess, and a
+            // date the user chose is never overwritten by a later model guess
+            // (ADR 0011).
+            let expirySource: ExpirySource = draft.explicitMetadataFields.contains(.expiryDay)
+                ? .userSet
+                : draft.expirySource
             return PurchasePlan(
                 rootMetadata: PurchaseRootMetadata(name: draft.name, artKey: draft.artKey,
                                                    storage: draft.storage,
                                                    purchaseDay: draft.purchaseDay,
                                                    expiryDay: draft.expiryDay,
-                                                   expirySource: draft.expirySource),
+                                                   expirySource: expirySource),
                 canonicalEdit: nil)
         }
 
