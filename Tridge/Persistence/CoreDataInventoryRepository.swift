@@ -62,6 +62,8 @@ protocol InventoryRepository {
 final class CoreDataInventoryRepository: InventoryRepository {
     private let persistence: PersistenceController
     private let capabilities: any StoreCapabilityChecking
+    /// Commands write one at a time — see `CommandTransactions`.
+    private let transactions = CommandTransactions()
 
     init(persistence: PersistenceController,
          capabilities: (any StoreCapabilityChecking)? = nil) {
@@ -104,71 +106,80 @@ final class CoreDataInventoryRepository: InventoryRepository {
     ///
     /// One `perform`, one save: the fresh frontier-stamped roots, their
     /// `acquired` operations, and the metadata edits that land on the resulting
-    /// canonical members are all-or-nothing.
+    /// canonical members are all-or-nothing. The transaction also runs alone,
+    /// because `needsWriting`'s check and the insert it authorizes are only
+    /// atomic within one context.
     private func savePurchases(_ rows: [PurchaseDraft], into householdID: UUID,
                                today: InventoryDay) async throws -> HouseholdProjection {
-        let context = persistence.newWriterContext()
+        let persistence = self.persistence
         let capabilities = self.capabilities
 
-        return try await context.perform {
-            let (household, store) = try self.persistence.resolveHousehold(householdID,
-                                                                          in: context)
-            // Immediately before mutation, per the sharing contract: a stale
-            // capability answer would let the UI report a save CloudKit will
-            // reject.
-            guard capabilities.canModifyManagedObjects(in: store) else {
-                throw InventoryRepositoryError.permissionDenied
-            }
-            guard let frontier = try? household.inventoryFrontier(),
-                  let contextRaw = InventoryEpochCodec.encode(frontier)
-            else {
-                throw InventoryRepositoryError.unreadableFrontier
-            }
+        return try await transactions.run {
+            // Opened inside the serialized transaction, so its very first fetch
+            // already sees whatever the command before it saved.
+            let context = persistence.newWriterContext()
+            return try await context.perform {
+                let (household, store) = try persistence.resolveHousehold(householdID,
+                                                                         in: context)
+                // Immediately before mutation, per the sharing contract: a stale
+                // capability answer would let the UI report a save CloudKit will
+                // reject.
+                guard capabilities.canModifyManagedObjects(in: store) else {
+                    throw InventoryRepositoryError.permissionDenied
+                }
+                guard let frontier = try? household.inventoryFrontier(),
+                      let contextRaw = InventoryEpochCodec.encode(frontier)
+                else {
+                    throw InventoryRepositoryError.unreadableFrontier
+                }
 
-            // Planned against what the Household projects *now*, so a same-name
-            // purchase copies the established metadata instead of restamping a
-            // scan guess over it (ADR 0011). Planning also refuses a row that
-            // would push its group past the representable total, before any
-            // record is inserted.
-            let plans = try PurchasePlanner.plan(
-                rows: rows,
-                in: HouseholdProjector.project(household, today: today).items,
-                today: today)
+                // Planned against what the Household projects *now*, so a same-name
+                // purchase copies the established metadata instead of restamping a
+                // scan guess over it (ADR 0011). Planning also refuses a row that
+                // would push its group past the representable total, before any
+                // record is inserted.
+                let plans = try PurchasePlanner.plan(
+                    rows: rows,
+                    in: HouseholdProjector.project(household, today: today).items,
+                    today: today)
 
-            var inserted: [NSManagedObject] = []
-            var written: [(draft: PurchaseDraft, plan: PurchasePlan)] = []
-            for (draft, plan) in zip(rows, plans) {
-                guard try Self.needsWriting(draft, in: household, store: store, context: context)
-                else { continue }
-                inserted.append(contentsOf: Self.insert(draft, metadata: plan.rootMetadata,
-                                                        into: household,
-                                                        inventoryEpochContextRaw: contextRaw,
-                                                        in: context))
-                written.append((draft, plan))
-            }
-            guard !inserted.isEmpty else {
-                // Every row of this command already landed: an identical retry
-                // is a no-op, not a second purchase.
+                var inserted: [NSManagedObject] = []
+                var written: [(draft: PurchaseDraft, plan: PurchasePlan)] = []
+                for (draft, plan) in zip(rows, plans) {
+                    guard try Self.needsWriting(draft, in: household, store: store,
+                                                context: context)
+                    else { continue }
+                    inserted.append(contentsOf: Self.insert(draft, metadata: plan.rootMetadata,
+                                                            into: household,
+                                                            inventoryEpochContextRaw: contextRaw,
+                                                            in: context))
+                    written.append((draft, plan))
+                }
+                guard !inserted.isEmpty else {
+                    // Every row of this command already landed: an identical retry
+                    // is a no-op, not a second purchase.
+                    return HouseholdProjector.project(household, today: today)
+                }
+
+                try StoreRouting.assign(inserted, to: store, in: context)
+                try StoreRouting.validate(inserted + [household as NSManagedObject],
+                                          belongTo: store)
+
+                // The canonical member is only knowable once the new roots exist and
+                // the projector has linked them, so deliberate edits are applied
+                // after insertion and still inside this one transaction.
+                let projection = HouseholdProjector.project(household, today: today)
+                try Self.applyCanonicalEdits(written, in: projection, of: household,
+                                             capabilities: capabilities)
+
+                do {
+                    try context.save()
+                } catch {
+                    throw InventoryRepositoryError.saveFailed(
+                        diagnosticID: "purchase.save.\(Self.errorCode(error))")
+                }
                 return HouseholdProjector.project(household, today: today)
             }
-
-            try StoreRouting.assign(inserted, to: store, in: context)
-            try StoreRouting.validate(inserted + [household as NSManagedObject], belongTo: store)
-
-            // The canonical member is only knowable once the new roots exist and
-            // the projector has linked them, so deliberate edits are applied
-            // after insertion and still inside this one transaction.
-            try Self.applyCanonicalEdits(written,
-                                         in: HouseholdProjector.project(household, today: today),
-                                         of: household, capabilities: capabilities)
-
-            do {
-                try context.save()
-            } catch {
-                throw InventoryRepositoryError.saveFailed(
-                    diagnosticID: "purchase.save.\(Self.errorCode(error))")
-            }
-            return HouseholdProjector.project(household, today: today)
         }
     }
 
@@ -280,5 +291,38 @@ final class CoreDataInventoryRepository: InventoryRepository {
     private static func errorCode(_ error: Error) -> String {
         let details = error as NSError
         return "\(details.domain).\(details.code)"
+    }
+}
+
+/// Runs the repository's command transactions one at a time.
+///
+/// Each command opens its own writer context, and Core Data orders nothing
+/// between two of them: a preallocated draft submitted twice — a double-tap on
+/// Confirm, or a resume racing the save it was resuming — would let both
+/// contexts fetch no existing operation and then insert the same item and
+/// StockChange ids. Nothing downstream can undo that. The model carries no
+/// uniqueness constraint to catch it at save time, because CloudKit forbids
+/// one, and a duplicate physical root is permanent and exportable.
+///
+/// So the check and the insert it authorizes are made atomic the only way that
+/// spans contexts: the next transaction starts after the previous one has
+/// saved, which is exactly when its retry check can see that save.
+private actor CommandTransactions {
+    /// The last transaction admitted, whatever its outcome.
+    private var tail: Task<Void, Never>?
+
+    func run<T: Sendable>(
+        _ transaction: @escaping @Sendable () async throws -> T
+    ) async throws -> T {
+        let previous = tail
+        let task = Task<T, Error> {
+            if let previous { await previous.value }
+            return try await transaction()
+        }
+        // The chain records completion only, so a refused command cannot fail
+        // the one behind it — and it is set before the first suspension, so two
+        // callers cannot chain onto the same predecessor.
+        tail = Task { _ = try? await task.value }
+        return try await task.value
     }
 }

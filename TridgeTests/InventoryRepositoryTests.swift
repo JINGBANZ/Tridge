@@ -336,6 +336,31 @@ final class InventoryRepositoryTests: XCTestCase {
         XCTAssertEqual(roots.map(\.deltas), [[2], [12]])
     }
 
+    /// A double-tap on Confirm submits one preallocated draft twice before the
+    /// first save returns. Each command opens its own writer context, so
+    /// nothing in Core Data orders their duplicate checks: unserialized, both
+    /// see no existing operation and insert the same item and StockChange ids,
+    /// which no uniqueness constraint can catch because CloudKit forbids them.
+    func testConcurrentSubmissionsOfOneDraftWriteItOnce() async throws {
+        let probe = OverlapProbe()
+        let probed = CoreDataInventoryRepository(persistence: controller, capabilities: probe)
+        let command = AddManualItemCommand(
+            householdID: householdID, commandID: UUID(),
+            draft: draft("Whole Milk", id: Self.id(1), stockChangeID: Self.id(11), quantity: 2))
+
+        async let first = probed.addManualItem(command, today: Self.today)
+        async let second = probed.addManualItem(command, today: Self.today)
+        let projections = try await [first, second]
+
+        XCTAssertEqual(probe.peakOverlap, 1, "two command transactions overlapped")
+        let roots = try storedRoots()
+        XCTAssertEqual(roots.map(\.id), [Self.id(1)], "the draft was written twice")
+        XCTAssertEqual(roots.map(\.deltas), [[2]])
+        // The second command is the no-op an identical retry always is, and it
+        // still reports the same inventory.
+        XCTAssertEqual(projections.map { $0.items.map(\.quantity) }, [[2], [2]])
+    }
+
     // MARK: - Same-name convergence
 
     func testASameNamePurchaseKeepsBothRootsAndProjectsOneRow() async throws {
@@ -658,4 +683,29 @@ final class InventoryRepositoryTests: XCTestCase {
 /// The seeded record a helper expected is not there — a bug in the test, not
 /// in the repository.
 private struct MissingRecord: Error {}
+
+/// Counts how many command transactions are inside the repository at once, and
+/// holds each one open long enough that an unserialized second submission
+/// really does reach its duplicate check before the first saves.
+private final class OverlapProbe: StoreCapabilityChecking, @unchecked Sendable {
+    private let lock = NSLock()
+    private var active = 0
+    private var peak = 0
+
+    var peakOverlap: Int { lock.withLock { peak } }
+
+    func canModifyManagedObjects(in store: NSPersistentStore) -> Bool {
+        lock.withLock {
+            active += 1
+            peak = max(peak, active)
+        }
+        // On the writer context's own queue, so this delays only this
+        // transaction — which is the point.
+        Thread.sleep(forTimeInterval: 0.05)
+        lock.withLock { active -= 1 }
+        return true
+    }
+
+    func canUpdateRecord(forManagedObjectWith objectID: NSManagedObjectID) -> Bool { true }
+}
 
