@@ -74,12 +74,13 @@ final class LegacyInventoryMigrationTests: XCTestCase {
     private static func row(id: UUID = UUID(), name: String, quantity: Int = 1,
                             artKey: String = ItemID.milk.rawValue,
                             storageRaw: String = StorageLocation.fridge.rawValue,
-                            expirySourceRaw: String = ExpirySource.llmEstimate.rawValue)
+                            expirySourceRaw: String = ExpirySource.llmEstimate.rawValue,
+                            purchaseDate: Date = purchaseInstant,
+                            expiryDate: Date = purchaseInstant.addingTimeInterval(5 * 86_400))
     -> LegacyInventoryRow {
         LegacyInventoryRow(id: id, name: name, artKey: artKey, quantity: quantity,
-                           storageRaw: storageRaw, purchaseDate: purchaseInstant,
-                           expiryDate: purchaseInstant.addingTimeInterval(5 * 86_400),
-                           expirySourceRaw: expirySourceRaw)
+                           storageRaw: storageRaw, purchaseDate: purchaseDate,
+                           expiryDate: expiryDate, expirySourceRaw: expirySourceRaw)
     }
 
     /// Emits the setup and import a store reports on its first successful sync.
@@ -280,22 +281,29 @@ final class LegacyInventoryMigrationTests: XCTestCase {
     func testSameNameMigratedRowsGetADurableMergeClaim() async throws {
         let first = UUID()
         let second = UUID()
-        archive.rows = [Self.row(id: first, name: "Whole Milk", quantity: 2),
-                        Self.row(id: second, name: "whole milk", quantity: 1)]
+        // Dated against the real clock rather than the suite's fixed instant:
+        // the session reduces with `InventoryDay.today()`, and an exact-name
+        // link is only inferred between groups that are both unexpired.
+        let purchased = Date()
+        let expiring = purchased.addingTimeInterval(30 * 86_400)
+        archive.rows = [Self.row(id: first, name: "Whole Milk", quantity: 2,
+                                 purchaseDate: purchased, expiryDate: expiring),
+                        Self.row(id: second, name: "whole milk", quantity: 1,
+                                 purchaseDate: purchased, expiryDate: expiring)]
 
         try await startAndBootstrap()
         await awaitMigration()
 
         XCTAssertNil(coordinator.legacyMigrationFailure)
         let session = try XCTUnwrap(coordinator.session)
+        await waitUntil("the migrated rows to project as one logical item") {
+            self.coordinator.inventory?.items.map(\.quantity) == [3]
+        }
         await waitUntil("the migrated same-name roots to be claimed") {
             ((try? self.storedClaims(in: session.persistence)) ?? []).count == 1
         }
         let claim = try XCTUnwrap(try storedClaims(in: session.persistence).first)
         XCTAssertEqual(Set(claim), Set([first, second]))
-        let items = try XCTUnwrap(coordinator.inventory).items
-        XCTAssertEqual(items.map(\.quantity), [3],
-                       "the migrated rows still project as one logical item")
     }
 
     func testASecondLaunchDoesNotMigrateTheArchiveAgain() async throws {
