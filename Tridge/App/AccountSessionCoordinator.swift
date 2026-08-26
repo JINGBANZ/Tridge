@@ -346,6 +346,18 @@ final class AccountSessionCoordinator {
         inventoryTask = Task { await session.load() }
     }
 
+    /// Re-reads the Active Household's snapshots, behind whatever the session
+    /// is already doing: a refresh that overtook the first load would leave the
+    /// older, emptier projection on screen.
+    private func refreshInventory() {
+        guard let inventory else { return }
+        let previous = inventoryTask
+        inventoryTask = Task {
+            await previous?.value
+            await inventory.refresh()
+        }
+    }
+
     private func createDefaultHousehold(for context: AccountSessionContext,
                                         controller: PersistenceController) {
         do {
@@ -459,6 +471,11 @@ final class AccountSessionCoordinator {
             AppLog.household.info("Migrated \(migrated) legacy rows")
             upgrade.recordCompletionIfFinished()
             showsMigrationNotice = upgrade.needsNotice
+            // The session opened alongside the migration, so its first
+            // projection can already have read the destination while it was
+            // still empty. Nothing else writes to a Household from outside the
+            // session, so this is the one place that has to re-read.
+            refreshInventory()
         case .failure(let failure):
             // The archive is intact and the stores are fine, so this is a
             // retryable notice rather than a launch state.

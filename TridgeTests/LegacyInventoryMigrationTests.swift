@@ -240,6 +240,21 @@ final class LegacyInventoryMigrationTests: XCTestCase {
                                                            householdID: householdID))
     }
 
+    /// The Inventory session opens alongside the migration, so its first
+    /// projection can read the destination while it is still empty. The
+    /// migrated fridge has to appear without a relaunch.
+    func testMigratedRowsReachTheOpenInventorySessionWithoutARelaunch() async throws {
+        archive.rows = [Self.row(name: "Whole Milk", quantity: 2)]
+
+        try await startAndBootstrap()
+        await awaitMigration()
+
+        XCTAssertNil(coordinator.legacyMigrationFailure)
+        await waitUntil("the migrated rows to reach the Inventory session") {
+            self.coordinator.inventory?.items.map(\.name) == ["Whole Milk"]
+        }
+    }
+
     func testASecondLaunchDoesNotMigrateTheArchiveAgain() async throws {
         try await startAndBootstrap()
         await awaitMigration()
