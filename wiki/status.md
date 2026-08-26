@@ -138,8 +138,9 @@ isolated key.
   validated record snapshots, persist only the account-scoped UUID, and re-run selection when the
   barrier opens — so a Household that arrives in the first import is selected rather than
   duplicated. The reducer and registry are Foundation-only and run under Linux `swift test`; the
-  coordinator, monitor, and selection are covered by `TridgeTests`. Nothing consumes the session
-  yet — the repository migration is step 3 (issues #62/#63).
+  coordinator, monitor, and selection are covered by `TridgeTests`. The coordinator owns one
+  `HouseholdSession` per generation for step 3's purchase path (below); the SwiftUI views read it
+  once #63 flips them.
 - `Tridge/App/LegacyInventoryUpgrade.swift` + `UpgradeMarkers.swift` +
   `Tridge/Persistence/LegacyInventoryArchive.swift` + `LegacyInventoryMigration.swift` — the
   one-time upgrade off the shipping SwiftData build (issue #61), which finishes step 2.
@@ -155,8 +156,9 @@ isolated key.
   transaction, keyed by the legacy UUID so a retry recognizes what it already wrote and a
   conflicting payload is an integrity error. The destination is the account's first *owned*
   Household, created only once the bootstrap barrier has opened, and the Active Household is never
-  switched. Like the rest of step 2 nothing consumes it yet, so no upgrade actually runs until
-  #62/#63 wire the coordinator into the UI.
+  switched. The coordinator drives the upgrade and re-reads the migrated rows into the open
+  session, but nothing constructs the coordinator yet, so no upgrade runs until #63 wires it into
+  the UI.
 - `Tridge/Persistence/CoreDataInventoryRepository.swift` + `InventoryProjection.swift` +
   `DuplicateReconciler.swift` + `Tridge/App/HouseholdSession.swift` — step 3's purchase path and
   snapshot projection (issue #62). `InventoryProjection` validates one Household's records into
@@ -185,8 +187,8 @@ isolated key.
   owns store routing plus the view/`app.inventory`/`app.reconcile` contexts. `Tridge/App/` adds
   `AccountIdentity.swift` (validated iCloud account → hashed scope; the raw record id never leaves
   it) and `LaunchState.swift`. `Tridge/Tridge.entitlements` plus the `CKSharingSupported` and
-  remote-notification Info.plist settings declare the capabilities. Nothing consumes the stack yet —
-  the app still runs on SwiftData until the repository migration.
+  remote-notification Info.plist settings declare the capabilities. `CoreDataInventoryRepository`
+  writes and projects through this stack; the SwiftUI views still run on SwiftData until #63.
 - `Tests/FridgeCoreTests/` — parsing (incl. fenced/prose-wrapped output), urgency
   thresholds, name-key, merge-planner, art-inference, and search-ranking tests, plus the
   household-sharing contract tests (civil days, byte order, record validation, command validation
