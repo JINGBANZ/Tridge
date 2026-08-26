@@ -114,7 +114,16 @@ final class FakeLegacyArchive: LegacyInventoryArchiveReading, @unchecked Sendabl
         set { lock.withLock { _readFailure = newValue } }
     }
 
+    /// Held open the same way as `readGate`, so a test can re-point the
+    /// session while a command is still writing.
+    var commandGate: (@Sendable () async -> Void)? {
+        get { lock.withLock { _commandGate } }
+        set { lock.withLock { _commandGate = newValue } }
+    }
+
     var readCount: Int { lock.withLock { _readCount } }
+
+    var commandCount: Int { lock.withLock { _commandCount } }
 
     func readActiveRows() throws -> [LegacyInventoryRow] {
         try lock.withLock {
@@ -171,14 +180,17 @@ actor TestGate {
     }
 }
 
-/// A repository whose reads can be held open, so a test can land a command's
-/// newer projection while an older read is still suspended.
+/// A repository whose reads and commands can each be held open, so a test can
+/// land a command's newer projection while an older read is still suspended, or
+/// re-point the session while a command is still in flight.
 final class GatedInventoryRepository: InventoryRepository, @unchecked Sendable {
     private let lock = NSLock()
     private let readProjection: HouseholdProjection
     private let commandProjection: HouseholdProjection
     private var _readGate: (@Sendable () async -> Void)?
+    private var _commandGate: (@Sendable () async -> Void)?
     private var _readCount = 0
+    private var _commandCount = 0
 
     init(read: HouseholdProjection, command: HouseholdProjection) {
         self.readProjection = read
@@ -192,7 +204,16 @@ final class GatedInventoryRepository: InventoryRepository, @unchecked Sendable {
         set { lock.withLock { _readGate = newValue } }
     }
 
+    /// Held open the same way as `readGate`, so a test can re-point the
+    /// session while a command is still writing.
+    var commandGate: (@Sendable () async -> Void)? {
+        get { lock.withLock { _commandGate } }
+        set { lock.withLock { _commandGate = newValue } }
+    }
+
     var readCount: Int { lock.withLock { _readCount } }
+
+    var commandCount: Int { lock.withLock { _commandCount } }
 
     func projection(of householdID: UUID,
                     today: InventoryDay) async throws -> HouseholdProjection {
@@ -203,11 +224,17 @@ final class GatedInventoryRepository: InventoryRepository, @unchecked Sendable {
 
     func addManualItem(_ command: AddManualItemCommand,
                        today: InventoryDay) async throws -> HouseholdProjection {
-        commandProjection
+        await respond()
     }
 
     func addReviewedRows(_ command: AddReviewedRowsCommand,
                          today: InventoryDay) async throws -> HouseholdProjection {
-        commandProjection
+        await respond()
+    }
+
+    private func respond() async -> HouseholdProjection {
+        lock.withLock { _commandCount += 1 }
+        if let commandGate { await commandGate() }
+        return commandProjection
     }
 }

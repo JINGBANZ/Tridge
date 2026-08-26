@@ -135,8 +135,12 @@ final class HouseholdSession {
     /// another device while this one was away projects as one row immediately,
     /// but has no durable claim yet until this pass writes it.
     func load() async {
+        // Captured before the first suspension, like every other await in this
+        // file: a Household switch during the read must not redirect the
+        // reconciliation onto the fridge this pass never looked at.
+        let householdID = self.householdID
         await refresh()
-        await persistMergeClaims()
+        await persistMergeClaims(for: householdID)
     }
 
     /// Switches the fridge this session projects. Snapshots are cleared first,
@@ -205,6 +209,10 @@ final class HouseholdSession {
         _ operation: @escaping @Sendable () async throws -> HouseholdProjection
     ) async -> Bool {
         lastFailure = nil
+        // The fridge this command was built for, read before it suspends: the
+        // claims it makes durable belong to that Household even if a switch
+        // has since re-pointed the session.
+        let householdID = self.householdID
         guard let projection = await run(operation) else { return false }
         // Taken only once the write has returned: a command's projection
         // already contains its own save, so it is newer than every read that
@@ -212,7 +220,7 @@ final class HouseholdSession {
         apply(projection, request: nextRequest())
         // The projector already applied the same exact-name union in memory, so
         // this only makes the link durable — the UI never waits for it.
-        await persistMergeClaims()
+        await persistMergeClaims(for: householdID)
         return true
     }
 
@@ -235,9 +243,8 @@ final class HouseholdSession {
         }
     }
 
-    private func persistMergeClaims() async {
+    private func persistMergeClaims(for householdID: UUID) async {
         let reconciler = self.reconciler
-        let householdID = self.householdID
         let day = today()
         do {
             _ = try await tasks.run(context: accountContext) {

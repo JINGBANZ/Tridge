@@ -106,13 +106,34 @@ final class HouseholdSessionTests: XCTestCase {
                               expirySource: .llmEstimate)
     }
 
-    private func storedClaimCount() throws -> Int {
+    private func storedClaimCount(in householdID: UUID? = nil) throws -> Int {
         let context = controller.newWriterContext()
         var result: Result<Int, Error>!
         context.performAndWait {
-            result = Result { try context.count(for: ItemMergeRecord.fetchRequest()) }
+            result = Result {
+                let request = ItemMergeRecord.fetchRequest()
+                if let householdID {
+                    request.predicate = NSPredicate(format: "household.id == %@",
+                                                    householdID as NSUUID)
+                }
+                return try context.count(for: request)
+            }
         }
         return try result.get()
+    }
+
+    /// Two same-name roots written straight through the repository: the
+    /// Household then has an exact-name link to infer but no durable claim,
+    /// so only a reconciliation pass over *that* Household can insert one.
+    private func seedSameNamePair(in householdID: UUID) async throws {
+        let repository = CoreDataInventoryRepository(persistence: controller,
+                                                     capabilities: FakeStoreCapabilities())
+        for _ in 0..<2 {
+            _ = try await repository.addManualItem(
+                AddManualItemCommand(householdID: householdID, commandID: UUID(),
+                                     draft: draft("Whole Milk")),
+                today: Self.today)
+        }
     }
 
     // MARK: - Rendering
@@ -194,6 +215,38 @@ final class HouseholdSessionTests: XCTestCase {
         // The newer-wins rule discards stale results, never later ones.
         await session.refresh()
         XCTAssertTrue(session.items.isEmpty, "a read started afterwards still applies")
+    }
+
+    /// The claims a command owes belong to the fridge it wrote to. `select`
+    /// mutates `householdID` in its synchronous prefix, so it can re-point the
+    /// session entirely inside a command's suspension — and its own `load()`
+    /// only ever reconciles the *new* fridge, so a reconciliation that read
+    /// `householdID` after the write would drop the older one's claim.
+    func testACommandPersistsClaimsForTheHouseholdItWroteTo() async throws {
+        try await seedSameNamePair(in: householdID)
+        try await seedSameNamePair(in: otherHouseholdID)
+        let repository = GatedInventoryRepository(read: .empty(householdID: householdID),
+                                                  command: .empty(householdID: householdID))
+        let gate = TestGate()
+        repository.commandGate = { await gate.wait() }
+        let session = makeSession(repository: repository)
+        let pending = draft("Whole Milk")
+        let nextHousehold = otherHouseholdID!
+
+        let purchase = Task { await session.addManualItem(pending) }
+        await waitUntil("the command to start") { repository.commandCount == 1 }
+        let switched = Task { await session.select(householdID: nextHousehold) }
+        await waitUntil("the switch to re-point the session") {
+            session.householdID == nextHousehold
+        }
+        await gate.open()
+        _ = await purchase.value
+        await switched.value
+
+        XCTAssertEqual(try storedClaimCount(in: householdID), 1,
+                       "the fridge the purchase was written to still gets its durable claim")
+        XCTAssertEqual(try storedClaimCount(in: otherHouseholdID), 1,
+                       "the fridge switched to reconciles through its own load")
     }
 
     // MARK: - Refusals
