@@ -1,4 +1,5 @@
 import CoreData
+import Foundation
 import XCTest
 @testable import Tridge
 
@@ -567,6 +568,30 @@ final class InventoryRepositoryTests: XCTestCase {
         XCTAssertTrue(try storedRoots().isEmpty)
     }
 
+    /// A quantity is any positive `Int64` (ADR 0004), so a same-name purchase
+    /// can leave the representable total. Saving it would report success and
+    /// then hand `StockReducer` a sum it must call corrupt — taking a group the
+    /// user can still see off Home, permanently, because the `acquired`
+    /// operation behind it is immutable. The command is refused instead.
+    func testAPurchaseThatOverflowsItsGroupWritesNothing() async throws {
+        try await addManual(draft("Rice", id: Self.id(1), stockChangeID: Self.id(11),
+                                  quantity: .max))
+
+        do {
+            _ = try await addManual(draft("rice", id: Self.id(2), stockChangeID: Self.id(12),
+                                          quantity: 1))
+            XCTFail("a total beyond the representable range must fail the command")
+        } catch {
+            XCTAssertEqual(error as? InventoryCommandError, .quantityOutOfRange)
+        }
+
+        let roots = try storedRoots()
+        XCTAssertEqual(roots.map(\.id), [Self.id(1)], "the refused purchase left a root behind")
+        let projection = try await repository.projection(of: householdID, today: Self.today)
+        XCTAssertEqual(projection.items.map(\.quantity), [.max], "the group stayed visible")
+        XCTAssertTrue(projection.stockIssues.isEmpty)
+    }
+
     // MARK: - What must never be persisted
 
     func testReceiptTextNeverLeavesTheReviewDraft() async throws {
@@ -633,3 +658,4 @@ final class InventoryRepositoryTests: XCTestCase {
 /// The seeded record a helper expected is not there — a bug in the test, not
 /// in the repository.
 private struct MissingRecord: Error {}
+

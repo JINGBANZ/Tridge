@@ -127,8 +127,10 @@ final class CoreDataInventoryRepository: InventoryRepository {
 
             // Planned against what the Household projects *now*, so a same-name
             // purchase copies the established metadata instead of restamping a
-            // scan guess over it (ADR 0011).
-            let plans = PurchasePlanner.plan(
+            // scan guess over it (ADR 0011). Planning also refuses a row that
+            // would push its group past the representable total, before any
+            // record is inserted.
+            let plans = try PurchasePlanner.plan(
                 rows: rows,
                 in: HouseholdProjector.project(household, today: today).items,
                 today: today)

@@ -274,11 +274,11 @@ final class PurchasePlannerTests: XCTestCase {
                        newer.id)
     }
 
-    func testTwoRowsOfOneSaveSharingANameDoNotRaceForMetadata() {
+    func testTwoRowsOfOneSaveSharingANameDoNotRaceForMetadata() throws {
         // A review-time rename can collide two receipt lines.
         let first = draft(name: "Milk", art: .milk, storage: .fridge, expiresInDays: 5)
         let second = draft(name: "MILK", art: .unknown, storage: .pantry, expiresInDays: 30)
-        let plans = PurchasePlanner.plan(rows: [first, second], in: [], today: today)
+        let plans = try PurchasePlanner.plan(rows: [first, second], in: [], today: today)
 
         XCTAssertEqual(plans.count, 2)
         XCTAssertEqual(plans[0].rootMetadata.name, "Milk")
@@ -291,44 +291,73 @@ final class PurchasePlannerTests: XCTestCase {
         XCTAssertNil(plans[1].canonicalEdit, "an untouched guess is not an edit")
     }
 
-    func testASecondRowsExplicitEditReachesTheCanonicalMember() {
+    func testASecondRowsExplicitEditReachesTheCanonicalMember() throws {
         let first = draft(name: "Milk", storage: .fridge)
         let second = draft(name: "Milk", storage: .freezer, explicit: [.storage])
-        let plans = PurchasePlanner.plan(rows: [first, second], in: [], today: today)
+        let plans = try PurchasePlanner.plan(rows: [first, second], in: [], today: today)
 
         XCTAssertEqual(plans[1].rootMetadata.storage, .fridge)
         XCTAssertEqual(plans[1].canonicalEdit?.storage, .freezer)
     }
 
-    func testRowsMatchingAnExistingItemAllCopyItsMetadata() {
+    func testRowsMatchingAnExistingItemAllCopyItsMetadata() throws {
         let established = existing(name: "Milk", storage: .fridge)
-        let plans = PurchasePlanner.plan(rows: [draft(name: "Milk"), draft(name: "milk")],
-                                         in: [established], today: today)
+        let plans = try PurchasePlanner.plan(rows: [draft(name: "Milk"), draft(name: "milk")],
+                                             in: [established], today: today)
         XCTAssertEqual(plans.map(\.rootMetadata.storage), [.fridge, .fridge])
         XCTAssertEqual(plans.map(\.rootMetadata.expiryDay),
                        [established.expiryDay, established.expiryDay])
     }
 
     /// A quantity may be any positive `Int64` (ADR 0004), so a same-name
-    /// purchase can push a group past the representable total. Planning has to
-    /// survive that: the reducer is what marks an overflowing group corrupt, and
-    /// trapping here would take the app down on an accepted command.
-    func testATotalBeyondTheRepresentableRangeIsPlannedWithoutTrapping() {
+    /// purchase can push a group past the representable total. Neither trapping
+    /// nor saturating is acceptable: the saved `acquired` operation is immutable,
+    /// so an overflowing total would leave `StockReducer` no answer but "corrupt"
+    /// and take stock the user can still see off Home, under a command that
+    /// reported success. The purchase is refused instead.
+    func testATotalBeyondTheRepresentableRangeIsRejected() {
         let established = existing(name: "Rice", quantity: .max)
 
-        let plans = PurchasePlanner.plan(
-            rows: [draft(name: "Rice", quantity: 1), draft(name: "Rice", quantity: .max)],
-            in: [established], today: today)
-
-        XCTAssertEqual(plans.count, 2)
-        // Both rows still copy the established metadata; only the running total
-        // saturates.
-        XCTAssertEqual(plans.map(\.rootMetadata.name), ["Rice", "Rice"])
-        XCTAssertEqual(plans.map(\.canonicalEdit), [nil, nil])
+        XCTAssertThrowsError(
+            try PurchasePlanner.plan(rows: [draft(name: "Rice", quantity: 1)],
+                                     in: [established], today: today)
+        ) { XCTAssertEqual($0 as? InventoryCommandError, .quantityOutOfRange) }
     }
 
-    func testDifferentlyNamedRowsAreStillPlannedIndependently() {
-        let plans = PurchasePlanner.plan(
+    /// Two rows of one receipt can overflow between themselves, with nothing
+    /// established beforehand.
+    func testTwoRowsOfOneSaveCannotOverflowTheirSharedGroup() {
+        XCTAssertThrowsError(
+            try PurchasePlanner.plan(
+                rows: [draft(name: "Rice", quantity: .max), draft(name: "rice", quantity: 1)],
+                in: [], today: today)
+        ) { XCTAssertEqual($0 as? InventoryCommandError, .quantityOutOfRange) }
+    }
+
+    /// The boundary itself is a legal purchase: only leaving the range is not.
+    func testATotalAtTheRepresentableMaximumIsStillPlanned() throws {
+        let established = existing(name: "Rice", quantity: .max - 1)
+
+        let plans = try PurchasePlanner.plan(rows: [draft(name: "Rice", quantity: 1)],
+                                             in: [established], today: today)
+
+        XCTAssertEqual(plans.map(\.rootMetadata.name), ["Rice"])
+        XCTAssertEqual(plans.map(\.canonicalEdit), [nil])
+    }
+
+    /// A different name shares no group, so a large purchase alongside a large
+    /// item is not an overflow.
+    func testADifferentlyNamedRowIsUnaffectedByAnotherLargeItem() throws {
+        let established = existing(name: "Rice", quantity: .max)
+
+        let plans = try PurchasePlanner.plan(rows: [draft(name: "Milk", quantity: .max)],
+                                             in: [established], today: today)
+
+        XCTAssertEqual(plans.map(\.rootMetadata.name), ["Milk"])
+    }
+
+    func testDifferentlyNamedRowsAreStillPlannedIndependently() throws {
+        let plans = try PurchasePlanner.plan(
             rows: [draft(name: "Milk", storage: .fridge), draft(name: "Rice", storage: .pantry)],
             in: [], today: today)
         XCTAssertEqual(plans.map(\.rootMetadata.storage), [.fridge, .pantry])
