@@ -185,8 +185,13 @@ final class CoreDataInventoryRepository: InventoryRepository {
         guard let existing = try context.fetch(request).first else { return true }
 
         let acquisition = draft.acquisition
+        // The instant is part of the immutable event payload — it is what the
+        // reducer's corrupt-id tie-break sorts on, and what the root's
+        // `createdAt` was stamped from — so a retry carrying a different one is
+        // a conflicting command, not the same one.
         guard existing.delta == acquisition.delta,
               existing.reasonRaw == acquisition.reason.rawValue,
+              existing.occurredAt == acquisition.occurredAt,
               existing.item?.id == draft.itemID,
               existing.item?.normalizedName == draft.normalizedName
         else { throw InventoryRepositoryError.conflictingRetry(draft.stockChangeID) }

@@ -79,12 +79,13 @@ final class InventoryRepositoryTests: XCTestCase {
                        quantity: Int64 = 1, art: ItemID = .milk,
                        storage: StorageLocation = .fridge, expiresInDays: Int = 5,
                        expirySource: ExpirySource = .llmEstimate,
-                       explicit: Set<ExplicitMetadataField> = []) -> PurchaseDraft {
+                       explicit: Set<ExplicitMetadataField> = [],
+                       occurredAt: Date = InventoryRepositoryTests.occurredAt) -> PurchaseDraft {
         PurchaseDraft(itemID: id, stockChangeID: stockChangeID, name: name, quantity: quantity,
                       artKey: art.rawValue, storage: storage, purchaseDay: Self.today,
                       expiryDay: Self.today.adding(days: expiresInDays)!,
                       expirySource: expirySource, explicitMetadataFields: explicit,
-                      occurredAt: Self.occurredAt)
+                      occurredAt: occurredAt)
     }
 
     @discardableResult
@@ -295,6 +296,28 @@ final class InventoryRepositoryTests: XCTestCase {
         XCTAssertEqual(try storedRoots().count, 2)
         XCTAssertEqual(replayed.items.count, 2)
         XCTAssertEqual(replayed.items.map(\.quantity).sorted(), [2, 12])
+    }
+
+    /// The occurrence instant is part of the immutable payload: the reducer's
+    /// corrupt-id tie-break sorts on it, so a second command reusing the id with
+    /// a different instant is an integrity error rather than a silent no-op.
+    func testARetryWithADifferentOccurrenceInstantIsAConflict() async throws {
+        let stockChangeID = Self.id(11)
+        let milk = draft("Whole Milk", id: Self.id(1), stockChangeID: stockChangeID, quantity: 2)
+        try await addManual(milk)
+
+        do {
+            _ = try await addManual(
+                draft("Whole Milk", id: Self.id(1), stockChangeID: stockChangeID, quantity: 2,
+                      occurredAt: Self.occurredAt.addingTimeInterval(60)))
+            XCTFail("a different occurrence instant must fail the command")
+        } catch {
+            XCTAssertEqual(error as? InventoryRepositoryError, .conflictingRetry(stockChangeID))
+        }
+
+        let roots = try storedRoots()
+        XCTAssertEqual(roots.map(\.id), [Self.id(1)], "the stored purchase is untouched")
+        XCTAssertEqual(roots.first?.deltas, [2])
     }
 
     /// A crash between the two rows leaves one written; the retry fills in only
