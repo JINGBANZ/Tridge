@@ -114,16 +114,7 @@ final class FakeLegacyArchive: LegacyInventoryArchiveReading, @unchecked Sendabl
         set { lock.withLock { _readFailure = newValue } }
     }
 
-    /// Held open the same way as `readGate`, so a test can re-point the
-    /// session while a command is still writing.
-    var commandGate: (@Sendable () async -> Void)? {
-        get { lock.withLock { _commandGate } }
-        set { lock.withLock { _commandGate = newValue } }
-    }
-
     var readCount: Int { lock.withLock { _readCount } }
-
-    var commandCount: Int { lock.withLock { _commandCount } }
 
     func readActiveRows() throws -> [LegacyInventoryRow] {
         try lock.withLock {
