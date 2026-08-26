@@ -278,7 +278,8 @@ final class InventoryRepositoryTests: XCTestCase {
             XCTAssertEqual(error as? InventoryRepositoryError, .conflictingRetry(stockChangeID))
         }
 
-        XCTAssertEqual(try storedRoots().map(\.id), [Self.id(1)], "the good row was still written")
+        XCTAssertEqual(try storedRoots().map(\.id), [Self.id(1)],
+                       "only the earlier purchase survives; neither receipt row landed")
         XCTAssertEqual(try storedRoots().first?.deltas, [2])
     }
 

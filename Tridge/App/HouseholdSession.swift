@@ -185,10 +185,6 @@ final class HouseholdSession {
         return await commit { try await repository.addReviewedRows(command, today: day) }
     }
 
-    func clearFailure() {
-        lastFailure = nil
-    }
-
     /// Stops this session applying anything else. Called before the account's
     /// stores are drained and removed.
     func invalidate() {

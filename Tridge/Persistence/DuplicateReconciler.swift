@@ -16,7 +16,8 @@ final class DuplicateReconciler {
     init(persistence: PersistenceController,
          capabilities: (any StoreCapabilityChecking)? = nil) {
         self.persistence = persistence
-        self.capabilities = capabilities ?? persistence.container
+        self.capabilities = capabilities
+            ?? CloudKitStoreCapabilities(container: persistence.container)
     }
 
     /// Writes every missing claim for one Household in one transaction, and

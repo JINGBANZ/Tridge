@@ -19,23 +19,30 @@ enum InventoryRepositoryError: Error, Equatable {
     case saveFailed(diagnosticID: String)
 }
 
-/// Whether CloudKit currently permits a write. A protocol so tests can deny
-/// without a live share, and so the repository never reaches for the container
-/// directly.
+/// Whether CloudKit currently permits a write, checked immediately before one.
+/// A protocol so tests can deny without a live share; CloudKit itself remains
+/// the authority, and these checks only improve the error the UI shows.
 protocol StoreCapabilityChecking {
     func canModifyManagedObjects(in store: NSPersistentStore) -> Bool
     func canUpdateRecord(forManagedObjectWith objectID: NSManagedObjectID) -> Bool
 }
 
-extension NSPersistentCloudKitContainer: StoreCapabilityChecking {}
+/// The production answer: the container's own view of the current share.
+struct CloudKitStoreCapabilities: StoreCapabilityChecking {
+    let container: NSPersistentCloudKitContainer
+
+    func canModifyManagedObjects(in store: NSPersistentStore) -> Bool {
+        container.canModifyManagedObjects(in: store)
+    }
+
+    func canUpdateRecord(forManagedObjectWith objectID: NSManagedObjectID) -> Bool {
+        container.canUpdateRecord(forManagedObjectWith: objectID)
+    }
+}
 
 /// Async Household queries and Inventory commands. No CloudKit presentation and
 /// no SwiftUI: every value that crosses this boundary is an immutable snapshot.
 protocol InventoryRepository {
-    /// Every Household this account can reach, with the findings for the ones
-    /// that were omitted.
-    func households() -> (valid: [HouseholdSnapshot], issues: [RecordIntegrityIssue])
-
     /// The Household's current logical projection.
     func projection(of householdID: UUID, today: InventoryDay) async throws -> HouseholdProjection
 
@@ -59,14 +66,11 @@ final class CoreDataInventoryRepository: InventoryRepository {
     init(persistence: PersistenceController,
          capabilities: (any StoreCapabilityChecking)? = nil) {
         self.persistence = persistence
-        self.capabilities = capabilities ?? persistence.container
+        self.capabilities = capabilities
+            ?? CloudKitStoreCapabilities(container: persistence.container)
     }
 
     // MARK: - Queries
-
-    func households() -> (valid: [HouseholdSnapshot], issues: [RecordIntegrityIssue]) {
-        persistence.householdSnapshots()
-    }
 
     /// Read through a fresh context rather than the view context, so a
     /// projection taken right after a command can never be a runloop turn
