@@ -369,12 +369,18 @@ public enum PurchasePlanner {
     -> InventoryItemSnapshot {
         let metadata = plan.rootMetadata
         let edit = plan.canonicalEdit
+        // A quantity is any positive Int64 (ADR 0004), so a combined total can
+        // leave the representable range. This candidate only lets a later
+        // same-name row of the same command see the group — its total is never
+        // persisted or displayed, and an overflowing sum is `StockReducer`'s
+        // corrupt-item case — so saturate rather than trap on the way there.
+        let combined = (existing?.quantity ?? 0).addingReportingOverflow(row.quantity)
         return InventoryItemSnapshot(
             id: existing?.id ?? row.itemID,
             memberIDs: existing.map { $0.memberIDs + [row.itemID] } ?? [row.itemID],
             name: metadata.name,
             normalizedName: NameKey.normalize(metadata.name),
-            quantity: (existing?.quantity ?? 0) + row.quantity,
+            quantity: combined.overflow ? .max : combined.partialValue,
             artKey: edit?.artKey ?? metadata.artKey,
             storage: edit?.storage ?? metadata.storage,
             purchaseDay: metadata.purchaseDay,

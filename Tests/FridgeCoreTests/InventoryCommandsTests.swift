@@ -183,9 +183,9 @@ final class PurchasePlannerTests: XCTestCase {
 
     private func existing(name: String = "Milk", art: ItemID = .milk,
                           storage: StorageLocation = .fridge,
-                          expiresInDays: Int = 4) -> InventoryItemSnapshot {
+                          expiresInDays: Int = 4, quantity: Int64 = 2) -> InventoryItemSnapshot {
         InventoryItemSnapshot(id: UUID(), memberIDs: [UUID()], name: name,
-                              normalizedName: NameKey.normalize(name), quantity: 2,
+                              normalizedName: NameKey.normalize(name), quantity: quantity,
                               artKey: art.rawValue, storage: storage,
                               purchaseDay: today.adding(days: -3)!,
                               expiryDay: today.adding(days: expiresInDays)!,
@@ -194,8 +194,9 @@ final class PurchasePlannerTests: XCTestCase {
 
     private func draft(name: String = "milk", art: ItemID = .unknown,
                        storage: StorageLocation = .pantry, expiresInDays: Int = 9,
-                       explicit: Set<ExplicitMetadataField> = []) -> PurchaseDraft {
-        PurchaseDraft(itemID: UUID(), stockChangeID: UUID(), name: name, quantity: 3,
+                       explicit: Set<ExplicitMetadataField> = [],
+                       quantity: Int64 = 3) -> PurchaseDraft {
+        PurchaseDraft(itemID: UUID(), stockChangeID: UUID(), name: name, quantity: quantity,
                       artKey: art.rawValue, storage: storage, purchaseDay: today,
                       expiryDay: today.adding(days: expiresInDays)!,
                       expirySource: .llmEstimate, explicitMetadataFields: explicit)
@@ -306,6 +307,24 @@ final class PurchasePlannerTests: XCTestCase {
         XCTAssertEqual(plans.map(\.rootMetadata.storage), [.fridge, .fridge])
         XCTAssertEqual(plans.map(\.rootMetadata.expiryDay),
                        [established.expiryDay, established.expiryDay])
+    }
+
+    /// A quantity may be any positive `Int64` (ADR 0004), so a same-name
+    /// purchase can push a group past the representable total. Planning has to
+    /// survive that: the reducer is what marks an overflowing group corrupt, and
+    /// trapping here would take the app down on an accepted command.
+    func testATotalBeyondTheRepresentableRangeIsPlannedWithoutTrapping() {
+        let established = existing(name: "Rice", quantity: .max)
+
+        let plans = PurchasePlanner.plan(
+            rows: [draft(name: "Rice", quantity: 1), draft(name: "Rice", quantity: .max)],
+            in: [established], today: today)
+
+        XCTAssertEqual(plans.count, 2)
+        // Both rows still copy the established metadata; only the running total
+        // saturates.
+        XCTAssertEqual(plans.map(\.rootMetadata.name), ["Rice", "Rice"])
+        XCTAssertEqual(plans.map(\.canonicalEdit), [nil, nil])
     }
 
     func testDifferentlyNamedRowsAreStillPlannedIndependently() {
