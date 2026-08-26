@@ -133,6 +133,15 @@ public enum StockReducer {
 }
 
 extension StockIntegrityIssue {
+    /// Content-free: an opaque id and a category, never a name or a quantity.
+    public var diagnosticDescription: String {
+        switch self {
+        case .conflictingDuplicate(let id): "stockChange \(id.uuidString) conflictingDuplicate"
+        case .malformedEvent(let id): "stockChange \(id.uuidString) malformedEvent"
+        case .quantityOverflow: "item quantityOverflow"
+        }
+    }
+
     /// Stable ordering so two devices report the same diagnostic sequence.
     var sortKey: String {
         switch self {

@@ -1,3 +1,4 @@
+import CoreData
 import Foundation
 import XCTest
 @testable import Tridge
@@ -133,4 +134,21 @@ final class RecordingLegacyEffects: LegacyEffectsCleaning, @unchecked Sendable {
     func clearScheduledAndDeliveredNotifications() {
         lock.withLock { count += 1 }
     }
+}
+
+/// Denies exactly what a revoked share denies, without a live `CKShare`. The
+/// answers are fixed at construction, so the writer queue and the test thread
+/// never race for them.
+final class FakeStoreCapabilities: StoreCapabilityChecking, @unchecked Sendable {
+    private let modify: Bool
+    private let update: Bool
+
+    init(canModify: Bool = true, canUpdate: Bool = true) {
+        self.modify = canModify
+        self.update = canUpdate
+    }
+
+    func canModifyManagedObjects(in store: NSPersistentStore) -> Bool { modify }
+
+    func canUpdateRecord(forManagedObjectWith objectID: NSManagedObjectID) -> Bool { update }
 }

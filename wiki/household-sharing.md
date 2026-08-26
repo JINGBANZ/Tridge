@@ -523,8 +523,9 @@ Tridge/
 │  └─ NotificationPlan.swift        pure desired-vs-scheduled reminder diff
 ├─ Persistence/
 │  ├─ TridgeModel.xcdatamodeld
-│  ├─ ManagedObjects/               *Record classes and validated mapping
+│  ├─ ManagedObjects/               *Record classes
 │  ├─ PersistenceController.swift   two stores, contexts, store lookup
+│  ├─ InventoryProjection.swift     validated record mapping + reduced projection
 │  ├─ CoreDataInventoryRepository.swift
 │  ├─ DuplicateReconciler.swift     creates permanent exact-name claims
 │  ├─ PersistentHistoryProcessor.swift

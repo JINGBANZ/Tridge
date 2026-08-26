@@ -178,5 +178,9 @@ extension StockReducerTests {
         // Guards the privacy rule: no names, quantities, or household context.
         let projection = StockReducer.reduce([event(1, -3, .tossed)])
         XCTAssertEqual(projection.issues, [.malformedEvent(id(1))])
+        XCTAssertEqual(projection.issues.first?.diagnosticDescription,
+                       "stockChange \(id(1).uuidString) malformedEvent")
+        XCTAssertEqual(StockIntegrityIssue.quantityOverflow.diagnosticDescription,
+                       "item quantityOverflow")
     }
 }

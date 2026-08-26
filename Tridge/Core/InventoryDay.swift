@@ -53,6 +53,19 @@ public struct InventoryDay: Hashable, Comparable, Sendable {
         self.init(year: year, month: month, day: day)
     }
 
+    /// Today for a viewer in `calendar`'s time zone.
+    ///
+    /// Non-optional on purpose: every caller compares expiry against today, and
+    /// a nil would leave the whole app with nothing to compare against. A clock
+    /// that lands outside the supported civil range is unreachable in practice —
+    /// Foundation already clamps components far inside the bounds — so the
+    /// fallback is a visibly wrong day rather than a crash or an optional every
+    /// call site would have to unwrap.
+    public static func today(in calendar: Calendar = .current,
+                             now: Date = Date()) -> InventoryDay {
+        InventoryDay(date: now, calendar: calendar) ?? .earliest
+    }
+
     public var components: (year: Int, month: Int, day: Int) {
         Self.civilFromDays(Int(ordinal))
     }

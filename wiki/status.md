@@ -32,7 +32,12 @@ upgrade off the shipping SwiftData build is built on top of it (`Tridge/App/Lega
 `UpgradeMarkers.swift`, `Tridge/Persistence/LegacyInventoryArchive.swift`,
 `LegacyInventoryMigration.swift`): legacy reminders and the badge are cleared before iCloud is even
 checked, the archive is read once read-only, and every active row lands in the account's first owned
-Household in one transaction. The repository, sharing, and lifecycle layers are not built. Its final safety details
+Household in one transaction. Step 3's purchase path is built on top of that
+(`Tridge/Persistence/CoreDataInventoryRepository.swift`, `InventoryProjection.swift`,
+`DuplicateReconciler.swift`, `Tridge/App/HouseholdSession.swift`): manual and receipt purchases save
+through the repository as fresh frontier-stamped roots, and the Active Household's Inventory leaves
+persistence only as value snapshots. The remaining Inventory commands, the SwiftUI switch onto those
+snapshots, and the sharing and lifecycle layers are not built. Its final safety details
 stay inside the existing boundaries: Tridge exposes one explicit resumable owner-stop path and no
 management UI, invitation restrictions use minimal system options with secure defaults, explicit
 legacy erasure removes only exact validated remnants, and invitation metadata stays in memory. The
@@ -65,8 +70,8 @@ and unblocked — find it with `gh issue list --state open --label ready-for-age
 blockers. This page describes what exists; the tickets say what to do next and when it is done.
 Close a ticket when its criteria are met, and reference it from the PR.
 
-At the time of writing the frontier is **#62 — Add purchases through the repository and render
-Home snapshots**, unblocked now that #61 has landed. Product, architecture, recovery, and privacy-boundary
+At the time of writing the frontier is **#63 — Complete Inventory commands and retire runtime
+SwiftData**, unblocked now that #62 has landed. Product, architecture, recovery, and privacy-boundary
 decisions are closed in the contract; a coding agent should not redesign them.
 
 Live CloudKit/TestFlight completion has an explicit external release boundary: create/associate
@@ -152,6 +157,26 @@ isolated key.
   Household, created only once the bootstrap barrier has opened, and the Active Household is never
   switched. Like the rest of step 2 nothing consumes it yet, so no upgrade actually runs until
   #62/#63 wire the coordinator into the UI.
+- `Tridge/Persistence/CoreDataInventoryRepository.swift` + `InventoryProjection.swift` +
+  `DuplicateReconciler.swift` + `Tridge/App/HouseholdSession.swift` — step 3's purchase path and
+  snapshot projection (issue #62). `InventoryProjection` validates one Household's records into
+  values and runs the three Core reducers over them, so a corrupt row is reported and skipped rather
+  than repaired, deleted, or allowed to hide its neighbours. `CoreDataInventoryRepository` resolves
+  the Household's store (private means owned, shared means received), checks CloudKit capability
+  immediately before mutating through an injectable `StoreCapabilityChecking` seam, assigns every
+  inserted record to that store, and saves a whole manual add or receipt in one transaction: one
+  fresh frontier-stamped purchase root plus one `acquired` operation per row, with the preallocated
+  command ids that make an identical retry a no-op and a conflicting payload an integrity error. A
+  same-name purchase copies the established canonical metadata and applies only the fields the user
+  explicitly edited to the canonical member resolved after insertion. `DuplicateReconciler` then
+  persists the exact-name claims the projector already applied in memory — add-only, never moving or
+  deleting a history, and idempotent because duplicate claims have the same union effect.
+  `HouseholdSession` is the main-actor observable that holds the Active Household's `items` and
+  `purchaseHistory` snapshots plus the content-free failure a refused command surfaces while the
+  user's draft stays open; `AccountSessionCoordinator` owns one per generation and invalidates it
+  before the stores drain. `PreviewData.seedPurchases` makes the debug seed an ordinary confirmation.
+  The SwiftUI views still read SwiftData until #63 flips them, and nothing constructs the
+  coordinator yet.
 - `Tridge/Persistence/` — step 2's persistence stack: the CloudKit-compatible model
   (`TridgeModel.xcdatamodeld` + hand-written `ManagedObjects/*Record` classes, with encryption
   enabled on user-content fields before schema promotion) and `PersistenceController.swift`, which
@@ -180,7 +205,14 @@ isolated key.
   rows landing in the first owned Household as frontier-stamped roots, an identical replay writing
   nothing new, a conflicting or corrupt row failing the whole write while the archive survives
   untouched, a second account never inheriting the archive, and notice acknowledgement surviving
-  termination independently. Runs in macOS CI on a simulator.
+  termination independently. `InventoryRepositoryTests` and `HouseholdSessionTests` cover the
+  purchase path: store routing into the owning or receiving store, the frontier stamp and single
+  `acquired` operation each root carries, atomic multirow saves, identical/partial/conflicting
+  retries, same-name convergence with copied canonical metadata and explicit-edit application,
+  durable idempotent merge claims that move no history, a late member operation moving the
+  aggregate, superseded and post-clear causal contexts, capability denial and stale Household
+  selection writing nothing, corrupt rows being omitted without hiding valid inventory, and receipt
+  text never leaving the review draft. Runs in macOS CI on a simulator.
 - `Tests/ReceiptScanSmokeTests/` — live regression harness: fixture receipt images +
   fuzzy `expected.json` inventories (see its `Fixtures/README.md`), sent through the deployed
   worker via `ProxyLLMService`; local-only — the bearer token comes from the environment or a
@@ -280,7 +312,8 @@ isolated key.
 - Household sharing steps 3–8 — specified in
   [`household-sharing.md`](./household-sharing.md) → *Implementation sequence*: the repository
   migration off runtime SwiftData, per-store persistent history and remote reconciliation, the
-  Household/invitation UI, and lifecycle and data rights. Steps 1 and 2 are complete — model,
-  stores, capabilities, account session, and the legacy-inventory upgrade (see "Built") — but no
-  repository, invite flow, history processing, or reconciliation exists, the running app still
-  reads and writes SwiftData, and nothing constructs the coordinator yet.
+  Household/invitation UI, and lifecycle and data rights. Steps 1 and 2 are complete, and step 3's
+  purchase path, snapshot projection, and duplicate reconciler are built (see "Built") — but the
+  remaining Inventory commands (metadata edit, quantity, eat, toss, delete, Clear All) are not, no
+  invite flow or persistent-history processing exists, the SwiftUI views still read and write
+  SwiftData, and nothing constructs the coordinator yet.
