@@ -47,3 +47,26 @@ enum NotificationService {
         UNUserNotificationCenter.current().setBadgeCount(expiredCount)
     }
 }
+
+/// Removes the notifications and badge an earlier build scheduled. Injected so
+/// the upgrade can be driven without a notification center.
+protocol LegacyEffectsCleaning: Sendable {
+    func clearScheduledAndDeliveredNotifications()
+}
+
+/// The upgrade's one-time cleanup: an installation that carried
+/// `{uuid}-pre`/`{uuid}-day` reminders must stop firing them for an inventory
+/// that has moved, and the new identifiers are account- and household-scoped, so
+/// nothing else could remove them.
+///
+/// It runs before iCloud is even checked, which is why it takes everything
+/// rather than a computed set: a signed-out or restricted upgrade would
+/// otherwise keep notifying while the migration waits for an account.
+struct UserNotificationLegacyEffects: LegacyEffectsCleaning {
+    func clearScheduledAndDeliveredNotifications() {
+        let center = UNUserNotificationCenter.current()
+        center.removeAllPendingNotificationRequests()
+        center.removeAllDeliveredNotifications()
+        center.setBadgeCount(0)
+    }
+}

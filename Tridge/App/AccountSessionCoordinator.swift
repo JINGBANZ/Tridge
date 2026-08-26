@@ -32,6 +32,12 @@ final class AccountSessionCoordinator {
     /// The selected Household, resolved by the deterministic fallback and
     /// revalidated on every launch.
     private(set) var activeHouseholdID: UUID?
+    /// Whether the upgraded installation still owes the user the one-time
+    /// explanation that its fridge moved. Survives termination until Continue.
+    private(set) var showsMigrationNotice = false
+    /// The archive could not be migrated. Inventory is usable; the archive is
+    /// intact; Retry is the only thing this asks for.
+    private(set) var legacyMigrationFailure: LegacyMigrationFailure?
 
     let tasks: AccountTaskRegistry
     let syncMonitor: any SyncStatusProviding
@@ -39,6 +45,7 @@ final class AccountSessionCoordinator {
     private let identity: any AccountIdentityProviding
     private let barrier: BootstrapBarrierStore
     private let activeHouseholds: ActiveHouseholdStore
+    private let upgrade: LegacyInventoryUpgrade
     private let makePersistence: @Sendable (AccountScopeHash) async throws -> PersistenceController
 
     /// The coordinator's own mirror of the registry's open generation. Work
@@ -55,12 +62,14 @@ final class AccountSessionCoordinator {
     @ObservationIgnored private let accountObserver = NotificationObserverToken()
     @ObservationIgnored private var transitionTask: Task<Void, Never>?
     @ObservationIgnored private var barrierWatch: Task<Void, Never>?
+    @ObservationIgnored private var upgradeTask: Task<Void, Never>?
 
     init(identity: any AccountIdentityProviding = CloudKitAccountIdentity(),
          syncMonitor: any SyncStatusProviding,
          tasks: AccountTaskRegistry = AccountTaskRegistry(),
          barrier: BootstrapBarrierStore = BootstrapBarrierStore(),
          activeHouseholds: ActiveHouseholdStore = ActiveHouseholdStore(),
+         upgrade: LegacyInventoryUpgrade = LegacyInventoryUpgrade(),
          makePersistence: @escaping @Sendable (AccountScopeHash) async throws
              -> PersistenceController = AccountSessionCoordinator.loadCloudKitStack) {
         self.identity = identity
@@ -68,7 +77,9 @@ final class AccountSessionCoordinator {
         self.tasks = tasks
         self.barrier = barrier
         self.activeHouseholds = activeHouseholds
+        self.upgrade = upgrade
         self.makePersistence = makePersistence
+        self.showsMigrationNotice = upgrade.needsNotice
     }
 
     static let loadCloudKitStack: @Sendable (AccountScopeHash) async throws -> PersistenceController = {
@@ -145,8 +156,13 @@ final class AccountSessionCoordinator {
         hasCompletedInitialPrivateImport = false
         households = []
         activeHouseholdID = nil
+        legacyMigrationFailure = nil
         barrierWatch?.cancel()
         barrierWatch = nil
+        // The migration itself is registered work, so the drain waits for it;
+        // this only stops its result from applying to the next account.
+        upgradeTask?.cancel()
+        upgradeTask = nil
     }
 
     /// The account transition, in the order the stores require: invalidate and
@@ -166,6 +182,11 @@ final class AccountSessionCoordinator {
     }
 
     private func validateAndLoad() async {
+        // Before the account is consulted and before any store is opened: an
+        // installation that is signed out or restricted must still stop the
+        // previous build's reminders for an inventory that is moving.
+        upgrade.cleanUpLegacyEffectsIfNeeded()
+
         let accountScope: AccountScopeHash
         do {
             accountScope = try await identity.validateCurrentAccountScope()
@@ -274,7 +295,10 @@ final class AccountSessionCoordinator {
         case .waitForInitialImport:
             activeHouseholdID = nil
             launchState = .finishingCloudSetup
+            return
         }
+
+        startLegacyUpgradeIfNeeded(for: context, controller: controller)
     }
 
     private func activate(householdID: UUID, for context: AccountSessionContext) {
@@ -295,6 +319,112 @@ final class AccountSessionCoordinator {
             // The stores opened but the account has no usable Household, so
             // there is nothing to show. Retry rebuilds the stack.
             launchState = .persistenceUnavailable(diagnosticID: "household.create")
+        }
+    }
+
+    // MARK: - Upgrade from the shipping build
+
+    /// Acknowledges the one-time migration notice. Recorded separately from the
+    /// migration itself, so terminating before this shows the notice again.
+    func acknowledgeMigrationNotice() {
+        upgrade.acknowledgeNotice()
+        showsMigrationNotice = false
+    }
+
+    /// Retries a migration that failed. The archive is untouched, so this is
+    /// simply the same attempt again.
+    func retryLegacyMigration() {
+        guard let session else { return }
+        legacyMigrationFailure = nil
+        startLegacyUpgradeIfNeeded(for: session.context, controller: session.persistence)
+    }
+
+    /// Moves the archived inventory into this account's own fridge, once.
+    ///
+    /// Ordering matters twice over: the destination must be an owned Household,
+    /// never one received through someone else's share, and creating that
+    /// Household is only safe once the bootstrap barrier has proven the account
+    /// does not already own one that is still importing.
+    private func startLegacyUpgradeIfNeeded(for context: AccountSessionContext,
+                                            controller: PersistenceController) {
+        guard launchState == .ready, upgradeTask == nil, legacyMigrationFailure == nil else {
+            return
+        }
+        guard upgrade.isPending else {
+            upgrade.recordCompletionIfFinished()
+            return
+        }
+        guard let destination = migrationDestination(controller: controller) else { return }
+
+        upgradeTask = Task { [weak self] in
+            guard let self else { return }
+            let result = await self.runMigration(into: destination, for: context,
+                                                 controller: controller)
+            self.applyMigration(result, for: context)
+        }
+    }
+
+    /// The account's first owned Household, creating `My Fridge` when the
+    /// account owns none. Nil while that cannot be decided yet.
+    private func migrationDestination(controller: PersistenceController) -> UUID? {
+        if let owned = HouseholdSelection.oldestOwned(in: households) { return owned.id }
+        // Only received Households are accessible. Creating the destination has
+        // to wait for the same evidence bootstrap waits for, or an owned
+        // Household still arriving in the first import would be duplicated.
+        guard hasCompletedInitialPrivateImport else { return nil }
+        do {
+            let created = try controller.createOwnedHousehold(
+                named: HouseholdSelection.defaultHouseholdName)
+            // Visible in the picker, but not selected: an upgrade never
+            // silently switches the fridge the user is looking at.
+            households.append(created)
+            return created.id
+        } catch {
+            legacyMigrationFailure = LegacyMigrationFailure(diagnosticID: "legacy.household")
+            return nil
+        }
+    }
+
+    private func runMigration(into destination: UUID, for context: AccountSessionContext,
+                              controller: PersistenceController)
+    async -> Result<Int, LegacyMigrationFailure>? {
+        // Copied out before the closure so the read and the write run off the
+        // main actor rather than hopping back for every property access.
+        let upgrade = self.upgrade
+        do {
+            let migrated = try await tasks.run(context: context) {
+                try await upgrade.migrate(into: destination,
+                                          accountScope: context.accountScope,
+                                          using: controller)
+            }
+            return .success(migrated)
+        } catch let failure as LegacyMigrationFailure {
+            return .failure(failure)
+        } catch {
+            // The account changed while this was starting or running; the
+            // transition that invalidated the generation owns the state now.
+            return nil
+        }
+    }
+
+    /// The main-actor apply boundary: a migration that finished for the previous
+    /// account never touches this one's state.
+    private func applyMigration(_ result: Result<Int, LegacyMigrationFailure>?,
+                                for context: AccountSessionContext) {
+        // Cleared only for the generation that owns it: a stale apply must not
+        // release the slot the current generation's migration is running in.
+        guard let result, currentGeneration == context.generation else { return }
+        upgradeTask = nil
+        switch result {
+        case .success(let migrated):
+            AppLog.household.info("Migrated \(migrated) legacy rows")
+            upgrade.recordCompletionIfFinished()
+            showsMigrationNotice = upgrade.needsNotice
+        case .failure(let failure):
+            // The archive is intact and the stores are fine, so this is a
+            // retryable notice rather than a launch state.
+            AppLog.household.error("Legacy migration failed: \(failure.diagnosticID)")
+            legacyMigrationFailure = failure
         }
     }
 

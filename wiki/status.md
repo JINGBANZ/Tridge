@@ -27,8 +27,12 @@ running in macOS CI. The generation-bound account session that owns those stores
 (`Tridge/App/AccountSessionCoordinator.swift`, `AccountTaskRegistry.swift`,
 `BootstrapBarrierStore.swift`, and `Tridge/Sharing/StoreScopedSyncMonitor.swift`): sync observation
 is prepared before the stores load, both stores load as one registered operation, and an empty
-account cache cannot create `My Fridge` until its first private import succeeds. The repository,
-sharing, lifecycle, and legacy-migration layers are not built. Its final safety details
+account cache cannot create `My Fridge` until its first private import succeeds. The one-time
+upgrade off the shipping SwiftData build is built on top of it (`Tridge/App/LegacyInventoryUpgrade.swift`,
+`UpgradeMarkers.swift`, `Tridge/Persistence/LegacyInventoryArchive.swift`,
+`LegacyInventoryMigration.swift`): legacy reminders and the badge are cleared before iCloud is even
+checked, the archive is read once read-only, and every active row lands in the account's first owned
+Household in one transaction. The repository, sharing, and lifecycle layers are not built. Its final safety details
 stay inside the existing boundaries: Tridge exposes one explicit resumable owner-stop path and no
 management UI, invitation restrictions use minimal system options with secure defaults, explicit
 legacy erasure removes only exact validated remnants, and invitation metadata stays in memory. The
@@ -61,8 +65,8 @@ and unblocked — find it with `gh issue list --state open --label ready-for-age
 blockers. This page describes what exists; the tickets say what to do next and when it is done.
 Close a ticket when its criteria are met, and reference it from the PR.
 
-At the time of writing the frontier is **#61 — Migrate active legacy Inventory without an
-uninstall**, unblocked once #60 lands. Product, architecture, recovery, and privacy-boundary
+At the time of writing the frontier is **#62 — Add purchases through the repository and render
+Home snapshots**, unblocked now that #61 has landed. Product, architecture, recovery, and privacy-boundary
 decisions are closed in the contract; a coding agent should not redesign them.
 
 Live CloudKit/TestFlight completion has an explicit external release boundary: create/associate
@@ -109,9 +113,10 @@ isolated key.
   (`InventoryCommands.swift`), the immutable stock projection (`StockReducer.swift`), permanent
   exact-name convergence (`ItemGroupReducer.swift`), the causal Clear All frontier
   (`InventoryEpochReducer.swift`), Active Household choice (`HouseholdSelection.swift`), the
-  desired-vs-scheduled reminder diff (`NotificationPlan.swift`), and the account-scope digest that
-  store paths and defaults keys hang from (`AccountScope.swift`). The repository, sharing, and UI
-  layers that consume them are not built yet.
+  desired-vs-scheduled reminder diff (`NotificationPlan.swift`), the account-scope digest that
+  store paths and defaults keys hang from (`AccountScope.swift`), and the archived-row → purchase
+  mapping every legacy row is validated through (`LegacyInventoryImport.swift`). The repository,
+  sharing, and UI layers that consume them are not built yet.
 - `Tridge/App/` + `Tridge/Sharing/` — step 2's account session (issue #60):
   `AccountSession.swift` (the generation and the pre-load/loaded-store contexts every
   account-bound call carries),
@@ -130,6 +135,23 @@ isolated key.
   duplicated. The reducer and registry are Foundation-only and run under Linux `swift test`; the
   coordinator, monitor, and selection are covered by `TridgeTests`. Nothing consumes the session
   yet — the repository migration is step 3 (issues #62/#63).
+- `Tridge/App/LegacyInventoryUpgrade.swift` + `UpgradeMarkers.swift` +
+  `Tridge/Persistence/LegacyInventoryArchive.swift` + `LegacyInventoryMigration.swift` — the
+  one-time upgrade off the shipping SwiftData build (issue #61), which finishes step 2.
+  `UpgradeMarkers` keeps cleanup, migration completion plus its destination account/Household,
+  notice acknowledgement, and persistence generation as independent installation-wide markers
+  (legacy *erasure* has none — the archive files are the record). `LegacyInventoryUpgrade` clears
+  every pending and delivered Tridge notification plus the badge before iCloud is checked, so a
+  signed-out or restricted upgrade still stops notifying; `LegacyInventoryArchive` then opens the
+  exact `Application Support/default.store` read-only with CloudKit mirroring off and returns only
+  `active` rows, never receipt text. The whole set is validated through one captured calendar
+  before anything is written, and `PersistenceController.importLegacyInventory` writes each row as
+  a fresh frontier-stamped purchase root plus one `acquired` operation in a single private-store
+  transaction, keyed by the legacy UUID so a retry recognizes what it already wrote and a
+  conflicting payload is an integrity error. The destination is the account's first *owned*
+  Household, created only once the bootstrap barrier has opened, and the Active Household is never
+  switched. Like the rest of step 2 nothing consumes it yet, so no upgrade actually runs until
+  #62/#63 wire the coordinator into the UI.
 - `Tridge/Persistence/` — step 2's persistence stack: the CloudKit-compatible model
   (`TridgeModel.xcdatamodeld` + hand-written `ManagedObjects/*Record` classes, with encryption
   enabled on user-content fields before schema promotion) and `PersistenceController.swift`, which
@@ -143,7 +165,8 @@ isolated key.
 - `Tests/FridgeCoreTests/` — parsing (incl. fenced/prose-wrapped output), urgency
   thresholds, name-key, merge-planner, art-inference, and search-ranking tests, plus the
   household-sharing contract tests (civil days, byte order, record validation, command validation
-  and receipt-text discard, stock order-independence/idempotency/overflow/zero-revival/deletion,
+  and receipt-text discard, legacy-row validation and civil-day conversion,
+  stock order-independence/idempotency/overflow/zero-revival/deletion,
   claim-order-independent convergence, causal clear branches, Household selection, account-scope
   validation, and reminder diffs); all pass via `swift test`.
 - `TridgeTests/` — the Apple-platform bundle for what Linux cannot compile: Core Data model rules
@@ -153,7 +176,11 @@ isolated key.
   capabilities, the store/generation isolation of `StoreScopedSyncMonitor`, and the coordinator's
   launch states, bootstrap gate, Active Household selection, and account transition (an account
   change mid-load releases the stores that generation opened; registered work finishes before its
-  stores are removed). Runs in macOS CI on a simulator.
+  stores are removed). It also covers the legacy upgrade: signed-out cleanup exactly once, active
+  rows landing in the first owned Household as frontier-stamped roots, an identical replay writing
+  nothing new, a conflicting or corrupt row failing the whole write while the archive survives
+  untouched, a second account never inheriting the archive, and notice acknowledgement surviving
+  termination independently. Runs in macOS CI on a simulator.
 - `Tests/ReceiptScanSmokeTests/` — live regression harness: fixture receipt images +
   fuzzy `expected.json` inventories (see its `Fixtures/README.md`), sent through the deployed
   worker via `ProxyLLMService`; local-only — the bearer token comes from the environment or a
@@ -250,10 +277,10 @@ isolated key.
 - Verification of the spec's acceptance checklist on a test build: a local Simulator covers the
   simulator-safe items; the camera items and a live App Attest scan need a TestFlight build on a
   physical iPhone.
-- Household sharing steps 3–8, plus the legacy migration that finishes step 2 — specified in
+- Household sharing steps 3–8 — specified in
   [`household-sharing.md`](./household-sharing.md) → *Implementation sequence*: the repository
   migration off runtime SwiftData, per-store persistent history and remote reconciliation, the
-  Household/invitation UI, lifecycle and data rights, and the active-inventory migration for
-  existing App Store/TestFlight installations. Steps 1 and 2's model, stores, capabilities, and
-  account session exist (see "Built"); no repository, invite flow, history processing, or
-  reconciliation does, and the running app still reads and writes SwiftData.
+  Household/invitation UI, and lifecycle and data rights. Steps 1 and 2 are complete — model,
+  stores, capabilities, account session, and the legacy-inventory upgrade (see "Built") — but no
+  repository, invite flow, history processing, or reconciliation exists, the running app still
+  reads and writes SwiftData, and nothing constructs the coordinator yet.

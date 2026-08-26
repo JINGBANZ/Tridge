@@ -14,6 +14,8 @@ public struct RecordIntegrityIssue: Error, Hashable, Sendable {
     public enum Category: String, Sendable {
         case missingValue, invalidRawValue, invalidName, invalidDay, invalidContext
         case invalidInstant, invalidDelta, invalidRelationship
+        /// Two records claim one id, so neither can be written under it.
+        case duplicateIdentity
     }
 
     public let entity: Entity

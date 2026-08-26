@@ -21,13 +21,20 @@ public enum HouseholdSelection {
         if let saved, available.contains(where: { $0.id == saved }) {
             return .select(saved)
         }
-        if let oldestOwned = oldest(available.filter { $0.ownership == .owned }) {
+        if let oldestOwned = oldestOwned(in: available) {
             return .select(oldestOwned.id)
         }
         if let oldestReceived = oldest(available.filter { $0.ownership == .received }) {
             return .select(oldestReceived.id)
         }
         return hasCompletedInitialImport ? .createDefaultHousehold : .waitForInitialImport
+    }
+
+    /// The account's first owned Household — the deterministic destination for
+    /// anything that must land in this account's own fridge rather than in one
+    /// received through someone else's share.
+    public static func oldestOwned(in available: [HouseholdSnapshot]) -> HouseholdSnapshot? {
+        oldest(available.filter { $0.ownership == .owned })
     }
 
     private static func oldest(_ households: [HouseholdSnapshot]) -> HouseholdSnapshot? {
