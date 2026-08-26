@@ -346,15 +346,16 @@ final class AccountSessionCoordinator {
         inventoryTask = Task { await session.load() }
     }
 
-    /// Re-reads the Active Household's snapshots, behind whatever the session
-    /// is already doing: a refresh that overtook the first load would leave the
-    /// older, emptier projection on screen.
-    private func refreshInventory() {
+    /// Re-reads the Active Household's snapshots and persists the merge claims
+    /// they imply, behind whatever the session is already doing: a reload that
+    /// overtook the first load would leave the older, emptier projection on
+    /// screen.
+    private func reloadInventory() {
         guard let inventory else { return }
         let previous = inventoryTask
         inventoryTask = Task {
             await previous?.value
-            await inventory.refresh()
+            await inventory.load()
         }
     }
 
@@ -474,8 +475,11 @@ final class AccountSessionCoordinator {
             // The session opened alongside the migration, so its first
             // projection can already have read the destination while it was
             // still empty. Nothing else writes to a Household from outside the
-            // session, so this is the one place that has to re-read.
-            refreshInventory()
+            // session, so this is the one place that has to re-read — and it
+            // reloads rather than only reading, because a migrated root can
+            // share a name with one already in the Household and that link is
+            // permanent only once the reconciler has written it (ADR 0006).
+            reloadInventory()
         case .failure(let failure):
             // The archive is intact and the stores are fine, so this is a
             // retryable notice rather than a launch state.

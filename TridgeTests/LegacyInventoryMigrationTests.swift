@@ -155,6 +155,23 @@ final class LegacyInventoryMigrationTests: XCTestCase {
         return try result.get()
     }
 
+    /// Every persisted merge claim, as its endpoint pair.
+    private func storedClaims(in controller: PersistenceController) throws -> [[UUID]] {
+        let context = controller.newWriterContext()
+        var result: Result<[[UUID]], Error>!
+        context.performAndWait {
+            result = Result {
+                try context.fetch(ItemMergeRecord.fetchRequest()).compactMap { record in
+                    guard let left = record.leftItemID, let right = record.rightItemID else {
+                        return nil
+                    }
+                    return [left, right]
+                }
+            }
+        }
+        return try result.get()
+    }
+
     private func initialEpochID(of householdID: UUID,
                                 in controller: PersistenceController) throws -> UUID {
         let context = controller.newWriterContext()
@@ -253,6 +270,32 @@ final class LegacyInventoryMigrationTests: XCTestCase {
         await waitUntil("the migrated rows to reach the Inventory session") {
             self.coordinator.inventory?.items.map(\.name) == ["Whole Milk"]
         }
+    }
+
+    /// Two archived rows can share a name, and the migration keeps each as its
+    /// own root (ADR 0008). They project as one row straight away, but that link
+    /// is durable only once it is written: a post-migration pass that only read
+    /// would leave the claim inferred in memory, and it would be lost for good
+    /// as soon as either root stopped being eligible to infer (ADR 0006).
+    func testSameNameMigratedRowsGetADurableMergeClaim() async throws {
+        let first = UUID()
+        let second = UUID()
+        archive.rows = [Self.row(id: first, name: "Whole Milk", quantity: 2),
+                        Self.row(id: second, name: "whole milk", quantity: 1)]
+
+        try await startAndBootstrap()
+        await awaitMigration()
+
+        XCTAssertNil(coordinator.legacyMigrationFailure)
+        let session = try XCTUnwrap(coordinator.session)
+        await waitUntil("the migrated same-name roots to be claimed") {
+            ((try? self.storedClaims(in: session.persistence)) ?? []).count == 1
+        }
+        let claim = try XCTUnwrap(try storedClaims(in: session.persistence).first)
+        XCTAssertEqual(Set(claim), Set([first, second]))
+        let items = try XCTUnwrap(coordinator.inventory).items
+        XCTAssertEqual(items.map(\.quantity), [3],
+                       "the migrated rows still project as one logical item")
     }
 
     func testASecondLaunchDoesNotMigrateTheArchiveAgain() async throws {
