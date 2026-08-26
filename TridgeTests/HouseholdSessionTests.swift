@@ -73,7 +73,8 @@ final class HouseholdSessionTests: XCTestCase {
     }
 
     private func makeSession(householdID: UUID? = nil,
-                             capabilities: FakeStoreCapabilities = FakeStoreCapabilities())
+                             capabilities: FakeStoreCapabilities = FakeStoreCapabilities(),
+                             repository: (any InventoryRepository)? = nil)
     -> HouseholdSession {
         // Captured into a local: the closure is `@Sendable`, and this suite's
         // statics are main-actor isolated.
@@ -81,8 +82,8 @@ final class HouseholdSessionTests: XCTestCase {
         return HouseholdSession(
             householdID: householdID ?? self.householdID,
             accountContext: accountContext,
-            repository: CoreDataInventoryRepository(persistence: controller,
-                                                    capabilities: capabilities),
+            repository: repository ?? CoreDataInventoryRepository(persistence: controller,
+                                                                  capabilities: capabilities),
             reconciler: DuplicateReconciler(persistence: controller, capabilities: capabilities),
             tasks: tasks,
             today: { day })
@@ -94,6 +95,14 @@ final class HouseholdSessionTests: XCTestCase {
                       artKey: art.rawValue, storage: .fridge, purchaseDay: Self.today,
                       expiryDay: Self.today.adding(days: 5)!, expirySource: .llmEstimate,
                       explicitMetadataFields: [], occurredAt: Self.occurredAt)
+    }
+
+    private func item(_ name: String, id: UUID) -> InventoryItemSnapshot {
+        InventoryItemSnapshot(id: id, memberIDs: [id], name: name,
+                              normalizedName: NameKey.normalize(name), quantity: 1,
+                              artKey: ItemID.milk.rawValue, storage: .fridge,
+                              purchaseDay: Self.today, expiryDay: Self.today.adding(days: 5)!,
+                              expirySource: .llmEstimate)
     }
 
     private func storedClaimCount() throws -> Int {
@@ -154,6 +163,36 @@ final class HouseholdSessionTests: XCTestCase {
         XCTAssertEqual(session.householdID, otherHouseholdID)
         XCTAssertTrue(session.items.isEmpty)
         XCTAssertTrue(session.purchaseHistory.isEmpty)
+    }
+
+    /// `@MainActor` does not order these on its own: `refresh()` and a command
+    /// both suspend across their repository awaits and can resume in either
+    /// order. A read that started first must not land on top of a purchase that
+    /// finished after it.
+    func testASlowerReadNeverReplacesANewerPurchase() async throws {
+        let purchased = HouseholdProjection(householdID: householdID,
+                                            items: [item("Whole Milk", id: Self.id(1))],
+                                            physicalItems: [], inferredClaims: [],
+                                            issues: [], stockIssues: [])
+        let repository = GatedInventoryRepository(read: .empty(householdID: householdID),
+                                                  command: purchased)
+        let gate = TestGate()
+        repository.readGate = { await gate.wait() }
+        let session = makeSession(repository: repository)
+
+        let slowRead = Task { await session.refresh() }
+        await waitUntil("the read to start") { repository.readCount == 1 }
+        let saved = await session.addManualItem(draft("Whole Milk", id: Self.id(1)))
+        await gate.open()
+        await slowRead.value
+
+        XCTAssertTrue(saved)
+        XCTAssertEqual(session.items.map(\.name), ["Whole Milk"],
+                       "the older read must not replace the purchase that landed after it")
+
+        // The newer-wins rule discards stale results, never later ones.
+        await session.refresh()
+        XCTAssertTrue(session.items.isEmpty, "a read started afterwards still applies")
     }
 
     // MARK: - Refusals

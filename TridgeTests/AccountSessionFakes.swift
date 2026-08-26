@@ -152,3 +152,62 @@ final class FakeStoreCapabilities: StoreCapabilityChecking, @unchecked Sendable 
 
     func canUpdateRecord(forManagedObjectWith objectID: NSManagedObjectID) -> Bool { update }
 }
+
+/// A one-shot handshake: callers wait here until the test opens the gate.
+actor TestGate {
+    private var isOpen = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func open() {
+        isOpen = true
+        let resumed = waiters
+        waiters = []
+        for waiter in resumed { waiter.resume() }
+    }
+
+    func wait() async {
+        guard !isOpen else { return }
+        await withCheckedContinuation { waiters.append($0) }
+    }
+}
+
+/// A repository whose reads can be held open, so a test can land a command's
+/// newer projection while an older read is still suspended.
+final class GatedInventoryRepository: InventoryRepository, @unchecked Sendable {
+    private let lock = NSLock()
+    private let readProjection: HouseholdProjection
+    private let commandProjection: HouseholdProjection
+    private var _readGate: (@Sendable () async -> Void)?
+    private var _readCount = 0
+
+    init(read: HouseholdProjection, command: HouseholdProjection) {
+        self.readProjection = read
+        self.commandProjection = command
+    }
+
+    /// Reads run off the main actor while the test sets this from it, so both
+    /// cross the same lock as `_readCount`.
+    var readGate: (@Sendable () async -> Void)? {
+        get { lock.withLock { _readGate } }
+        set { lock.withLock { _readGate = newValue } }
+    }
+
+    var readCount: Int { lock.withLock { _readCount } }
+
+    func projection(of householdID: UUID,
+                    today: InventoryDay) async throws -> HouseholdProjection {
+        lock.withLock { _readCount += 1 }
+        if let readGate { await readGate() }
+        return readProjection
+    }
+
+    func addManualItem(_ command: AddManualItemCommand,
+                       today: InventoryDay) async throws -> HouseholdProjection {
+        commandProjection
+    }
+
+    func addReviewedRows(_ command: AddReviewedRowsCommand,
+                         today: InventoryDay) async throws -> HouseholdProjection {
+        commandProjection
+    }
+}

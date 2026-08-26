@@ -114,6 +114,8 @@ final class HouseholdSession {
     @ObservationIgnored private let tasks: AccountTaskRegistry
     @ObservationIgnored private let today: @Sendable () -> InventoryDay
     @ObservationIgnored private var isInvalidated = false
+    @ObservationIgnored private var issuedRequest: UInt64 = 0
+    @ObservationIgnored private var appliedRequest: UInt64 = 0
 
     init(householdID: UUID, accountContext: AccountSessionContext,
          repository: any InventoryRepository, reconciler: DuplicateReconciler,
@@ -153,10 +155,13 @@ final class HouseholdSession {
         let repository = self.repository
         let householdID = self.householdID
         let day = today()
+        // Taken before the read starts, so a read that resumes after a newer
+        // projection has already been applied loses to it.
+        let request = nextRequest()
         guard let projection = await run({
             try await repository.projection(of: householdID, today: day)
         }) else { return }
-        apply(projection)
+        apply(projection, request: request)
     }
 
     // MARK: - Purchases
@@ -201,7 +206,10 @@ final class HouseholdSession {
     ) async -> Bool {
         lastFailure = nil
         guard let projection = await run(operation) else { return false }
-        apply(projection)
+        // Taken only once the write has returned: a command's projection
+        // already contains its own save, so it is newer than every read that
+        // was in flight while it ran, whenever those reads resume.
+        apply(projection, request: nextRequest())
         // The projector already applied the same exact-name union in memory, so
         // this only makes the link durable — the UI never waits for it.
         await persistMergeClaims()
@@ -243,11 +251,21 @@ final class HouseholdSession {
         }
     }
 
+    /// The next snapshot-application ticket. `@MainActor` does not order these
+    /// on its own: `refresh()` and `commit()` both suspend across their
+    /// repository awaits and can resume in either order.
+    private func nextRequest() -> UInt64 {
+        issuedRequest += 1
+        return issuedRequest
+    }
+
     /// The main-actor apply boundary: a projection produced for the previous
-    /// account, or for a Household this session no longer shows, is dropped
-    /// even though its read was already running.
-    private func apply(_ projection: HouseholdProjection) {
-        guard !isInvalidated, projection.householdID == householdID else { return }
+    /// account, for a Household this session no longer shows, or older than one
+    /// already on screen is dropped even though its read was already running.
+    private func apply(_ projection: HouseholdProjection, request: UInt64) {
+        guard !isInvalidated, projection.householdID == householdID,
+              request > appliedRequest else { return }
+        appliedRequest = request
         items = projection.items
         purchaseHistory = projection.physicalItems
         for issue in projection.issues {
