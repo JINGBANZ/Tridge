@@ -15,6 +15,8 @@ struct HouseholdScreen: View {
 
     @State private var renameDraft: String?
     @State private var showLeaveConfirmation = false
+    @State private var showStopWarning = false
+    @State private var showStopConfirmation = false
 
     var body: some View {
         List {
@@ -61,6 +63,25 @@ struct HouseholdScreen: View {
             if let item = coordinator.preparedShare {
                 ShareInvitationSheet(item: item) { coordinator.clearPreparedShare() }
             }
+        }
+        // Two steps on purpose: the first states the limitation, the second is
+        // the destructive button. Neither ever claims that a member's device
+        // has finished uploading.
+        .alert("Stop sharing this fridge?", isPresented: $showStopWarning) {
+            Button("Continue") { showStopConfirmation = true }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("""
+            You'll keep everything this iPhone can see right now. Anyone you             shared with loses access.
+            """)
+        }
+        .alert("Keep only what's here?", isPresented: $showStopConfirmation) {
+            Button("Stop Anyway", role: .destructive) { stopSharing() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("""
+            Only changes already synced to this device will be kept. Changes             still offline on someone else's device may be lost. Ask everyone to             open Tridge online before you stop sharing.
+            """)
         }
         .confirmationDialog("Leave this fridge?", isPresented: $showLeaveConfirmation,
                             titleVisibility: .visible) {
@@ -132,8 +153,19 @@ struct HouseholdScreen: View {
                 Task { await coordinator.prepareShare(for: household.id) }
             }
             .accessibilityIdentifier("household.share")
+
+            if household.isShared {
+                Button("Stop Sharing & Keep My Fridge…", role: .destructive) {
+                    showStopWarning = true
+                }
+                .disabled(!coordinator.canRunDestructiveShareAction)
+                .accessibilityIdentifier("household.stopSharing")
+            }
         } footer: {
-            if coordinator.householdsWithStaleShareTitle.contains(household.id) {
+            if coordinator.pendingLifecycleTransition != nil {
+                Text("Finishing a change to this fridge…")
+                    .accessibilityIdentifier("household.pendingTransition")
+            } else if coordinator.householdsWithStaleShareTitle.contains(household.id) {
                 // Honest rather than silent: the saved invitation still carries
                 // the old name, and Send Invite writes it again before it will
                 // present anything.
@@ -191,6 +223,12 @@ struct HouseholdScreen: View {
     private var failureBinding: Binding<Bool> {
         Binding(get: { coordinator.householdFailure != nil },
                 set: { if !$0 { coordinator.clearHouseholdFailure() } })
+    }
+
+    private func stopSharing() {
+        guard let householdID = coordinator.activeHouseholdID else { return }
+        Haptics.warning()
+        Task { await coordinator.stopSharing(householdID) }
     }
 
     private func leave() {

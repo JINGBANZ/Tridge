@@ -196,9 +196,8 @@ extension CoreDataInventoryRepository {
             }
             // Returned rather than re-read: the view context merges a writer's
             // save asynchronously, so a fetch here could still see the old name.
-            return try scope.household.snapshot(
-                ownership: .owned,
-                isShared: scope.persistence.isShared(scope.household))
+            // Share status is refreshed separately and overlaid by the caller.
+            return try scope.household.snapshot(ownership: .owned, isShared: false)
         }
     }
 }

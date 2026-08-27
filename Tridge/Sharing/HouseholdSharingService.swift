@@ -106,9 +106,15 @@ struct HouseholdActionFailure: Error, Equatable, Identifiable {
 /// context.
 @MainActor
 protocol HouseholdSharing: AnyObject {
+    /// Which of these Households currently have a `CKShare`.
+    ///
+    /// Share metadata never appears in persistent history, so share status is
+    /// refreshed deliberately — after container events, invitation activity,
+    /// account changes, and foreground activation — rather than observed.
+    func sharedHouseholdIDs(among householdIDs: [UUID]) async -> Set<UUID>
+
     /// The Household's current share, refreshed from the container. Nil when it
-    /// has never been shared. Share metadata does not appear in persistent
-    /// history, so this is a deliberate refetch rather than an observation.
+    /// has never been shared.
     func currentShare(for householdID: UUID) async throws -> CKShare?
 
     /// Creates the Household's share if it has none, then makes sure the saved
@@ -152,6 +158,22 @@ final class CloudKitHouseholdSharing: HouseholdSharing {
 
     init(persistence: PersistenceController) {
         self.persistence = persistence
+    }
+
+    func sharedHouseholdIDs(among householdIDs: [UUID]) async -> Set<UUID> {
+        var byObjectID: [NSManagedObjectID: UUID] = [:]
+        for store in [persistence.privateStore, persistence.sharedStore] {
+            let request = HouseholdRecord.fetchRequest()
+            request.predicate = NSPredicate(format: "id IN %@", householdIDs as NSArray)
+            request.affectedStores = [store]
+            for record in (try? persistence.viewContext.fetch(request)) ?? [] {
+                if let id = record.id { byObjectID[record.objectID] = id }
+            }
+        }
+        guard !byObjectID.isEmpty,
+              let shares = try? persistence.container.fetchShares(matching: Array(byObjectID.keys))
+        else { return [] }
+        return Set(shares.keys.compactMap { byObjectID[$0] })
     }
 
     func currentShare(for householdID: UUID) async throws -> CKShare? {

@@ -351,6 +351,10 @@ final class FakeHouseholdSharing: HouseholdSharing {
     private(set) var prepareCount = 0
     private(set) var acceptCount = 0
 
+    func sharedHouseholdIDs(among householdIDs: [UUID]) async -> Set<UUID> {
+        sharedHouseholds.intersection(householdIDs)
+    }
+
     func currentShare(for householdID: UUID) async throws -> CKShare? {
         sharedHouseholds.contains(householdID) ? Self.makeShare() : nil
     }

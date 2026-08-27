@@ -61,6 +61,9 @@ final class AccountSessionCoordinator {
     /// or recovered. They are out of the picker and out of selection, and their
     /// reminders are already retired.
     private(set) var suppressedHouseholdIDs: Set<UUID> = []
+    /// A multi-step lifecycle change this installation is part-way through.
+    /// It survives termination and is resumed before normal selection.
+    private(set) var pendingLifecycleTransition: HouseholdLifecycleTransition?
 
     let tasks: AccountTaskRegistry
     let syncMonitor: any SyncStatusProviding
@@ -115,6 +118,11 @@ final class AccountSessionCoordinator {
     /// late invitation cannot reach a removed store.
     @ObservationIgnored private var sharing: (any HouseholdSharing)?
     @ObservationIgnored private var shareTitles: ShareTitleRetryStore?
+    @ObservationIgnored private var transitions: LifecycleTransitionStore?
+    /// The last share status the container reported. Overlaid onto every
+    /// snapshot, because share metadata never appears in persistent history.
+    @ObservationIgnored private var sharedHouseholdIDs: Set<UUID> = []
+    @ObservationIgnored private var lifecycleTask: Task<Void, Never>?
 
     init(identity: any AccountIdentityProviding = CloudKitAccountIdentity(),
          syncMonitor: any SyncStatusProviding,
@@ -248,11 +256,16 @@ final class AccountSessionCoordinator {
         preparedShare = nil
         householdsWithStaleShareTitle = []
         suppressedHouseholdIDs = []
+        sharedHouseholdIDs = []
+        pendingLifecycleTransition = nil
         // The router keeps its metadata for this process, but it may not accept
         // into a store that is about to be removed.
         invitations.bind(accept: nil)
         sharing = nil
         shareTitles = nil
+        transitions = nil
+        lifecycleTask?.cancel()
+        lifecycleTask = nil
         barrierWatch?.cancel()
         barrierWatch = nil
         // The migration itself is registered work, so the drain waits for it;
@@ -374,6 +387,8 @@ final class AccountSessionCoordinator {
         self.sharing = sharing
         shareTitles = ShareTitleRetryStore(accountScope: context.accountScope,
                                            defaults: defaults)
+        transitions = LifecycleTransitionStore(accountScope: context.accountScope,
+                                               defaults: defaults)
         invitations.bind { [weak self] metadata in
             try await self?.acceptInvitation(metadata, for: context, using: sharing)
         }
@@ -395,6 +410,28 @@ final class AccountSessionCoordinator {
         // Normal import brings the received Household into the list. It does
         // not become active — the member selects it explicitly (ADR 0013).
         processHistory(for: context, storeURL: nil)
+        refreshShareState(for: context)
+    }
+
+    /// Re-reads which Households are shared. Deliberately scheduled rather than
+    /// observed: share metadata does not produce persistent-history
+    /// transactions, so nothing would ever tell us it changed.
+    private func refreshShareState(for context: AccountSessionContext) {
+        guard let sharing else { return }
+        let ids = households.map(\.id)
+        guard !ids.isEmpty else { return }
+        Task { [weak self] in
+            let shared = await sharing.sharedHouseholdIDs(among: ids)
+            self?.applyShareState(shared, for: context)
+        }
+    }
+
+    /// The main-actor apply boundary: share status read for the previous
+    /// account never reaches this one's list.
+    private func applyShareState(_ shared: Set<UUID>, for context: AccountSessionContext) {
+        guard currentGeneration == context.generation, sharedHouseholdIDs != shared else { return }
+        sharedHouseholdIDs = shared
+        households = households.map { $0.withShareState(isShared: shared.contains($0.id)) }
     }
 
     /// Owner-only: create or refresh the Household's share and make sure its
@@ -496,8 +533,11 @@ final class AccountSessionCoordinator {
             return false
         }
 
-        households = households.map { $0.id == snapshot.id ? snapshot : $0 }
-        guard snapshot.isShared, let session, let sharing else { return true }
+        let wasShared = households.first { $0.id == householdID }?.isShared ?? false
+        households = households.map {
+            $0.id == snapshot.id ? snapshot.withShareState(isShared: wasShared) : $0
+        }
+        guard wasShared, let session, let sharing else { return true }
         // The Household is saved; the share's own title is a second write that
         // can fail on its own. A failure is marked rather than swallowed, and
         // Send Invite reconciles the title before it will present anything.
@@ -542,6 +582,191 @@ final class AccountSessionCoordinator {
         isHouseholdActionInFlight = true
         defer { isHouseholdActionInFlight = false }
         return await body()
+    }
+
+    // MARK: - Stop sharing, keep the fridge
+
+    /// Whether the destructive share actions may run at all.
+    ///
+    /// They are offered only while the account and network are usable and
+    /// neither store has an in-progress or failed sync event: a purge cannot be
+    /// undone, and "everything I can see is really here" has to be true before
+    /// the copy is taken.
+    var canRunDestructiveShareAction: Bool {
+        syncStatus == .upToDate && pendingLifecycleTransition == nil
+    }
+
+    /// The owner's explicit Stop Sharing. It is the only such entry point in the
+    /// app — there is no hidden management path.
+    ///
+    /// It promises the owner's current local projection, never a peer's
+    /// unexported work: CloudKit offers no acknowledgement that every member's
+    /// device has uploaded, so the confirmation says so plainly.
+    @discardableResult
+    func stopSharing(_ householdID: UUID) async -> Bool {
+        await runHouseholdAction { await self.performStopSharing(householdID) }
+    }
+
+    private func performStopSharing(_ householdID: UUID) async -> Bool {
+        guard let session, let transitions,
+              let household = households.first(where: { $0.id == householdID })
+        else {
+            householdFailure = HouseholdActionFailure(
+                reason: .householdUnavailable,
+                message: "That fridge isn't available on this device any more.",
+                diagnosticID: "stopSharing.household")
+            return false
+        }
+        guard household.ownership == .owned, household.isShared else {
+            householdFailure = HouseholdActionFailure(
+                reason: .notOwner,
+                message: "Only the person who started this fridge can stop sharing it.",
+                diagnosticID: "stopSharing.owner")
+            return false
+        }
+        guard canRunDestructiveShareAction else {
+            householdFailure = HouseholdActionFailure(
+                reason: .unavailable,
+                message: "Wait until this fridge is up to date, then try again.",
+                diagnosticID: "stopSharing.notSettled")
+            return false
+        }
+
+        householdFailure = nil
+        // Allocated before anything happens, so every retry from here on finds
+        // the same destination instead of making a second copy.
+        let transition = HouseholdLifecycleTransition(
+            kind: .stopSharing, phase: .copying, sourceHouseholdID: householdID,
+            destinationHouseholdID: UUID())
+        transitions.save(transition)
+        applySuppression(of: transition)
+        return await runStopSharing(transition, named: household.name, for: session)
+    }
+
+    /// Runs — or resumes — a stop-sharing transition from whatever phase it is
+    /// recorded at. Each phase is entered only once, because the phase written
+    /// after a step is what proves that step happened.
+    private func runStopSharing(_ recorded: HouseholdLifecycleTransition, named name: String,
+                                for session: AccountSession) async -> Bool {
+        guard let sharing, let transitions,
+              let destinationID = recorded.destinationHouseholdID
+        else { return false }
+
+        var transition = recorded
+        let context = session.context
+        let persistence = session.persistence
+        let repository = CoreDataInventoryRepository(persistence: persistence)
+        let today = InventoryDay.today()
+        let source = transition.sourceHouseholdID
+
+        do {
+            if transition.phase == .copying {
+                // Local quiescence: close admission and let every already
+                // admitted writer return, so the projection the copy takes
+                // cannot move underneath it.
+                if inventory?.householdID == source {
+                    await inventory?.closeCommandAdmission()
+                }
+                try await tasks.run(context: context) {
+                    _ = try await repository.copyActiveInventory(from: source,
+                                                                 into: destinationID,
+                                                                 named: name, today: today)
+                }
+                transition.phase = .copySaved
+                transitions.save(transition)
+                applyTransitionPhase(transition, for: context)
+            }
+
+            if transition.phase == .copySaved {
+                // Refetched through the store: a save that reported success but
+                // left nothing behind must never lead to a purge.
+                _ = try await tasks.run(context: context) {
+                    try await repository.verifyPreservedCopy(destinationID, today: today)
+                }
+                transition.phase = .purgePending
+                transitions.save(transition)
+                applyTransitionPhase(transition, for: context)
+            }
+
+            if transition.phase == .purgePending {
+                try await tasks.run(context: context) {
+                    // Whether the zone goes now or was already gone, the local
+                    // source graph still has to be verified absent.
+                    _ = try await sharing.purgeZone(of: source, in: .privateDatabase)
+                    try await persistence.ensureLocalGraphAbsent(of: source)
+                }
+            }
+        } catch is AccountTaskRegistry.Rejection {
+            return false
+        } catch {
+            inventory?.reopenCommandAdmission()
+            householdFailure = HouseholdActionFailure(error, stage: "stopSharing")
+            // A copy that saved is kept and the source stays hidden, so the
+            // user never sees the same fridge twice while cleanup is retryable.
+            applySuppression(of: transition)
+            return false
+        }
+
+        transitions.clear()
+        pendingLifecycleTransition = nil
+        await finishStopSharing(source: source, destination: destinationID, for: session)
+        return true
+    }
+
+    private func finishStopSharing(source: UUID, destination: UUID,
+                                   for session: AccountSession) async {
+        let context = session.context
+        guard currentGeneration == context.generation else { return }
+        suppressedHouseholdIDs.remove(destination)
+        await reminders.retire(scope: .household(accountScope: context.accountScope.value,
+                                                 householdID: source))
+        // The verified copy is what the user should be looking at next.
+        activeHouseholds.save(destination, for: context.accountScope)
+        activeHouseholdID = destination
+        inventory?.reopenCommandAdmission()
+        selectActiveHousehold(for: context, controller: session.persistence)
+    }
+
+    // MARK: - Resuming an interrupted transition
+
+    /// Continues whatever this installation was part-way through, before the
+    /// affected Households can be interacted with again.
+    private func resume(_ transition: HouseholdLifecycleTransition,
+                        for context: AccountSessionContext,
+                        controller: PersistenceController) {
+        guard lifecycleTask == nil, let session, session.context.generation == context.generation
+        else { return }
+        let name = households.first { $0.id == transition.sourceHouseholdID }?.name
+            ?? HouseholdSelection.defaultHouseholdName
+        lifecycleTask = Task { [weak self] in
+            guard let self else { return }
+            await self.runHouseholdAction {
+                guard transition.kind == .stopSharing else { return false }
+                return await self.runStopSharing(transition, named: name, for: session)
+            }
+            self.lifecycleTask = nil
+        }
+    }
+
+    private func applySuppression(of transition: HouseholdLifecycleTransition) {
+        pendingLifecycleTransition = transition
+        suppressedHouseholdIDs.formUnion(transition.suppressedHouseholdIDs)
+        households.removeAll { suppressedHouseholdIDs.contains($0.id) }
+    }
+
+    /// Narrows suppression as a transition advances — the verified copy stops
+    /// being hidden the moment it is real.
+    private func applyTransitionPhase(_ transition: HouseholdLifecycleTransition,
+                                      for context: AccountSessionContext) {
+        guard currentGeneration == context.generation else { return }
+        pendingLifecycleTransition = transition
+        // A destination that is now real stops being hidden. Nothing else this
+        // session suppressed — a leave, an access loss — is affected.
+        if let destination = transition.destinationHouseholdID,
+           !transition.suppressedHouseholdIDs.contains(destination) {
+            suppressedHouseholdIDs.remove(destination)
+        }
+        suppressedHouseholdIDs.formUnion(transition.suppressedHouseholdIDs)
     }
 
     // MARK: - Leaving and losing access
@@ -692,6 +917,9 @@ final class AccountSessionCoordinator {
     func refreshOnForeground() {
         guard let session else { return }
         processHistory(for: session.context, storeURL: nil)
+        // Share changes are refreshed on their own path, because they never
+        // produce a persistent-history transaction to notice.
+        refreshShareState(for: session.context)
     }
 
     /// The main-actor apply boundary for an import: a batch processed for the
@@ -731,10 +959,21 @@ final class AccountSessionCoordinator {
             accountScope: context.accountScope,
             privateStoreIdentifier: context.privateStoreIdentifier)
 
+        // Before normal selection: a Household part-way through a copy or a
+        // purge must never be offered as somewhere to put groceries.
+        let transition = transitions?.current()
+        pendingLifecycleTransition = transition
+        if let transition {
+            suppressedHouseholdIDs.formUnion(transition.suppressedHouseholdIDs)
+        }
+
         selectActiveHousehold(for: context, controller: controller)
 
         if !hasCompletedInitialPrivateImport {
             watchInitialImport(for: context)
+        }
+        if let transition {
+            resume(transition, for: context, controller: controller)
         }
     }
 
@@ -750,7 +989,10 @@ final class AccountSessionCoordinator {
         // A suppression lasts exactly as long as the record it hides: once the
         // graph is really gone, a later re-invitation is free to bring it back.
         suppressedHouseholdIDs.formIntersection(Set(available.map(\.id)))
-        households = available.filter { !suppressedHouseholdIDs.contains($0.id) }
+        households = available
+            .filter { !suppressedHouseholdIDs.contains($0.id) }
+            .map { $0.withShareState(isShared: sharedHouseholdIDs.contains($0.id)) }
+        refreshShareState(for: context)
         // A share title that could not be written survives termination, so the
         // marker is re-read whenever the accessible set changes.
         householdsWithStaleShareTitle = Set(
