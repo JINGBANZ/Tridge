@@ -10,7 +10,7 @@ final class ShareInvitationTests: XCTestCase {
     /// Stands in for `CKShare.Metadata`, which has no public initializer.
     private struct Invitation: ShareInvitationMetadata {
         var invitationContainerIdentifier = TridgeCloudKit.containerIdentifier
-        var invitationParticipantStatus: CKShare.ParticipantStatus = .pending
+        var invitationParticipantStatus: CKShare.ParticipantAcceptanceStatus = .pending
     }
 
     /// Records what the router asked CloudKit to do.

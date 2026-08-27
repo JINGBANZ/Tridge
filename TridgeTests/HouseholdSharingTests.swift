@@ -243,5 +243,5 @@ final class HouseholdSharingTests: XCTestCase {
 /// A pending invitation for this app's container.
 private struct FakePendingInvitation: ShareInvitationMetadata {
     let invitationContainerIdentifier = TridgeCloudKit.containerIdentifier
-    let invitationParticipantStatus: CKShare.ParticipantStatus = .pending
+    let invitationParticipantStatus: CKShare.ParticipantAcceptanceStatus = .pending
 }

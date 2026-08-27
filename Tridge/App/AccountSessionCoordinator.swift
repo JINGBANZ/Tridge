@@ -140,19 +140,22 @@ final class AccountSessionCoordinator {
     init(identity: any AccountIdentityProviding = CloudKitAccountIdentity(),
          syncMonitor: any SyncStatusProviding,
          tasks: AccountTaskRegistry = AccountTaskRegistry(),
-         reminders: ReminderReconciler = ReminderReconciler(),
+         reminders: ReminderReconciler? = nil,
          defaults: UserDefaults = .standard,
          barrier: BootstrapBarrierStore = BootstrapBarrierStore(),
          activeHouseholds: ActiveHouseholdStore = ActiveHouseholdStore(),
          upgrade: LegacyInventoryUpgrade = LegacyInventoryUpgrade(),
          eraser: LegacyArchiveEraser = LegacyArchiveEraser(),
-         invitations: ShareInvitationRouter = .shared,
+         invitations: ShareInvitationRouter? = nil,
          makePersistence: @escaping @Sendable (AccountScopeHash) async throws
              -> PersistenceController = AccountSessionCoordinator.loadCloudKitStack,
          makeSharing: @escaping @MainActor (PersistenceController) -> any HouseholdSharing
              = { CloudKitHouseholdSharing(persistence: $0) }) {
         self.identity = identity
-        self.reminders = reminders
+        // Built here rather than as default arguments: both are main-actor
+        // types, and a default argument is evaluated at the call site, which
+        // has no such isolation to offer.
+        self.reminders = reminders ?? ReminderReconciler()
         self.defaults = defaults
         self.syncMonitor = syncMonitor
         self.tasks = tasks
@@ -161,7 +164,7 @@ final class AccountSessionCoordinator {
         self.upgrade = upgrade
         self.eraser = eraser
         self.hasLegacyArchive = eraser.hasRemnants
-        self.invitations = invitations
+        self.invitations = invitations ?? .shared
         self.makePersistence = makePersistence
         self.makeSharing = makeSharing
         self.showsMigrationNotice = upgrade.needsNotice

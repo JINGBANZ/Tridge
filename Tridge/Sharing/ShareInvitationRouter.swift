@@ -9,12 +9,12 @@ import Observation
 /// they are exactly the rules that must not be got wrong.
 protocol ShareInvitationMetadata {
     var invitationContainerIdentifier: String { get }
-    var invitationParticipantStatus: CKShare.ParticipantStatus { get }
+    var invitationParticipantStatus: CKShare.ParticipantAcceptanceStatus { get }
 }
 
 extension CKShare.Metadata: ShareInvitationMetadata {
     var invitationContainerIdentifier: String { containerIdentifier }
-    var invitationParticipantStatus: CKShare.ParticipantStatus { participantStatus }
+    var invitationParticipantStatus: CKShare.ParticipantAcceptanceStatus { participantStatus }
 }
 
 /// Routes a tapped invitation into this account's shared store.
