@@ -358,11 +358,21 @@ final class StopSharingTests: XCTestCase {
         let store = LifecycleTransitionStore(accountScope: Self.scope(), defaults: defaults)
 
         sharing.purgeFailure = CKError(.networkFailure)
-        _ = await coordinator.stopSharing(source)
+        let stopped = await coordinator.stopSharing(source)
+        XCTAssertFalse(stopped)
         XCTAssertEqual(store.current()?.phase, .purgePending)
 
-        _ = await coordinator.stopSharing(source)
-        XCTAssertNil(store.current(), "the record goes only once the purge is done")
+        // A second tap is refused rather than retried: the fridge is hidden
+        // while cleanup is outstanding, so it is no longer offered as a target.
+        let retried = await coordinator.stopSharing(source)
+        XCTAssertFalse(retried)
+        XCTAssertEqual(store.current()?.phase, .purgePending)
+
+        // The resumed transition is what finishes it.
+        await coordinator.shutDown()
+        coordinator = makeCoordinator()
+        await coordinator.start()
+        await waitUntil("the resumed transition clears the record") { store.current() == nil }
     }
 
     // MARK: - Local effects

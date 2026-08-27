@@ -137,6 +137,18 @@ final class HouseholdDeletionTests: XCTestCase {
         emit(.exportChanges, store: context.privateStoreIdentifier)
     }
 
+    /// Emits private-store exports until the absence check has run.
+    ///
+    /// The check registers its export waiter on its own task, so a single
+    /// emission can land before anything is listening. Repeating is harmless —
+    /// the waiter resolves on the first export it actually sees.
+    private func awaitAbsenceCheck(_ count: Int = 1) async {
+        await waitUntil("the absence check runs") {
+            self.emitPrivateExport()
+            return self.sharing.confirmCount >= count
+        }
+    }
+
     // MARK: - Which action is offered
 
     func testDeletingAReceivedHouseholdIsRefused() async throws {
@@ -218,8 +230,7 @@ final class HouseholdDeletionTests: XCTestCase {
         XCTAssertEqual(coordinator.pendingLifecycleTransition?.phase, .privateDeleteAwaitingCloud)
         // The fallback is already available; only the iCloud claim waits.
         XCTAssertEqual(coordinator.activeHouseholdID, fridges.keep)
-        emitPrivateExport()
-        await waitUntil("the absence check runs") { self.sharing.confirmCount == 1 }
+        await awaitAbsenceCheck()
 
         XCTAssertEqual(coordinator.pendingLifecycleTransition?.phase, .privateDeleteAwaitingCloud,
                        "a record that is still there keeps it pending")
@@ -235,10 +246,7 @@ final class HouseholdDeletionTests: XCTestCase {
         sharing.recordsStillPresent = [Self.record.recordName]
 
         _ = await coordinator.deleteHousehold(fridges.target)
-        emitPrivateExport()
-        await waitUntil("the first check runs and finds it present") {
-            self.sharing.confirmCount == 1
-        }
+        await awaitAbsenceCheck()
 
         // Relaunch, with the record now really gone.
         sharing.recordsStillPresent = []
@@ -247,10 +255,10 @@ final class HouseholdDeletionTests: XCTestCase {
         await coordinator.start()
         XCTAssertEqual(coordinator.pendingLifecycleTransition?.phase,
                        .privateDeleteAwaitingCloud, "the resumed check is waiting for an export")
-        emitPrivateExport()
 
         await waitUntil("the deletion completes") {
-            self.coordinator.pendingLifecycleTransition == nil
+            self.emitPrivateExport()
+            return self.coordinator.pendingLifecycleTransition == nil
         }
         XCTAssertNil(LifecycleTransitionStore(accountScope: Self.scope(),
                                               defaults: defaults).current())
@@ -263,8 +271,7 @@ final class HouseholdDeletionTests: XCTestCase {
         sharing.recordsStillPresent = [Self.record.recordName]
 
         _ = await coordinator.deleteHousehold(fridges.target)
-        emitPrivateExport()
-        await waitUntil("the absence check runs") { self.sharing.confirmCount == 1 }
+        await awaitAbsenceCheck()
 
         XCTAssertNotNil(coordinator.pendingLifecycleTransition,
                         "an export says work was sent, not that these records are gone")
