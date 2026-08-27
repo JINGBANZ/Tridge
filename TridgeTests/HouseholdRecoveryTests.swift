@@ -244,8 +244,12 @@ final class HouseholdRecoveryTests: XCTestCase {
 
         let controller = try XCTUnwrap(coordinator.session?.persistence)
         await waitUntil("the received fridge is really gone") {
-            let listed = self.coordinator.households.contains { $0.id == fridges.received }
-            return !listed && !(await controller.containsHousehold(fridges.received))
+            // Split rather than `&&`: the right-hand side of a short-circuit
+            // operator is an autoclosure, which cannot await.
+            guard !self.coordinator.households.contains(where: { $0.id == fridges.received })
+            else { return false }
+            let stillStored = await controller.containsHousehold(fridges.received)
+            return !stillStored
         }
         let request = try XCTUnwrap(coordinator.pendingRecovery)
         XCTAssertEqual(request.role, .member)
