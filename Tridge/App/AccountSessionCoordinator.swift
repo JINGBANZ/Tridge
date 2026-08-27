@@ -53,6 +53,9 @@ final class AccountSessionCoordinator {
 
     private let identity: any AccountIdentityProviding
     let reminders: ReminderReconciler
+    /// Where the per-store history cursors live. Injected so a test suite keeps
+    /// its own, rather than writing into the host's standard defaults.
+    private let defaults: UserDefaults
     private let barrier: BootstrapBarrierStore
     private let activeHouseholds: ActiveHouseholdStore
     private let upgrade: LegacyInventoryUpgrade
@@ -70,6 +73,11 @@ final class AccountSessionCoordinator {
     /// The `CKAccountChanged` observer, held in a token that unregisters
     /// itself when the coordinator is released.
     @ObservationIgnored private let accountObserver = NotificationObserverToken()
+    /// The remote-change observer for the current generation's coordinator.
+    @ObservationIgnored private let remoteChangeObserver = NotificationObserverToken()
+    /// The current generation's history consumer. Released with the generation,
+    /// so a late notification cannot reach a removed store.
+    @ObservationIgnored private var history: PersistentHistoryProcessor?
     @ObservationIgnored private var transitionTask: Task<Void, Never>?
     @ObservationIgnored private var barrierWatch: Task<Void, Never>?
     @ObservationIgnored private var upgradeTask: Task<Void, Never>?
@@ -83,6 +91,7 @@ final class AccountSessionCoordinator {
          syncMonitor: any SyncStatusProviding,
          tasks: AccountTaskRegistry = AccountTaskRegistry(),
          reminders: ReminderReconciler = ReminderReconciler(),
+         defaults: UserDefaults = .standard,
          barrier: BootstrapBarrierStore = BootstrapBarrierStore(),
          activeHouseholds: ActiveHouseholdStore = ActiveHouseholdStore(),
          upgrade: LegacyInventoryUpgrade = LegacyInventoryUpgrade(),
@@ -90,6 +99,7 @@ final class AccountSessionCoordinator {
              -> PersistenceController = AccountSessionCoordinator.loadCloudKitStack) {
         self.identity = identity
         self.reminders = reminders
+        self.defaults = defaults
         self.syncMonitor = syncMonitor
         self.tasks = tasks
         self.barrier = barrier
@@ -181,6 +191,10 @@ final class AccountSessionCoordinator {
         inventory = nil
         inventoryTask?.cancel()
         inventoryTask = nil
+        // Nothing new may be admitted for this generation, so the observer goes
+        // before the drain rather than after it.
+        remoteChangeObserver.remove()
+        history = nil
         barrierWatch?.cancel()
         barrierWatch = nil
         // The migration itself is registered work, so the drain waits for it;
@@ -288,6 +302,84 @@ final class AccountSessionCoordinator {
                                     storeIdentifiers: context.storeIdentifiers)
         session = AccountSession(context: context, persistence: controller)
         applyBootstrapGate(for: context, controller: controller)
+        startHistoryProcessing(for: context, controller: controller)
+    }
+
+    // MARK: - Remote history
+
+    /// Brings up this generation's history consumer and starts observing remote
+    /// changes for its two stores.
+    ///
+    /// The first pass runs immediately: an import can complete between the
+    /// store load and this point, and its notification would already be gone.
+    private func startHistoryProcessing(for context: AccountSessionContext,
+                                        controller: PersistenceController) {
+        let reconciler = DuplicateReconciler(persistence: controller)
+        let processor = PersistentHistoryProcessor(
+            persistence: controller,
+            tokens: HistoryTokenStore(accountScope: context.accountScope, defaults: defaults),
+            effects: HistoryEffects(
+                reconcileDuplicates: { householdID in
+                    _ = try await reconciler.reconcile(householdID: householdID,
+                                                       today: InventoryDay.today())
+                },
+                refreshSession: { [weak self] householdIDs in
+                    await self?.applyImportedChanges(householdIDs, for: context)
+                }))
+        history = processor
+        observeRemoteChanges(for: context, controller: controller)
+        processHistory(for: context, storeURL: nil)
+    }
+
+    private func observeRemoteChanges(for context: AccountSessionContext,
+                                      controller: PersistenceController) {
+        remoteChangeObserver.register {
+            NotificationCenter.default.addObserver(
+                forName: .NSPersistentStoreRemoteChange,
+                object: controller.container.persistentStoreCoordinator, queue: .main
+            ) { [weak self] notification in
+                let storeURL = notification.userInfo?[NSPersistentStoreURLKey] as? URL
+                MainActor.assumeIsolated {
+                    self?.processHistory(for: context, storeURL: storeURL)
+                }
+            }
+        }
+    }
+
+    /// Registered like every other account-bound operation, so a drain waits
+    /// for a pass that is already merging before its stores are removed.
+    private func processHistory(for context: AccountSessionContext, storeURL: URL?) {
+        guard currentGeneration == context.generation, let history else { return }
+        let tasks = self.tasks
+        Task {
+            _ = try? await tasks.run(context: context) {
+                await history.process(storeURL: storeURL)
+            }
+        }
+    }
+
+    /// Foreground activation: report local truth rather than pretending to
+    /// force a sync. `NSPersistentCloudKitContainer` keeps importing on its own;
+    /// this only makes sure whatever already landed has been consumed.
+    func refreshOnForeground() {
+        guard let session else { return }
+        processHistory(for: session.context, storeURL: nil)
+    }
+
+    /// The main-actor apply boundary for an import: a batch processed for the
+    /// previous account is dropped here even though its pass was already
+    /// running when the account changed.
+    private func applyImportedChanges(_ householdIDs: Set<UUID>,
+                                      for context: AccountSessionContext) async {
+        guard currentGeneration == context.generation, let session,
+              session.context.generation == context.generation
+        else { return }
+
+        // A Household may have arrived, been renamed, or gone away, so the
+        // deterministic selection runs again before the inventory is re-read.
+        selectActiveHousehold(for: context, controller: session.persistence)
+        guard let inventory, householdIDs.contains(inventory.householdID) else { return }
+        reloadInventory()
     }
 
     /// Retires the previous account's reminders when the account really

@@ -274,3 +274,63 @@ final class GatedInventoryRepository: InventoryRepository, @unchecked Sendable {
         return commandProjections[min(call, commandProjections.count) - 1]
     }
 }
+
+/// A notification centre that records instead of scheduling, so a suite never
+/// touches the test host's real alerts or badge.
+final class FakeNotificationCenter: NotificationScheduling, @unchecked Sendable {
+    private let lock = NSLock()
+    private var scheduled: [String: PreparedReminder] = [:]
+    private var _delivered: [String] = []
+    private var _badge = 0
+    private var _authorizationRequests = 0
+
+    /// Alerts already sitting in Notification Center, which a scope retirement
+    /// has to remove as well as the pending requests.
+    var delivered: [String] {
+        get { lock.withLock { _delivered } }
+        set { lock.withLock { _delivered = newValue } }
+    }
+
+    var pending: [PreparedReminder] {
+        lock.withLock { scheduled.values.sorted { $0.identifier < $1.identifier } }
+    }
+
+    var badge: Int { lock.withLock { _badge } }
+
+    var authorizationRequests: Int { lock.withLock { _authorizationRequests } }
+
+    func isAuthorizationUndetermined() async -> Bool { true }
+
+    func requestAuthorization() async {
+        lock.withLock { _authorizationRequests += 1 }
+    }
+
+    func pendingReminders() async -> [ScheduledReminder] {
+        pending.map {
+            ScheduledReminder(identifier: $0.identifier, fireDay: $0.fireDay, hour: $0.hour)
+        }
+    }
+
+    func deliveredIdentifiers() async -> [String] { delivered }
+
+    func schedule(_ reminders: [PreparedReminder], calendar: Calendar) {
+        lock.withLock {
+            // Adding under an existing identifier replaces it, exactly as
+            // `UNUserNotificationCenter` does — which is what makes a reminder-
+            // hour change a reschedule rather than a duplicate.
+            for reminder in reminders { scheduled[reminder.identifier] = reminder }
+        }
+    }
+
+    func removePending(identifiers: [String]) {
+        lock.withLock { for identifier in identifiers { scheduled[identifier] = nil } }
+    }
+
+    func removeDelivered(identifiers: [String]) {
+        lock.withLock { _delivered.removeAll { identifiers.contains($0) } }
+    }
+
+    func setBadge(_ count: Int) {
+        lock.withLock { _badge = count }
+    }
+}

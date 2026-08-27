@@ -60,6 +60,8 @@ final class LegacyInventoryMigrationTests: XCTestCase {
     private func makeCoordinator() -> AccountSessionCoordinator {
         AccountSessionCoordinator(
             identity: identity, syncMonitor: monitor,
+            reminders: ReminderReconciler(center: FakeNotificationCenter(), defaults: defaults),
+            defaults: defaults,
             barrier: BootstrapBarrierStore(defaults: defaults),
             activeHouseholds: ActiveHouseholdStore(defaults: defaults),
             upgrade: LegacyInventoryUpgrade(archive: archive, markers: markers, effects: effects,

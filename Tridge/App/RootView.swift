@@ -10,11 +10,19 @@ import SwiftUI
 struct RootView: View {
     let coordinator: AccountSessionCoordinator
 
+    @Environment(\.scenePhase) private var scenePhase
+
     var body: some View {
         content
             .task {
                 coordinator.observeAccountChanges()
                 await coordinator.start()
+            }
+            // Foreground refresh reports local truth: whatever CloudKit already
+            // imported is consumed now. There is no force-sync button, because
+            // the container owns its own import and export schedule.
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .active { coordinator.refreshOnForeground() }
             }
             // Shown until Continue is tapped: terminating first brings it back,
             // because acknowledgement is its own installation-wide marker.
