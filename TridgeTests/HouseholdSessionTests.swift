@@ -106,6 +106,11 @@ final class HouseholdSessionTests: XCTestCase {
                               expirySource: .llmEstimate)
     }
 
+    private func projection(_ items: [InventoryItemSnapshot]) -> HouseholdProjection {
+        HouseholdProjection(householdID: householdID, items: items, physicalItems: [],
+                            inferredClaims: [], issues: [], stockIssues: [])
+    }
+
     private func storedClaimCount(in householdID: UUID? = nil) throws -> Int {
         let context = controller.newWriterContext()
         var result: Result<Int, Error>!
@@ -192,12 +197,9 @@ final class HouseholdSessionTests: XCTestCase {
     /// order. A read that started first must not land on top of a purchase that
     /// finished after it.
     func testASlowerReadNeverReplacesANewerPurchase() async throws {
-        let purchased = HouseholdProjection(householdID: householdID,
-                                            items: [item("Whole Milk", id: Self.id(1))],
-                                            physicalItems: [], inferredClaims: [],
-                                            issues: [], stockIssues: [])
+        let purchased = projection([item("Whole Milk", id: Self.id(1))])
         let repository = GatedInventoryRepository(read: .empty(householdID: householdID),
-                                                  command: purchased)
+                                                  commands: [purchased])
         let gate = TestGate()
         repository.readGate = { await gate.wait() }
         let session = makeSession(repository: repository)
@@ -226,7 +228,7 @@ final class HouseholdSessionTests: XCTestCase {
         try await seedSameNamePair(in: householdID)
         try await seedSameNamePair(in: otherHouseholdID)
         let repository = GatedInventoryRepository(read: .empty(householdID: householdID),
-                                                  command: .empty(householdID: householdID))
+                                                  commands: [.empty(householdID: householdID)])
         let gate = TestGate()
         repository.commandGate = { await gate.wait() }
         let session = makeSession(repository: repository)
@@ -247,6 +249,47 @@ final class HouseholdSessionTests: XCTestCase {
                        "the fridge the purchase was written to still gets its durable claim")
         XCTAssertEqual(try storedClaimCount(in: otherHouseholdID), 1,
                        "the fridge switched to reconciles through its own load")
+    }
+
+    /// Two purchases in flight at once. The repository serializes the saves, but
+    /// nothing ties that order to the order they were issued in — each command
+    /// reaches `AccountTaskRegistry` as its own unstructured task — and nothing
+    /// orders the two main-actor continuations that resume afterwards either. A
+    /// ticket can only rank the applications, so the older transaction's
+    /// projection, which predates the newer purchase, could be the one left on
+    /// screen. Each purchase therefore waits for the one before it to apply.
+    func testASecondPurchaseWaitsForTheFirstToApply() async throws {
+        let milk = item("Whole Milk", id: Self.id(1))
+        let eggs = item("Eggs", id: Self.id(2))
+        let repository = GatedInventoryRepository(
+            read: .empty(householdID: householdID),
+            commands: [projection([milk]), projection([milk, eggs])])
+        let gate = TestGate()
+        repository.commandGate = { await gate.wait() }
+        let session = makeSession(repository: repository)
+
+        let first = Task { await session.addManualItem(draft("Whole Milk", id: Self.id(1))) }
+        await waitUntil("the first purchase to reach the repository") {
+            repository.commandCount == 1
+        }
+        let second = Task {
+            await session.addManualItem(draft("Eggs", id: Self.id(2), art: .eggs))
+        }
+        // Bounded, because the assertion is that this never happens: nothing
+        // else can signal a purchase that must still be waiting its turn.
+        await neverHappens("the second purchase reached the repository while the first was writing") {
+            repository.commandCount > 1
+        }
+
+        await gate.open()
+        let savedFirst = await first.value
+        let savedSecond = await second.value
+
+        XCTAssertTrue(savedFirst)
+        XCTAssertTrue(savedSecond)
+        XCTAssertEqual(repository.commandCount, 2, "the held purchase still ran")
+        XCTAssertEqual(session.items.map(\.name), ["Whole Milk", "Eggs"],
+                       "the projection taken last is the one left on screen")
     }
 
     // MARK: - Refusals

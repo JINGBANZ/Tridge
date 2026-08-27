@@ -116,6 +116,9 @@ final class HouseholdSession {
     @ObservationIgnored private var isInvalidated = false
     @ObservationIgnored private var issuedRequest: UInt64 = 0
     @ObservationIgnored private var appliedRequest: UInt64 = 0
+    /// Purchases take their turn one at a time — see `awaitTurn()`.
+    @ObservationIgnored private var isCommandRunning = false
+    @ObservationIgnored private var waitingCommands: [CheckedContinuation<Void, Never>] = []
 
     init(householdID: UUID, accountContext: AccountSessionContext,
          repository: any InventoryRepository, reconciler: DuplicateReconciler,
@@ -208,15 +211,20 @@ final class HouseholdSession {
     private func commit(
         _ operation: @escaping @Sendable () async throws -> HouseholdProjection
     ) async -> Bool {
-        lastFailure = nil
         // The fridge this command was built for, read before it suspends: the
         // claims it makes durable belong to that Household even if a switch
         // has since re-pointed the session.
         let householdID = self.householdID
+        await awaitTurn()
+        defer { endTurn() }
+        // Cleared once this purchase is the one actually writing, so a purchase
+        // waiting its turn cannot wipe the failure of the one still running.
+        lastFailure = nil
         guard let projection = await run(operation) else { return false }
         // Taken only once the write has returned: a command's projection
         // already contains its own save, so it is newer than every read that
-        // was in flight while it ran, whenever those reads resume.
+        // was in flight while it ran, whenever those reads resume — and, with
+        // purchases taking their turn, than every purchase that saved before it.
         apply(projection, request: nextRequest())
         // The projector already applied the same exact-name union in memory, so
         // this only makes the link durable — the UI never waits for it.
@@ -255,6 +263,38 @@ final class HouseholdSession {
             // Nothing the user can see changed: the rows already project as one
             // logical item, and the next reconciliation pass tries again.
             AppLog.household.error("Could not persist merge claims")
+        }
+    }
+
+    /// Holds a purchase until the one before it has applied.
+    ///
+    /// The repository serializes the saves themselves, but nothing ties that
+    /// order to this session: each command reaches `AccountTaskRegistry` as its
+    /// own unstructured task, so two overlapping purchases can save in either
+    /// order and can resume here in either order afterwards. A ticket — taken
+    /// before the suspension or after the write — only ranks the applications;
+    /// it cannot tell which projection was taken last, so the older
+    /// transaction's, which predates the newer purchase, could be the one left
+    /// on screen and hide a just-confirmed item until the next refresh.
+    ///
+    /// With one purchase in flight at a time, the transaction order, the ticket
+    /// order, and the application order are all the same order.
+    private func awaitTurn() async {
+        guard isCommandRunning else {
+            isCommandRunning = true
+            return
+        }
+        await withCheckedContinuation { waitingCommands.append($0) }
+    }
+
+    /// Hands the turn to the next waiting purchase, or ends it. The flag stays
+    /// set while it is handed over, so a purchase issued in between cannot barge
+    /// past one that is already waiting.
+    private func endTurn() {
+        if waitingCommands.isEmpty {
+            isCommandRunning = false
+        } else {
+            waitingCommands.removeFirst().resume()
         }
     }
 

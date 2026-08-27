@@ -82,6 +82,21 @@ extension XCTestCase {
         }
         XCTFail("timed out waiting for \(description)", file: file, line: line)
     }
+
+    /// Polls for something a test expects *never* to happen, so an interleaving
+    /// being ruled out can be asserted the same way one being waited for is.
+    @MainActor
+    func neverHappens(_ description: String, _ condition: @MainActor () -> Bool,
+                      file: StaticString = #filePath, line: UInt = #line) async {
+        for _ in 0..<40 {
+            if condition() {
+                XCTFail(description, file: file, line: line)
+                return
+            }
+            await Task.yield()
+            try? await Task.sleep(nanoseconds: 5_000_000)
+        }
+    }
 }
 
 /// An archive whose contents a test controls, so the upgrade can be driven
@@ -177,15 +192,17 @@ actor TestGate {
 final class GatedInventoryRepository: InventoryRepository, @unchecked Sendable {
     private let lock = NSLock()
     private let readProjection: HouseholdProjection
-    private let commandProjection: HouseholdProjection
+    /// What each command answers with, in the order the commands arrive; the
+    /// last one answers every command after it.
+    private let commandProjections: [HouseholdProjection]
     private var _readGate: (@Sendable () async -> Void)?
     private var _commandGate: (@Sendable () async -> Void)?
     private var _readCount = 0
     private var _commandCount = 0
 
-    init(read: HouseholdProjection, command: HouseholdProjection) {
+    init(read: HouseholdProjection, commands: [HouseholdProjection]) {
         self.readProjection = read
-        self.commandProjection = command
+        self.commandProjections = commands
     }
 
     /// Reads run off the main actor while the test sets this from it, so both
@@ -224,8 +241,11 @@ final class GatedInventoryRepository: InventoryRepository, @unchecked Sendable {
     }
 
     private func respond() async -> HouseholdProjection {
-        lock.withLock { _commandCount += 1 }
+        let call: Int = lock.withLock {
+            _commandCount += 1
+            return _commandCount
+        }
         if let commandGate { await commandGate() }
-        return commandProjection
+        return commandProjections[min(call, commandProjections.count) - 1]
     }
 }
