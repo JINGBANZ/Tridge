@@ -120,8 +120,9 @@ isolated key.
   (`InventoryEpochReducer.swift`), Active Household choice (`HouseholdSelection.swift`), the
   desired-vs-scheduled reminder diff (`NotificationPlan.swift`), the account-scope digest that
   store paths and defaults keys hang from (`AccountScope.swift`), and the archived-row → purchase
-  mapping every legacy row is validated through (`LegacyInventoryImport.swift`). The repository,
-  sharing, and UI layers that consume them are not built yet.
+  mapping every legacy row is validated through (`LegacyInventoryImport.swift`). The purchase
+  repository below is their first consumer; the sharing and UI layers that also read them are not
+  built yet.
 - `Tridge/App/` + `Tridge/Sharing/` — step 2's account session (issue #60):
   `AccountSession.swift` (the generation and the pre-load/loaded-store contexts every
   account-bound call carries),
@@ -156,9 +157,9 @@ isolated key.
   transaction, keyed by the legacy UUID so a retry recognizes what it already wrote and a
   conflicting payload is an integrity error. The destination is the account's first *owned*
   Household, created only once the bootstrap barrier has opened, and the Active Household is never
-  switched. The coordinator drives the upgrade and re-reads the migrated rows into the open
-  session, but nothing constructs the coordinator yet, so no upgrade runs until #63 wires it into
-  the UI.
+  switched. The coordinator drives the upgrade, then re-reads the migrated rows into the open
+  session and persists their exact-name merge claims, but nothing constructs the coordinator yet,
+  so no upgrade runs until #63 wires it into the UI.
 - `Tridge/Persistence/CoreDataInventoryRepository.swift` + `InventoryProjection.swift` +
   `DuplicateReconciler.swift` + `Tridge/App/HouseholdSession.swift` — step 3's purchase path and
   snapshot projection (issue #62). `InventoryProjection` validates one Household's records into
@@ -298,8 +299,8 @@ isolated key.
   capabilities, exact account-scoped private/shared persistence, repository commands, stock/delete
   and same-name item convergence, inventory epochs, store-scoped sync monitoring,
   Household/invitation/lifecycle UI, notification reconciliation, export/deletion, owner-only gates,
-  and the automatic no-uninstall active-inventory migration; the subsystem itself is not
-  implemented.
+  and the automatic no-uninstall active-inventory migration; its sharing, lifecycle, and
+  remote-history flows are not implemented.
 
 ## Not yet built
 
