@@ -192,8 +192,10 @@ final class HouseholdDeletionTests: XCTestCase {
         let deleted = await coordinator.deleteHousehold(fridges.target)
 
         XCTAssertTrue(deleted)
+        await waitUntil("the deletion completes") {
+            self.coordinator.pendingLifecycleTransition == nil
+        }
         XCTAssertEqual(sharing.confirmCount, 0, "there is nothing to read back")
-        XCTAssertNil(coordinator.pendingLifecycleTransition)
         XCTAssertEqual(coordinator.activeHouseholdID, fridges.keep)
         let controller = try XCTUnwrap(coordinator.session?.persistence)
         let stillThere = await controller.containsHousehold(fridges.target)
@@ -205,18 +207,17 @@ final class HouseholdDeletionTests: XCTestCase {
         sharing.recordsByHousehold = [fridges.target: [Self.record]]
         sharing.recordsStillPresent = [Self.record.recordName]
 
-        async let deleting = coordinator.deleteHousehold(fridges.target)
-        await waitUntil("the local graph is gone and the check is pending") {
-            self.coordinator.pendingLifecycleTransition?.phase == .privateDeleteAwaitingCloud
-        }
+        let deleted = await coordinator.deleteHousehold(fridges.target)
+
+        XCTAssertTrue(deleted, "the local half is done as soon as it is done")
+        XCTAssertEqual(coordinator.pendingLifecycleTransition?.phase, .privateDeleteAwaitingCloud)
         // The fallback is already available; only the iCloud claim waits.
         XCTAssertEqual(coordinator.activeHouseholdID, fridges.keep)
         emitPrivateExport()
-        let completed = await deleting
+        await waitUntil("the absence check runs") { self.sharing.confirmCount == 1 }
 
-        XCTAssertFalse(completed, "a record that is still there keeps it pending")
-        XCTAssertEqual(sharing.confirmCount, 1)
-        XCTAssertEqual(coordinator.pendingLifecycleTransition?.phase, .privateDeleteAwaitingCloud)
+        XCTAssertEqual(coordinator.pendingLifecycleTransition?.phase, .privateDeleteAwaitingCloud,
+                       "a record that is still there keeps it pending")
         XCTAssertEqual(
             LifecycleTransitionStore(accountScope: Self.scope(), defaults: defaults)
                 .current()?.phase,
@@ -228,21 +229,19 @@ final class HouseholdDeletionTests: XCTestCase {
         sharing.recordsByHousehold = [fridges.target: [Self.record]]
         sharing.recordsStillPresent = [Self.record.recordName]
 
-        async let deleting = coordinator.deleteHousehold(fridges.target)
-        await waitUntil("the check is pending") {
-            self.coordinator.pendingLifecycleTransition?.phase == .privateDeleteAwaitingCloud
-        }
+        _ = await coordinator.deleteHousehold(fridges.target)
         emitPrivateExport()
-        _ = await deleting
+        await waitUntil("the first check runs and finds it present") {
+            self.sharing.confirmCount == 1
+        }
 
         // Relaunch, with the record now really gone.
         sharing.recordsStillPresent = []
         await coordinator.shutDown()
         coordinator = makeCoordinator()
         await coordinator.start()
-        await waitUntil("the resumed check is waiting for an export") {
-            self.coordinator.pendingLifecycleTransition?.phase == .privateDeleteAwaitingCloud
-        }
+        XCTAssertEqual(coordinator.pendingLifecycleTransition?.phase,
+                       .privateDeleteAwaitingCloud, "the resumed check is waiting for an export")
         emitPrivateExport()
 
         await waitUntil("the deletion completes") {
@@ -258,15 +257,28 @@ final class HouseholdDeletionTests: XCTestCase {
         sharing.recordsByHousehold = [fridges.target: [Self.record]]
         sharing.recordsStillPresent = [Self.record.recordName]
 
-        async let deleting = coordinator.deleteHousehold(fridges.target)
-        await waitUntil("the check is pending") {
-            self.coordinator.pendingLifecycleTransition?.phase == .privateDeleteAwaitingCloud
-        }
+        _ = await coordinator.deleteHousehold(fridges.target)
         emitPrivateExport()
-        let completed = await deleting
+        await waitUntil("the absence check runs") { self.sharing.confirmCount == 1 }
 
-        XCTAssertFalse(completed,
-                       "an export says work was sent, not that these records are gone")
+        XCTAssertNotNil(coordinator.pendingLifecycleTransition,
+                        "an export says work was sent, not that these records are gone")
+    }
+
+    /// The check waits on an export, which can take as long as CloudKit takes.
+    /// Everything that is not a second destructive action stays usable.
+    func testAPendingCloudCheckDoesNotFreezeTheRestOfTheScreen() async throws {
+        let fridges = try await startWithTwoFridges()
+        sharing.recordsByHousehold = [fridges.target: [Self.record]]
+        sharing.recordsStillPresent = [Self.record.recordName]
+
+        _ = await coordinator.deleteHousehold(fridges.target)
+
+        XCTAssertFalse(coordinator.isHouseholdActionInFlight)
+        XCTAssertTrue(await coordinator.exportHousehold(fridges.keep))
+        coordinator.clearExportedDocument()
+        XCTAssertFalse(coordinator.canRunDestructiveShareAction,
+                       "but a second destructive action still cannot start")
     }
 
     // MARK: - Shared deletion

@@ -1,7 +1,8 @@
 # Household sharing architecture
 
 > Implementation contract for Tridge's household-sharing release. The implementation state lives
-> in [`status.md`](./status.md). The existing visual language remains normative in
+> in [`status.md`](./status.md); the external steps it still needs from a release owner are in
+> [`release-handoff.md`](./release-handoff.md). The existing visual language remains normative in
 > [`design/fridge-design.html`](../design/fridge-design.html); this page is normative for the
 > persistence, collaboration, Household screen, upgrade, and verification behavior added by the
 > sharing release.
@@ -423,9 +424,10 @@ commands keep their distinct ids and converge without a tie-break winner.
 
 ### Matching and lossless same-item convergence
 
-Keep the current user-visible `MergePlanner` eligibility, scoped to the active Household: exact
-normalized-name matches only and never group a new purchase with an expired, zero-quantity, or
-deleted item. Persistence changes underneath that UI behavior. Every confirmed manual or receipt
+Keep the user-visible grouping eligibility, scoped to the active Household: exact normalized-name
+matches only and never group a new purchase with an expired, zero-quantity, or deleted item. The rule
+has one statement, `PurchasePlanner` in `Tridge/Core/InventoryCommands.swift`, which reads the
+Household's projected snapshots (ADR 0014). Persistence changes underneath that UI behavior. Every confirmed manual or receipt
 purchase inserts a fresh `FridgeItemRecord` stamped with the complete current inventory frontier and
 one positive `acquired` StockChange. When an eligible logical group is already visible, initialize
 the new root from its canonical metadata so a random UUID does not change the displayed name, art,
@@ -1122,7 +1124,8 @@ Linux `swift test` covers:
 - StockChange order independence, idempotent retry, corrupt-id tie-break, concurrent add/consume,
   overflow rejection, zero projection, revival by a delayed valid operation, explicit-Delete
   terminal behavior, and a fresh purchase root after zero;
-- MergePlanner remaining household-scoped and never merging expired/zero/deleted rows;
+- `PurchasePlanner` eligibility remaining household-scoped and never grouping a purchase with an
+  expired, zero-quantity, or deleted item;
 - ItemGroupReducer claim-order independence, duplicate-claim idempotency, deterministic logical id
   and lowest-id canonical metadata member, summed late operations across members, permanent claims,
   and no active-to-expired/zero/terminal inference;

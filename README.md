@@ -5,9 +5,16 @@ expiration dates → items float on a minimal home screen, turning amber, then r
 as they near expiry. Drag an item to "😋 Ate it" or "🗑️ Tossed" when it leaves
 the fridge.
 
-**Status: v1 implemented.** The complete design & build spec (with screen mocks)
-lives at [`design/fridge-design.html`](design/fridge-design.html) — open it in a
-browser. Agents: start with [`AGENTS.md`](AGENTS.md), then [`wiki/index.md`](wiki/index.md).
+**Status: v1 shipped; household sharing implemented and awaiting live CloudKit
+acceptance.** The complete design & build spec (with screen mocks) lives at
+[`design/fridge-design.html`](design/fridge-design.html) — open it in a browser;
+the sharing release's contract is [`wiki/household-sharing.md`](wiki/household-sharing.md).
+Agents: start with [`AGENTS.md`](AGENTS.md), then [`wiki/index.md`](wiki/index.md).
+
+Sharing needs an iCloud account: the app keeps each fridge in the signed-in
+account's own CloudKit database and invites people to it with a private
+read/write share. Running it needs the `iCloud.com.tridge.app` container to
+exist — see [`wiki/release-handoff.md`](wiki/release-handoff.md).
 
 ## Building & testing
 
@@ -21,7 +28,13 @@ browser. Agents: start with [`AGENTS.md`](AGENTS.md), then [`wiki/index.md`](wik
   `xcodebuild -scheme Tridge -destination 'generic/platform=iOS Simulator' build`.
   No build-time secret — the app authenticates to the scan worker with Apple App
   Attest, whose key is generated on-device at runtime.
-- Runtime: no user setup — scanning goes through the scan-API worker, which holds the
+- Apple-platform tests (macOS + Xcode 26): `xcodebuild -scheme Tridge -destination
+  'platform=iOS Simulator,name=<device>' test` — the `TridgeTests` bundle covers
+  the Core Data model, store routing, repository commands, history and session
+  isolation, invitation routing, lifecycle transitions, export and erasure,
+  migration, notifications, and account changes.
+- Runtime: an iCloud account is required (the fridge lives in CloudKit); scanning
+  goes through the scan-API worker, which holds the
   OpenAI key. The app proves it's a genuine Tridge install with Apple App Attest and
   ships no token. App Attest runs only on real hardware, so the Simulator can't
   live-scan (use "Try sample receipt" / "Seed the App" / manual add there, or a
@@ -122,8 +135,24 @@ Analytics & Improvements → Analytics Data (share the newest
 - Expiry tracking with local notifications (T−2 days and expiry day)
 - Game-inventory-style home grid, sorted soonest-expiring first
 - Drag-to-consume, on-device OCR for printed "best by" dates
-- iOS 18+, SwiftUI + SwiftData; receipt scanning uses the Cloudflare Worker described above
+- iOS 18+, SwiftUI; receipt scanning uses the Cloudflare Worker described above
+
+## Household sharing
+
+- One fridge per household, kept in the owner's iCloud account and shared with
+  invited people through a private read/write CloudKit share
+- Every change saves locally first and converges later: immutable stock
+  operations compose instead of overwriting a quantity, exact-name items merge
+  losslessly, and Clear All is a causal barrier rather than a delete
+- Settings → Household lists every fridge with its ownership and sync state, and
+  switches the active one locally
+- Owner actions: rename, invite, stop sharing and keep a copy, delete; member
+  action: leave. Export writes a portable JSON file of a fridge's whole history
+- Updating from v1 migrates every active item automatically — no uninstall, and
+  the old local database is kept until you erase it from the Household screen
+- Storage moved from SwiftData to Core Data + CloudKit for this release; the old
+  schema survives only inside the one-time migration reader
 
 ## Later
 
-Grocery list generation · recipe suggestions · CloudKit sync / household sharing
+Grocery list generation · recipe suggestions

@@ -49,7 +49,7 @@ protocol SyncStatusProviding: AnyObject {
     ///
     /// A closure rather than a status: recovery is a decision the coordinator
     /// takes once, not a state the screen polls.
-    var onRecoveryNeeded: ((SyncRecoveryNeed, String) -> Void)? { get set }
+    var onRecoveryNeeded: (@MainActor (SyncRecoveryNeed, String) -> Void)? { get set }
 }
 
 /// Reduces `NSPersistentCloudKitContainer` events into sync state for the
@@ -94,7 +94,7 @@ final class StoreScopedSyncMonitor: SyncStatusProviding {
     private var exportWaiters: [ExportWaiter] = []
 
     private(set) var currentStatus: SyncStatus = .syncing
-    var onRecoveryNeeded: ((SyncRecoveryNeed, String) -> Void)?
+    var onRecoveryNeeded: (@MainActor (SyncRecoveryNeed, String) -> Void)?
     /// One report per store per session: the container retries a failing zone
     /// repeatedly, and the user should be asked once.
     private var reportedRecoveries: Set<String> = []

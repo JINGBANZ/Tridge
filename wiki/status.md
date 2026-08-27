@@ -7,97 +7,58 @@
 
 ## Current phase
 
-v1 merged and CI green (Linux `swift test` + macOS build). Real-device testing (including the
-camera) goes through a manual **TestFlight** release (`.github/workflows/testflight.yml` +
-`fastlane/`); for a no-hardware UI check, run the app in a local **Simulator** from Xcode. Install
-instructions are in `README.md` → "Trying the app". The app scans through the `server/` worker
-(`ProxyLLMService`) and carries no OpenAI key — BYOK is fully removed. Client auth is **Apple App
-Attest**: the app signs each scan with an on-device Secure Enclave key and ships no static token.
-**One worker** (`tridge-scan-api-test`) serves every build (Xcode-dev + TestFlight), with `store:false`
-and the full production posture (per-device quotas, sanitized errors); it also accepts a static
-bearer token solely for the local smoke harness. A dedicated production worker (separate URL +
-isolated OpenAI key) is deferred — the code is env-driven so it drops in additively later
-(`server/README.md` → "Adding a production worker later").
+**Household sharing is implemented end to end in the repository and is waiting on
+live CloudKit acceptance.** Steps 1–7 of
+[`household-sharing.md`](./household-sharing.md) → *Implementation sequence* are
+done (issues #56–#73); step 8 is the two-account matrix on real hardware, which
+needs the external provisioning in [`release-handoff.md`](./release-handoff.md).
 
-Household sharing has an independently reviewed, implementation-ready contract in
-[`household-sharing.md`](./household-sharing.md). Its step-1 pure contracts are implemented and
-Linux-tested in `Tridge/Core/`, and step 2's exact Core Data model, account-scoped two-store stack,
-and capability declarations are in `Tridge/Persistence/` with an Apple-platform `TridgeTests` bundle
-running in macOS CI. The generation-bound account session that owns those stores is now built too
-(`Tridge/App/AccountSessionCoordinator.swift`, `AccountTaskRegistry.swift`,
-`BootstrapBarrierStore.swift`, and `Tridge/Sharing/StoreScopedSyncMonitor.swift`): sync observation
-is prepared before the stores load, both stores load as one registered operation, and an empty
-account cache cannot create `My Fridge` until its first private import succeeds. The one-time
-upgrade off the shipping SwiftData build is built on top of it (`Tridge/App/LegacyInventoryUpgrade.swift`,
-`UpgradeMarkers.swift`, `Tridge/Persistence/LegacyInventoryArchive.swift`,
-`LegacyInventoryMigration.swift`): legacy reminders and the badge are cleared before iCloud is even
-checked, the archive is read once read-only, and every active row lands in the account's first owned
-Household in one transaction. Step 3's purchase path is built on top of that
-(`Tridge/Persistence/CoreDataInventoryRepository.swift`, `InventoryProjection.swift`,
-`DuplicateReconciler.swift`, `Tridge/App/HouseholdSession.swift`): manual and receipt purchases save
-through the repository as fresh frontier-stamped roots, and the Active Household's Inventory leaves
-persistence only as value snapshots. The remaining Inventory commands, the SwiftUI switch onto those
-snapshots, and the sharing and lifecycle layers are not built. Its final safety details
-stay inside the existing boundaries: Tridge exposes one explicit resumable owner-stop path and no
-management UI, invitation restrictions use minimal system options with secure defaults, explicit
-legacy erasure removes only exact validated remnants, and invitation metadata stays in memory. The
-plain-language graph and component map are in
-[`household-sharing-overview.html`](../design/household-sharing-overview.html). The contract uses
-Apple-native CloudKit Sharing with account-isolated private/shared Core Data stores, immutable
-stock/delete events behind a repository, permanent merge claims that make concurrent exact-name
-active purchase roots one lossless logical row while saved names remain read-only, causal inventory
-frontiers that make Clear All cover unseen offline rows without discarding additions after a
-concurrent clear, system invitation UI, and real export/deletion behavior. Sync observation starts
-before store loading, buffers setup/import events, then reduces only events for the activated account
-session's two store identifiers; an empty fresh cache cannot bootstrap before its initial private
-import. An accepted Household enters the picker without changing the active selection; termination
-before acceptance requires reopening the invitation. Account changes invalidate and drain
-generation-bound work before removing stores, so a late callback cannot expose the prior account.
-Persistent history, sharing,
-authorization, and inventory convergence stay application-owned. It keeps the scan Worker outside
-the inventory data plane and migrates every active legacy item automatically into the first owned
-Household without requiring users to uninstall. The authoritative HTML spec delegates sharing-
-release persistence, lifecycle, migration, and verification details to that page and specifies Core
-Data/CloudKit for the sharing build. The first rollout supports one installation for a Household
-owner without pretending to enforce that constraint through an offline device lock.
+The app now runs entirely on Core Data + CloudKit. `TridgeApp` builds one
+`AccountSessionCoordinator`, and `RootView` renders its launch states; nothing in
+the runtime opens a model context of its own. SwiftData survives only inside the
+one-time archive reader (`Tridge/Persistence/LegacyFridgeItem.swift` +
+`LegacyInventoryArchive.swift`), which reads through a throwaway copy when the
+archive predates the shipping schema, so the file the user can still choose to
+erase survives byte for byte.
 
-## Next action
+Every Inventory action is a repository command against the Active Household, and
+SwiftUI reads only value snapshots. Remote history is consumed per store with an
+independent cursor that advances only after the batch has been applied. Reminders
+and the badge are a diff over `NotificationPlan`, retired by exact account and
+Household prefix. Settings opens a Household screen that lists every fridge with
+its ownership and sync state; owners can rename, invite, stop sharing while
+keeping a copy, and delete (with CloudKit absence verified for an unshared
+fridge), members can leave, and everyone can export. Zone loss and encrypted-key
+resets are told apart and recovered from. There is no Manage Sharing UI, no
+individual-member removal, no public or read-only invitation, and no force-sync
+button.
 
-**Household sharing progress is tracked in GitHub issues, not here.** Each step of
-[`household-sharing.md`](./household-sharing.md) → *Implementation sequence* is one ticket carrying
-its own acceptance criteria and `Blocked by` links, so the next action is whichever ticket is open
-and unblocked — find it with `gh issue list --state open --label ready-for-agent` and check its
-blockers. This page describes what exists; the tickets say what to do next and when it is done.
-Close a ticket when its criteria are met, and reference it from the PR.
+What remains is external: create `iCloud.com.tridge.app` and refresh
+capabilities/provisioning, initialize the development schema once from a Debug
+build, supply two iCloud accounts and devices, run the two-account matrix,
+promote that schema, and ship the separate privacy-policy PR immediately before
+distribution. Until the container exists the **TestFlight lane cannot archive**;
+unsigned simulator builds and CI are unaffected.
 
-At the time of writing the frontier is **#63 — Complete Inventory commands and retire runtime
-SwiftData**, unblocked now that #62 has landed. Product, architecture, recovery, and privacy-boundary
-decisions are closed in the contract; a coding agent should not redesign them.
-
-Live CloudKit/TestFlight completion has an explicit external release boundary: create/associate
-`iCloud.com.tridge.app` and refresh capabilities/provisioning, supply two iCloud test accounts/
-devices, promote the accepted development schema, review App Store privacy metadata, and run the
-signed two-account checklist. That review includes `Tridge/PrivacyInfo.xcprivacy`. The agent can
-finish code, fakes, tests, unsigned build, CI, and docs without those actions and must report only
-the live acceptance as externally blocked. Signed builds now request the iCloud container through
-`Tridge/Tridge.entitlements`, so the **TestFlight lane needs that container created and the App ID
-services enabled before it can archive again**; unsigned simulator builds and CI do not.
-
-Separately, the scan worker's production posture is implemented and tested in the repo; its existing
-release-owner provisioning remains:
+Separately, the scan worker's production posture is implemented and tested in the
+repo; its existing release-owner provisioning remains:
 
 1. Create the `DEVICE_KV` namespace and paste its id into `server/wrangler.jsonc`
    (`wrangler kv namespace create DEVICE_KV`).
-2. Set the worker secrets: `OPENAI_API_KEY` (budget-capped), `APPLE_TEAM_ID`, and `SCAN_API_TOKEN`.
-   See `server/README.md` → Deploy.
-3. Connect **Cloudflare Workers Builds** (dashboard → worker → Settings → Builds; root `server`,
-   watch paths `server/**`).
-4. Verify end-to-end: a **TestFlight** (Release) build scans against the worker on a real iPhone —
-   App Attest can't run on the Simulator.
+2. Set the worker secrets: `OPENAI_API_KEY` (budget-capped), `APPLE_TEAM_ID`, and
+   `SCAN_API_TOKEN`. See `server/README.md` → Deploy.
+3. Connect **Cloudflare Workers Builds** (dashboard → worker → Settings → Builds;
+   root `server`, watch paths `server/**`).
+4. Verify end-to-end: a **TestFlight** (Release) build scans against the worker on
+   a real iPhone — App Attest can't run on the Simulator.
 
-Still open beyond that: the acceptance checklist in a local Simulator; the on-device camera
-acceptance items via a TestFlight build; and, when wanted, the dedicated production worker +
-isolated key.
+## Next action
+
+**Household sharing progress is tracked in GitHub issues, not here.** Every agent
+ticket through #73 is implemented; #74 and #75 are the two `ready-for-human`
+tickets, and they are exactly the handoff above. Product, architecture, recovery,
+and privacy-boundary decisions are closed in the contract; a coding agent should
+not redesign them.
 
 ## Built
 
@@ -107,7 +68,7 @@ isolated key.
   per-item `storage` guess (`ReceiptParsing.swift`), the curated `ItemID` vocabulary + shared enums
   + the derived `FoodCategory` mapping (`Types.swift`), urgency rules (`Urgency.swift`), the
   item-identity key
-  (`NameKey.swift`), merge decisions (`MergePlanner.swift`), search ranking (`NameSearch.swift`),
+  (`NameKey.swift`), search ranking (`NameSearch.swift`),
   and name→art inference (`ArtInference.swift`). The scan-API client
   (`../Services/ProxyLLMService.swift`) lives here too so the smoke test can drive it on Linux.
 - The household-sharing **pure contracts** (step 1 of the implementation sequence), also in
@@ -120,9 +81,9 @@ isolated key.
   (`InventoryEpochReducer.swift`), Active Household choice (`HouseholdSelection.swift`), the
   desired-vs-scheduled reminder diff (`NotificationPlan.swift`), the account-scope digest that
   store paths and defaults keys hang from (`AccountScope.swift`), and the archived-row → purchase
-  mapping every legacy row is validated through (`LegacyInventoryImport.swift`). The purchase
-  repository below is their first consumer; the sharing and UI layers that also read them are not
-  built yet.
+  mapping every legacy row is validated through (`LegacyInventoryImport.swift`), and the versioned,
+  privacy-filtered export document (`InventoryExport.swift`). The repository, the sharing and
+  lifecycle layers, and the SwiftUI views all read them.
 - `Tridge/App/` + `Tridge/Sharing/` — step 2's account session (issue #60):
   `AccountSession.swift` (the generation and the pre-load/loaded-store contexts every
   account-bound call carries),
@@ -140,8 +101,7 @@ isolated key.
   barrier opens — so a Household that arrives in the first import is selected rather than
   duplicated. The reducer and registry are Foundation-only and run under Linux `swift test`; the
   coordinator, monitor, and selection are covered by `TridgeTests`. The coordinator owns one
-  `HouseholdSession` per generation for step 3's purchase path (below); the SwiftUI views read it
-  once #63 flips them.
+  `HouseholdSession` per generation, which is the only inventory state SwiftUI sees.
 - `Tridge/App/LegacyInventoryUpgrade.swift` + `UpgradeMarkers.swift` +
   `Tridge/Persistence/LegacyInventoryArchive.swift` + `LegacyInventoryMigration.swift` — the
   one-time upgrade off the shipping SwiftData build (issue #61), which finishes step 2.
@@ -158,8 +118,8 @@ isolated key.
   conflicting payload is an integrity error. The destination is the account's first *owned*
   Household, created only once the bootstrap barrier has opened, and the Active Household is never
   switched. The coordinator drives the upgrade, then re-reads the migrated rows into the open
-  session and persists their exact-name merge claims, but nothing constructs the coordinator yet,
-  so no upgrade runs until #63 wires it into the UI.
+  session and persists their exact-name merge claims. `RootView` shows the one-time notice until
+  Continue is tapped, and a failed migration is a retryable alert rather than a launch state.
 - `Tridge/Persistence/CoreDataInventoryRepository.swift` + `InventoryProjection.swift` +
   `DuplicateReconciler.swift` + `Tridge/App/HouseholdSession.swift` — step 3's purchase path and
   snapshot projection (issue #62). `InventoryProjection` validates one Household's records into
@@ -176,10 +136,48 @@ isolated key.
   deleting a history, and idempotent because duplicate claims have the same union effect.
   `HouseholdSession` is the main-actor observable that holds the Active Household's `items` and
   `purchaseHistory` snapshots plus the content-free failure a refused command surfaces while the
-  user's draft stays open; `AccountSessionCoordinator` owns one per generation and invalidates it
-  before the stores drain. `PreviewData.seedPurchases` makes the debug seed an ordinary confirmation.
-  The SwiftUI views still read SwiftData until #63 flips them, and nothing constructs the
-  coordinator yet.
+  user's draft stays open; it also owns the local quiescence barrier every lifecycle transition
+  takes before it copies or purges. `AccountSessionCoordinator` owns one per generation and
+  invalidates it before the stores drain. `PreviewData.seedPurchases` makes the debug seed an
+  ordinary confirmation.
+- `Tridge/Persistence/InventoryCommandWriter.swift` — the rest of the Inventory commands (issue
+  #63): metadata edits landing only on the group's lowest-id canonical member, quantity as an
+  immutable `adjusted` operation measured against what the editor could see, eat and toss appending
+  `-1`, Delete fanning one stable terminal payload across every currently linked member, Clear All
+  writing one full-parent-frontier barrier and replaying that exact record on retry, and owner-only
+  Household rename. `HouseholdFetch` keeps every lookup confined to one Household and one store, and
+  `CommandContext` gives every command the same shape: serialized, capability-checked immediately
+  before mutating, store-assigned, saved once.
+- `Tridge/Persistence/HistoryTokenStore.swift` + `PersistentHistoryProcessor.swift` — remote history
+  (issue #64). One cursor per persistent-store identifier, scoped by account hash; an actor that
+  fetches after that store's token, merges object-id changes into the view context, reconciles
+  duplicates for every affected Household, refreshes the session, and only then archives the token,
+  so an interrupted pass repeats. App-authored transactions are filtered out of the effects but
+  still advance the cursor.
+- `Tridge/Sharing/HouseholdSharingService.swift` + `HouseholdShareItem.swift` +
+  `ShareInvitationRouter.swift` + `AppDelegate.swift` + `ShareTitleRetryStore.swift` — invitations
+  (issue #67). The service creates or refreshes a Household's `CKShare`, reconciles its title before
+  every invitation, purges zones, captures CloudKit record ids, and reads their absence back.
+  `HouseholdShareItem` exports the already-saved share with `.specifiedRecipientsOnly` and
+  `.readWrite`. The router is the single entry point for warm and cold scene delivery: it checks the
+  container, holds metadata in memory for this process only, accepts only `.pending`, and sends
+  `.removed`/`.unknown` down a reopen path. The retry store records a title write that failed, so
+  Send Invite writes it again before it will present anything.
+- `Tridge/Sharing/HouseholdLifecycleTransition.swift` +
+  `Tridge/Persistence/PreservedCopyWriter.swift` + `HouseholdGraphRemoval.swift` — the crash-safe
+  owner transitions (issues #69, #71, #72). One account-scoped transition at a time, recorded with
+  the phase that proves what has already happened, resumed before normal Household selection. Stop
+  Sharing and zone recovery copy each active logical group's canonical metadata into a fresh private
+  Household with one `preserved` operation, verify the copy through the store, then purge; private
+  deletion captures record ids before mutating and confirms their absence after the next successful
+  export.
+- `Tridge/App/HouseholdRecovery.swift` — the user-facing decision for a deleted zone or an
+  encrypted-key reset (issue #72), kept apart in wording as well as in handling: an owner is asked
+  before anything local is purged, a member is not, and neither message names a zone or a record.
+- `Tridge/Persistence/InventoryExporter.swift` + `LegacyArchiveEraser.swift` — the data-rights
+  actions (issue #70). The exporter writes the whole history, current and retired, to a temporary
+  file; the eraser destroys exactly the archived base plus its WAL and SHM sidecars, refusing a
+  link, a directory, or anything under `HouseholdSharing/`.
 - `Tridge/Persistence/` — step 2's persistence stack: the CloudKit-compatible model
   (`TridgeModel.xcdatamodeld` + hand-written `ManagedObjects/*Record` classes, with encryption
   enabled on user-content fields before schema promotion) and `PersistenceController.swift`, which
@@ -188,15 +186,18 @@ isolated key.
   owns store routing plus the view/`app.inventory`/`app.reconcile` contexts. `Tridge/App/` adds
   `AccountIdentity.swift` (validated iCloud account → hashed scope; the raw record id never leaves
   it) and `LaunchState.swift`. `Tridge/Tridge.entitlements` plus the `CKSharingSupported` and
-  remote-notification Info.plist settings declare the capabilities. `CoreDataInventoryRepository`
-  writes and projects through this stack; the SwiftUI views still run on SwiftData until #63.
+  remote-notification Info.plist settings declare the capabilities. Everything in the runtime writes
+  and projects through this stack. A `#if DEBUG`-only `-initializeCloudKitSchema` launch argument is
+  the one path to `initializeCloudKitSchema`, and it never runs on an ordinary launch.
 - `Tests/FridgeCoreTests/` — parsing (incl. fenced/prose-wrapped output), urgency
-  thresholds, name-key, merge-planner, art-inference, and search-ranking tests, plus the
+  thresholds, name-key, art-inference, and search-ranking tests, plus the
   household-sharing contract tests (civil days, byte order, record validation, command validation
-  and receipt-text discard, legacy-row validation and civil-day conversion,
+  and receipt-text discard, purchase planning and household-scoped grouping eligibility,
+  legacy-row validation and civil-day conversion,
   stock order-independence/idempotency/overflow/zero-revival/deletion,
   claim-order-independent convergence, causal clear branches, Household selection, account-scope
-  validation, and reminder diffs); all pass via `swift test`.
+  validation, reminder diffs, and export completeness with restricted fields absent); all pass via
+  `swift test`.
 - `TridgeTests/` — the Apple-platform bundle for what Linux cannot compile: Core Data model rules
   (optional/defaulted attributes, inverses, delete rules, indexes, the exact CloudKit-encrypted set,
   no constraints or transformables), two isolated stores per account, store assignment and
@@ -215,37 +216,48 @@ isolated key.
   durable idempotent merge claims that move no history, a late member operation moving the
   aggregate, superseded and post-clear causal contexts, capability denial and stale Household
   selection writing nothing, corrupt rows being omitted without hiding valid inventory, and receipt
-  text never leaving the review draft. Runs in macOS CI on a simulator.
+  text never leaving the review draft. `InventoryCommandTests` covers the remaining commands;
+  `PersistentHistoryTests` the per-store cursors and author filtering; `ReminderReconcilerTests` the
+  notification diff and scope retirement; `HouseholdScreenTests` ownership labels and local
+  selection; `ShareInvitationTests` and `HouseholdSharingTests` invitation routing and the owner's
+  share path; `HouseholdLeaveTests`, `StopSharingTests`, `HouseholdDeletionTests`, and
+  `HouseholdRecoveryTests` the lifecycle transitions and their crash points; and
+  `HouseholdDataRightsTests` export completeness and exact-path erasure. Runs in macOS CI on a
+  simulator.
 - `Tests/ReceiptScanSmokeTests/` — live regression harness: fixture receipt images +
   fuzzy `expected.json` inventories (see its `Fixtures/README.md`), sent through the deployed
   worker via `ProxyLLMService`; local-only — the bearer token comes from the environment or a
   gitignored `.env` (copy `env.sample`, `SCAN_API_TOKEN`; override the target with `BACKEND_URL`),
   skips without one, and is never run in CI. Ships three synthetic fixtures (clean, faded-thermal,
   crooked low-res photo); gitignored `Fixtures/private/` for personal receipts.
-- `Tridge/` — the app (iOS 18+): `App/` (entry with the one-time `normalizedName` backfill,
-  `AppTheme.swift` design tokens, preview seed),
+- `Tridge/` — the app (iOS 18+): `App/` (`TridgeApp.swift` builds the one coordinator and
+  `RootView.swift` renders its launch, account, migration-notice, and recovery states;
+  `AppTheme.swift` design tokens, preview fixtures),
   a single-tap add menu on the scan button (camera scan where a document camera exists ·
   photo-library import · "Type to add" manual entry via `Views/Home/ManualAddSheet.swift`, which
   needs no scan at all; debug builds add `Resources/SampleReceipt.jpg` and a "Seed the App" action
   that inserts the preset `PreviewData` inventory with no LLM call), `Core/AppLog.swift` +
   Settings → Copy diagnostics as the tester feedback loop,
-  `Models/` (`FridgeItem.swift` SwiftData model with the indexed `normalizedName` identity key,
-  `Artwork.swift` artKey lookup), `Services/`
+  `Models/Artwork.swift` (artKey → art lookup), `Services/`
   (`LLMService.swift` protocol + errors, `ProxyLLMService.swift` scan-API client with a pluggable
   `ScanRequestAuthorizer`, `AppAttestAuthorizer.swift` on-device App Attest, `ScanAPIConfig.swift`
   single worker URL (build-config Debug/Release split deferred until a prod worker exists), `ReceiptScanner.swift` VisionKit
-  camera, `NotificationService.swift`, `Haptics.swift`), `Views/`
+  camera, `NotificationService.swift` — the reminder diff adapter and its legacy cleanup,
+  `Haptics.swift`), `Views/`
   (Home grid + drag-to-consume + Apple Music–style capsule name search, hidden at rest and revealed
   by pulling the grid down + the header filter button/sheet — Storage +
   Food Category filters via `Views/Home/FilterSheet.swift`, hidden on an empty fridge, search
   applying on top of the filters — scan flow + review sheet with per-row Food Category/Storage
   chips, item detail + art picker, settings — incl. an emoji-free mode that swaps the home grid for
   a name-row list (`Views/Home/ItemRow.swift`) and hides item art across the add/review/detail
-  sheets while art keys stay stored). Saving — scanned or typed — merges into a matching
-  active item by normalized name instead of duplicating it (`design/item-grouping-search.html`);
-  manual add has quick-fill history chips above the name field and automatic art
-  (remembered → inferred → tap-to-pick). Item detail and manual add render the same
-  label-left / value-right field set (`Views/Shared/ItemFormRows.swift`).
+  sheets while art keys stay stored — and `Views/Household/HouseholdScreen.swift`, the fridge list
+  with its ownership labels, sync state, owner and member actions, and data controls). Saving —
+  scanned or typed — creates a fresh purchase root that projects together with a matching active
+  item of the same name instead of duplicating the row
+  (`design/item-grouping-search.html`); manual add has quick-fill history chips above the name field
+  and automatic art (remembered → inferred → tap-to-pick). Item detail and manual add render the
+  same label-left / value-right field set (`Views/Shared/ItemFormRows.swift`); a saved Item Name is
+  read-only there (ADR 0005).
 - `Tridge.xcodeproj` — hand-written project (synchronized folder group) + shared scheme;
   see the decision log for why it's hand-authored.
 - `.github/workflows/ci.yml` — Linux `swift test`; server typecheck + Vitest; release-lane syntax;
@@ -299,24 +311,24 @@ isolated key.
   capabilities, exact account-scoped private/shared persistence, repository commands, stock/delete
   and same-name item convergence, inventory epochs, store-scoped sync monitoring,
   Household/invitation/lifecycle UI, notification reconciliation, export/deletion, owner-only gates,
-  and the automatic no-uninstall active-inventory migration; its sharing, lifecycle, and
-  remote-history flows are not implemented.
+  and the automatic no-uninstall active-inventory migration.
+- `wiki/release-handoff.md` — the external steps only a release owner can take: the Apple container
+  and capabilities, the one-time development-schema run, two iCloud accounts, the two-account
+  matrix, schema promotion, and the exact proposed privacy-policy and App Store disclosure copy.
 
 ## Not yet built
 
-- Owner-only provisioning to bring the scan worker live: create the `DEVICE_KV` namespace, set the
-  secrets (`OPENAI_API_KEY`, `APPLE_TEAM_ID`, `SCAN_API_TOKEN`), connect Cloudflare Workers Builds.
-  See "Next action" and `server/README.md` → Deploy.
-- A dedicated production worker + isolated budget-capped key (separate URL) — deferred; the code is
-  ready for it (`server/README.md` → "Adding a production worker later").
-- Verification of the spec's acceptance checklist on a test build: a local Simulator covers the
-  simulator-safe items; the camera items and a live App Attest scan need a TestFlight build on a
-  physical iPhone.
-- Household sharing steps 3–8 — specified in
-  [`household-sharing.md`](./household-sharing.md) → *Implementation sequence*: the repository
-  migration off runtime SwiftData, per-store persistent history and remote reconciliation, the
-  Household/invitation UI, and lifecycle and data rights. Steps 1 and 2 are complete, and step 3's
-  purchase path, snapshot projection, and duplicate reconciler are built (see "Built") — but the
-  remaining Inventory commands (metadata edit, quantity, eat, toss, delete, Clear All) are not, no
-  invite flow or persistent-history processing exists, the SwiftUI views still read and write
-  SwiftData, and nothing constructs the coordinator yet.
+- **Live CloudKit acceptance** (issues #74, #75): the container, the development
+  schema, two iCloud accounts and devices, the two-account matrix, schema
+  promotion, the privacy-policy release PR, and a TestFlight distribution. See
+  [`release-handoff.md`](./release-handoff.md).
+- Owner-only provisioning to bring the scan worker live: create the `DEVICE_KV`
+  namespace, set the secrets (`OPENAI_API_KEY`, `APPLE_TEAM_ID`,
+  `SCAN_API_TOKEN`), connect Cloudflare Workers Builds. See "Next action" and
+  `server/README.md` → Deploy.
+- A dedicated production worker + isolated budget-capped key (separate URL) —
+  deferred; the code is ready for it (`server/README.md` → "Adding a production
+  worker later").
+- Verification of the spec's acceptance checklist on a test build: a local
+  Simulator covers the simulator-safe items; the camera items and a live App
+  Attest scan need a TestFlight build on a physical iPhone.

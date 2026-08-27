@@ -133,6 +133,9 @@ final class AccountSessionCoordinator {
     /// snapshot, because share metadata never appears in persistent history.
     @ObservationIgnored private var sharedHouseholdIDs: Set<UUID> = []
     @ObservationIgnored private var lifecycleTask: Task<Void, Never>?
+    /// The verified-deletion check, which waits on an export and therefore runs
+    /// outside the Household-action lock.
+    @ObservationIgnored private var cloudDeletionTask: Task<Void, Never>?
 
     init(identity: any AccountIdentityProviding = CloudKitAccountIdentity(),
          syncMonitor: any SyncStatusProviding,
@@ -272,14 +275,20 @@ final class AccountSessionCoordinator {
         sharedHouseholdIDs = []
         pendingLifecycleTransition = nil
         pendingRecovery = nil
+        // A written export names one account's fridge, so it does not outlive
+        // that account's session on disk.
+        clearExportedDocument()
         // The router keeps its metadata for this process, but it may not accept
         // into a store that is about to be removed.
         invitations.bind(accept: nil)
+        syncMonitor.onRecoveryNeeded = nil
         sharing = nil
         shareTitles = nil
         transitions = nil
         lifecycleTask?.cancel()
         lifecycleTask = nil
+        cloudDeletionTask?.cancel()
+        cloudDeletionTask = nil
         barrierWatch?.cancel()
         barrierWatch = nil
         // The migration itself is registered work, so the drain waits for it;
@@ -386,10 +395,35 @@ final class AccountSessionCoordinator {
         syncMonitor.activateSession(generation: context.generation,
                                     storeIdentifiers: context.storeIdentifiers)
         session = AccountSession(context: context, persistence: controller)
+#if DEBUG
+        initializeDevelopmentSchemaIfRequested(for: context, controller: controller)
+#endif
         startSharing(for: context, controller: controller)
         applyBootstrapGate(for: context, controller: controller)
         startHistoryProcessing(for: context, controller: controller)
     }
+
+#if DEBUG
+    /// Runs the one-time development-schema initialization when this Debug
+    /// launch explicitly asked for it. Nothing calls it otherwise, and the code
+    /// does not exist in a Release build.
+    private func initializeDevelopmentSchemaIfRequested(for context: AccountSessionContext,
+                                                        controller: PersistenceController) {
+        guard PersistenceController.isDevelopmentSchemaInitializationRequested else { return }
+        Task { [tasks] in
+            _ = try? await tasks.run(context: context) {
+                do {
+                    try controller.initializeDevelopmentSchema()
+                    AppLog.household.info("Initialized the CloudKit development schema")
+                } catch {
+                    let details = error as NSError
+                    AppLog.household.error(
+                        "Schema initialization failed: \(details.domain).\(details.code)")
+                }
+            }
+        }
+    }
+#endif
 
     // MARK: - Sharing
 
@@ -933,6 +967,13 @@ final class AccountSessionCoordinator {
                         controller: PersistenceController) {
         guard lifecycleTask == nil, let session, session.context.generation == context.generation
         else { return }
+        // A private deletion already past its local step needs only its cloud
+        // check, which does not hold the Household-action lock.
+        if transition.kind == .deletePrivate, transition.phase == .privateDeleteAwaitingCloud,
+           let sharing {
+            confirmCloudDeletionInBackground(transition, sharing: sharing, for: context)
+            return
+        }
         let name = households.first { $0.id == transition.sourceHouseholdID }?.name
             ?? HouseholdSelection.defaultHouseholdName
         lifecycleTask = Task { [weak self] in
@@ -1077,16 +1118,12 @@ final class AccountSessionCoordinator {
                     // that iCloud is finished has to wait.
                     await finishHouseholdRemoval(source, for: context, controller: persistence)
                 }
-
-                guard try await confirmCloudDeletion(of: transition, sharing: sharing,
-                                                     context: context)
-                else {
-                    householdFailure = HouseholdActionFailure(
-                        reason: .unavailable,
-                        message: "Still removing this fridge from iCloud. Tridge will finish it.",
-                        diagnosticID: "delete.awaitingCloud")
-                    return false
-                }
+                // The transition stays recorded until iCloud confirms absence,
+                // so what the screen says is "Deleting from iCloud…" rather
+                // than success.
+                confirmCloudDeletionInBackground(transition, sharing: sharing, for: context)
+                inventory?.reopenCommandAdmission()
+                return true
 
             case .stopSharing, .recoverOwnedZone:
                 return false
@@ -1102,12 +1139,49 @@ final class AccountSessionCoordinator {
 
         transitions.clear()
         pendingLifecycleTransition = nil
-        if transition.kind == .deleteShared {
-            await finishHouseholdRemoval(source, for: context, controller: persistence)
-        } else {
-            inventory?.reopenCommandAdmission()
-        }
+        await finishHouseholdRemoval(source, for: context, controller: persistence)
         return true
+    }
+
+    /// Runs the verified-absence check on its own.
+    ///
+    /// It waits for an export, which can take as long as CloudKit takes, so it
+    /// deliberately does not hold the Household-action lock: export, rename,
+    /// and switching fridges all stay available while it runs. What *is*
+    /// blocked meanwhile is another destructive action, because the recorded
+    /// transition makes `canRunDestructiveShareAction` false.
+    private func confirmCloudDeletionInBackground(_ transition: HouseholdLifecycleTransition,
+                                                  sharing: any HouseholdSharing,
+                                                  for context: AccountSessionContext) {
+        cloudDeletionTask?.cancel()
+        cloudDeletionTask = Task { [weak self] in
+            guard let self else { return }
+            await self.finishCloudDeletion(transition, sharing: sharing, for: context)
+            self.cloudDeletionTask = nil
+        }
+    }
+
+    private func finishCloudDeletion(_ transition: HouseholdLifecycleTransition,
+                                     sharing: any HouseholdSharing,
+                                     for context: AccountSessionContext) async {
+        let confirmed: Bool
+        do {
+            confirmed = try await confirmCloudDeletion(of: transition, sharing: sharing,
+                                                       context: context)
+        } catch is AccountTaskRegistry.Rejection {
+            return
+        } catch {
+            confirmed = false
+        }
+        guard currentGeneration == context.generation else { return }
+        guard confirmed else {
+            // A present record, a fetch error, or an export that never came:
+            // the transition stands and the next launch resumes the check.
+            AppLog.household.error("Deletion not yet confirmed: delete.awaitingCloud")
+            return
+        }
+        transitions?.clear()
+        pendingLifecycleTransition = nil
     }
 
     /// Waits for the next successful private-store export, then reads the
