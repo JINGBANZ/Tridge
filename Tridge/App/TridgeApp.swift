@@ -2,6 +2,10 @@ import SwiftUI
 
 @main
 struct TridgeApp: App {
+    /// Present only to add CloudKit's invitation callbacks to SwiftUI's scene.
+    /// It creates no window; SwiftUI still owns the interface.
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+
     /// One coordinator for the process: it owns account validation, the two
     /// Core Data stores, and the Active Household's snapshots. Nothing in the
     /// app runtime opens a store or a model context of its own.

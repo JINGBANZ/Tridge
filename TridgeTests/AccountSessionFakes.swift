@@ -1,3 +1,4 @@
+import CloudKit
 import CoreData
 import Foundation
 import XCTest
@@ -332,5 +333,53 @@ final class FakeNotificationCenter: NotificationScheduling, @unchecked Sendable 
 
     func setBadge(_ count: Int) {
         lock.withLock { _badge = count }
+    }
+}
+
+/// A sharing service with no CloudKit behind it, so the owner flows — create,
+/// refresh, title write, accept — can be driven before any live container
+/// exists.
+@MainActor
+final class FakeHouseholdSharing: HouseholdSharing {
+    /// Households that already have a share.
+    var sharedHouseholds: Set<UUID> = []
+    /// The title last written for each Household's share.
+    private(set) var titles: [UUID: String] = [:]
+    /// Thrown by the next `prepareShare`, then cleared.
+    var prepareFailure: Error?
+    var acceptFailure: Error?
+    private(set) var prepareCount = 0
+    private(set) var acceptCount = 0
+
+    func currentShare(for householdID: UUID) async throws -> CKShare? {
+        sharedHouseholds.contains(householdID) ? Self.makeShare() : nil
+    }
+
+    func prepareShare(for householdID: UUID, title: String) async throws -> HouseholdShareItem {
+        prepareCount += 1
+        if let prepareFailure {
+            self.prepareFailure = nil
+            throw prepareFailure
+        }
+        sharedHouseholds.insert(householdID)
+        titles[householdID] = title
+        return HouseholdShareItem(share: Self.makeShare(),
+                                  container: CKContainer(identifier: TridgeCloudKit.containerIdentifier),
+                                  title: title)
+    }
+
+    func accept(_ metadata: any ShareInvitationMetadata) async throws {
+        acceptCount += 1
+        if let acceptFailure {
+            self.acceptFailure = nil
+            throw acceptFailure
+        }
+    }
+
+    /// A share object constructed locally. It is never saved, so no container
+    /// is contacted.
+    private static func makeShare() -> CKShare {
+        CKShare(recordZoneID: CKRecordZone.ID(zoneName: "tridge.test",
+                                              ownerName: CKCurrentUserDefaultName))
     }
 }

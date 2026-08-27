@@ -48,9 +48,21 @@ final class AccountSessionCoordinator {
     /// delete — is running. Every such control reads it, so none can be started
     /// twice or started on top of another.
     private(set) var isHouseholdActionInFlight = false
+    /// The last Household-level action that could not be completed. Nothing was
+    /// changed, and the message names no fridge, member, or share.
+    private(set) var householdFailure: HouseholdActionFailure?
+    /// The share an owner just prepared, ready for `ShareLink`. Cleared once the
+    /// share sheet closes, so the next invitation refreshes the title again.
+    private(set) var preparedShare: HouseholdShareItem?
+    /// Households whose share title could not be written. Their invitation
+    /// would show a stale fridge name, so Send Invite retries the write first.
+    private(set) var householdsWithStaleShareTitle: Set<UUID> = []
 
     let tasks: AccountTaskRegistry
     let syncMonitor: any SyncStatusProviding
+    /// Where a tapped invitation lands, whether the scene was already connected
+    /// or was connected by the tap itself.
+    let invitations: ShareInvitationRouter
 
     /// The Active Household's snapshot, when one is selected and still valid.
     var activeHousehold: HouseholdSnapshot? {
@@ -67,6 +79,7 @@ final class AccountSessionCoordinator {
     private let activeHouseholds: ActiveHouseholdStore
     private let upgrade: LegacyInventoryUpgrade
     private let makePersistence: @Sendable (AccountScopeHash) async throws -> PersistenceController
+    private let makeSharing: @MainActor (PersistenceController) -> any HouseholdSharing
 
     /// The coordinator's own mirror of the registry's open generation. Work
     /// applying its result on the main actor checks this, so a value produced
@@ -94,6 +107,10 @@ final class AccountSessionCoordinator {
     /// alerts already delivered — without touching another scope.
     @ObservationIgnored private var lastValidatedScope: AccountScopeHash?
     @ObservationIgnored private var syncStatusTask: Task<Void, Never>?
+    /// This generation's share operations. Released with the generation, so a
+    /// late invitation cannot reach a removed store.
+    @ObservationIgnored private var sharing: (any HouseholdSharing)?
+    @ObservationIgnored private var shareTitles: ShareTitleRetryStore?
 
     init(identity: any AccountIdentityProviding = CloudKitAccountIdentity(),
          syncMonitor: any SyncStatusProviding,
@@ -103,8 +120,11 @@ final class AccountSessionCoordinator {
          barrier: BootstrapBarrierStore = BootstrapBarrierStore(),
          activeHouseholds: ActiveHouseholdStore = ActiveHouseholdStore(),
          upgrade: LegacyInventoryUpgrade = LegacyInventoryUpgrade(),
+         invitations: ShareInvitationRouter = .shared,
          makePersistence: @escaping @Sendable (AccountScopeHash) async throws
-             -> PersistenceController = AccountSessionCoordinator.loadCloudKitStack) {
+             -> PersistenceController = AccountSessionCoordinator.loadCloudKitStack,
+         makeSharing: @escaping @MainActor (PersistenceController) -> any HouseholdSharing
+             = { CloudKitHouseholdSharing(persistence: $0) }) {
         self.identity = identity
         self.reminders = reminders
         self.defaults = defaults
@@ -113,7 +133,9 @@ final class AccountSessionCoordinator {
         self.barrier = barrier
         self.activeHouseholds = activeHouseholds
         self.upgrade = upgrade
+        self.invitations = invitations
         self.makePersistence = makePersistence
+        self.makeSharing = makeSharing
         self.showsMigrationNotice = upgrade.needsNotice
     }
 
@@ -218,6 +240,14 @@ final class AccountSessionCoordinator {
         history = nil
         syncStatus = .syncing
         isHouseholdActionInFlight = false
+        householdFailure = nil
+        preparedShare = nil
+        householdsWithStaleShareTitle = []
+        // The router keeps its metadata for this process, but it may not accept
+        // into a store that is about to be removed.
+        invitations.bind(accept: nil)
+        sharing = nil
+        shareTitles = nil
         barrierWatch?.cancel()
         barrierWatch = nil
         // The migration itself is registered work, so the drain waits for it;
@@ -324,8 +354,159 @@ final class AccountSessionCoordinator {
         syncMonitor.activateSession(generation: context.generation,
                                     storeIdentifiers: context.storeIdentifiers)
         session = AccountSession(context: context, persistence: controller)
+        startSharing(for: context, controller: controller)
         applyBootstrapGate(for: context, controller: controller)
         startHistoryProcessing(for: context, controller: controller)
+    }
+
+    // MARK: - Sharing
+
+    /// Brings up this generation's share operations and lets the router accept
+    /// into the shared store that just opened.
+    private func startSharing(for context: AccountSessionContext,
+                              controller: PersistenceController) {
+        let sharing = makeSharing(controller)
+        self.sharing = sharing
+        shareTitles = ShareTitleRetryStore(accountScope: context.accountScope,
+                                           defaults: defaults)
+        invitations.bind { [weak self] metadata in
+            try await self?.acceptInvitation(metadata, for: context, using: sharing)
+        }
+    }
+
+    /// Accepts one invitation, registered like every other store-bound
+    /// operation and refused outright once the generation has moved on.
+    private func acceptInvitation(_ metadata: any ShareInvitationMetadata,
+                                  for context: AccountSessionContext,
+                                  using sharing: any HouseholdSharing) async throws {
+        guard currentGeneration == context.generation else {
+            throw HouseholdActionFailure(reason: .unavailable,
+                                         message: "Tridge is still getting ready. Try again.",
+                                         diagnosticID: "invitation.session")
+        }
+        try await tasks.run(context: context) {
+            try await sharing.accept(metadata)
+        }
+        // Normal import brings the received Household into the list. It does
+        // not become active — the member selects it explicitly (ADR 0013).
+        processHistory(for: context, storeURL: nil)
+    }
+
+    /// Owner-only: create or refresh the Household's share and make sure its
+    /// saved title matches the current fridge name, then hand the result to
+    /// `ShareLink`.
+    ///
+    /// The title write has to succeed first, so a reused invitation never
+    /// knowingly displays a stale name; on failure nothing is presented and the
+    /// retry marker survives termination.
+    @discardableResult
+    func prepareShare(for householdID: UUID) async -> Bool {
+        await runHouseholdAction { await self.performPrepareShare(householdID) }
+    }
+
+    /// Called when the share sheet closes, so the next Send Invite refreshes the
+    /// share and its title again rather than reusing this one.
+    func clearPreparedShare() {
+        preparedShare = nil
+    }
+
+    func clearHouseholdFailure() {
+        householdFailure = nil
+    }
+
+    private func performPrepareShare(_ householdID: UUID) async -> Bool {
+        guard let session, let sharing,
+              let household = households.first(where: { $0.id == householdID })
+        else {
+            householdFailure = HouseholdActionFailure(
+                reason: .householdUnavailable,
+                message: "That fridge isn't available on this device any more.",
+                diagnosticID: "share.household")
+            return false
+        }
+        guard household.ownership == .owned else {
+            householdFailure = HouseholdActionFailure(
+                reason: .notOwner,
+                message: "Only the person who started this fridge can invite people.",
+                diagnosticID: "share.owner")
+            return false
+        }
+
+        householdFailure = nil
+        preparedShare = nil
+        let context = session.context
+        let name = household.name
+        do {
+            try await tasks.run(context: context) { [weak self] in
+                let item = try await sharing.prepareShare(for: householdID, title: name)
+                await self?.apply(preparedShare: item, householdID: householdID, for: context)
+            }
+            return preparedShare != nil
+        } catch is AccountTaskRegistry.Rejection {
+            return false
+        } catch {
+            // Inventory and the active selection are untouched: a platform
+            // limit or a failed title write changes nothing local.
+            householdFailure = HouseholdActionFailure(error, stage: "share")
+            recordStaleShareTitle(householdID)
+            return false
+        }
+    }
+
+    /// The main-actor apply boundary: a share prepared for the previous account
+    /// is dropped rather than offered under this one.
+    private func apply(preparedShare item: HouseholdShareItem, householdID: UUID,
+                       for context: AccountSessionContext) {
+        guard currentGeneration == context.generation else { return }
+        preparedShare = item
+        shareTitles?.clear(householdID)
+        householdsWithStaleShareTitle.remove(householdID)
+    }
+
+    private func recordStaleShareTitle(_ householdID: UUID) {
+        shareTitles?.recordFailure(householdID)
+        householdsWithStaleShareTitle.insert(householdID)
+    }
+
+    /// Renames an owned Household, then brings its share title with it.
+    @discardableResult
+    func renameHousehold(_ householdID: UUID, to name: String) async -> Bool {
+        await runHouseholdAction { await self.performRename(householdID, to: name) }
+    }
+
+    private func performRename(_ householdID: UUID, to name: String) async -> Bool {
+        guard let inventory, inventory.householdID == householdID else {
+            householdFailure = HouseholdActionFailure(
+                reason: .householdUnavailable,
+                message: "That fridge isn't available on this device any more.",
+                diagnosticID: "rename.household")
+            return false
+        }
+        householdFailure = nil
+        guard let snapshot = await inventory.renameHousehold(to: name) else {
+            householdFailure = HouseholdActionFailure(
+                reason: .unresolved, message: inventory.lastFailure?.message
+                    ?? "Tridge couldn't rename that fridge. Try again.",
+                diagnosticID: inventory.lastFailure?.diagnosticID ?? "rename.unresolved")
+            return false
+        }
+
+        households = households.map { $0.id == snapshot.id ? snapshot : $0 }
+        guard snapshot.isShared, let session, let sharing else { return true }
+        // The Household is saved; the share's own title is a second write that
+        // can fail on its own. A failure is marked rather than swallowed, and
+        // Send Invite reconciles the title before it will present anything.
+        do {
+            try await tasks.run(context: session.context) {
+                _ = try await sharing.prepareShare(for: householdID, title: snapshot.name)
+            }
+            shareTitles?.clear(householdID)
+            householdsWithStaleShareTitle.remove(householdID)
+        } catch is AccountTaskRegistry.Rejection {
+        } catch {
+            recordStaleShareTitle(householdID)
+        }
+        return true
     }
 
     // MARK: - Household selection
@@ -473,6 +654,10 @@ final class AccountSessionCoordinator {
                                        controller: PersistenceController) {
         let (available, issues) = controller.householdSnapshots()
         households = available
+        // A share title that could not be written survives termination, so the
+        // marker is re-read whenever the accessible set changes.
+        householdsWithStaleShareTitle = Set(
+            available.map(\.id).filter { shareTitles?.needsRetry($0) ?? false })
         for issue in issues {
             AppLog.household.error("Omitted a corrupt record: \(issue.diagnosticDescription)")
         }

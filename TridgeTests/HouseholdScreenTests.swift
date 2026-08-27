@@ -38,6 +38,9 @@ final class HouseholdScreenTests: XCTestCase {
             upgrade: LegacyInventoryUpgrade(archive: FakeLegacyArchive(rows: [], exists: false),
                                             markers: UpgradeMarkers(defaults: defaults),
                                             effects: RecordingLegacyEffects()),
+            // A router of this suite's own: the shared one is process-wide, and
+            // two suites binding it would accept into each other's stores.
+            invitations: ShareInvitationRouter(),
             makePersistence: loader.closure)
     }
 

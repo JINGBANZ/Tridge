@@ -290,6 +290,31 @@ final class HouseholdSession {
         return await commit { try await repository.consumeItem(command, today: day) }
     }
 
+    /// Renames the Household this session projects.
+    ///
+    /// Owner-only: the repository refuses a Household that arrived through
+    /// someone else's share, because its name belongs to the owner's record.
+    /// Returns the saved snapshot, or nil with `lastFailure` set.
+    func renameHousehold(to name: String) async -> HouseholdSnapshot? {
+        let command = RenameHouseholdCommand(householdID: householdID, commandID: UUID(),
+                                             name: name)
+        let repository = self.repository
+        guard !isInvalidated else { return nil }
+        do {
+            return try await tasks.run(context: accountContext) {
+                try await repository.renameOwnedHousehold(command)
+            }
+        } catch is AccountTaskRegistry.Rejection {
+            return nil
+        } catch {
+            guard !isInvalidated else { return nil }
+            let failure = InventoryCommandFailure(error)
+            AppLog.household.error("Rename failed: \(failure.diagnosticID)")
+            lastFailure = failure
+            return nil
+        }
+    }
+
     /// Dismisses the last failure once the user has seen it, so a later sheet
     /// does not reopen an alert about a draft that is long gone.
     func clearFailure() {

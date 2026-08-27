@@ -66,6 +66,7 @@ final class LegacyInventoryMigrationTests: XCTestCase {
             activeHouseholds: ActiveHouseholdStore(defaults: defaults),
             upgrade: LegacyInventoryUpgrade(archive: archive, markers: markers, effects: effects,
                                             calendar: { Self.calendar }),
+            invitations: ShareInvitationRouter(),
             makePersistence: loader.closure)
     }
 
