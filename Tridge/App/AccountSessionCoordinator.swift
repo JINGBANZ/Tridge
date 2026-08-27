@@ -823,8 +823,12 @@ final class AccountSessionCoordinator {
         lifecycleTask = Task { [weak self] in
             guard let self else { return }
             await self.runHouseholdAction {
-                guard transition.kind == .stopSharing else { return false }
-                return await self.runStopSharing(transition, named: name, for: session)
+                switch transition.kind {
+                case .stopSharing:
+                    return await self.runStopSharing(transition, named: name, for: session)
+                case .deletePrivate, .deleteShared:
+                    return await self.runHouseholdDeletion(transition, for: session)
+                }
             }
             self.lifecycleTask = nil
         }
@@ -849,6 +853,168 @@ final class AccountSessionCoordinator {
             suppressedHouseholdIDs.remove(destination)
         }
         suppressedHouseholdIDs.formUnion(transition.suppressedHouseholdIDs)
+    }
+
+    // MARK: - Deleting an owned Household
+
+    /// The owner's permanent delete.
+    ///
+    /// An unshared fridge is deleted from CloudKit and confirmed absent there
+    /// before Tridge calls it done; a shared one is purged for everyone with no
+    /// copy made. Which of the two is offered is decided by whether a share
+    /// exists — Delete Fridge is never an implicit Stop Sharing.
+    @discardableResult
+    func deleteHousehold(_ householdID: UUID) async -> Bool {
+        await runHouseholdAction { await self.performDelete(householdID) }
+    }
+
+    private func performDelete(_ householdID: UUID) async -> Bool {
+        guard let session, let sharing, let transitions,
+              let household = households.first(where: { $0.id == householdID })
+        else {
+            householdFailure = HouseholdActionFailure(
+                reason: .householdUnavailable,
+                message: "That fridge isn't available on this device any more.",
+                diagnosticID: "delete.household")
+            return false
+        }
+        guard household.ownership == .owned else {
+            householdFailure = HouseholdActionFailure(
+                reason: .notOwner,
+                message: "Only the person who started this fridge can delete it.",
+                diagnosticID: "delete.owner")
+            return false
+        }
+        guard canRunDestructiveShareAction else {
+            householdFailure = HouseholdActionFailure(
+                reason: .unavailable,
+                message: "Wait until this fridge is up to date, then try again.",
+                diagnosticID: "delete.notSettled")
+            return false
+        }
+
+        householdFailure = nil
+        // Close admission and drain before anything is captured or removed, so
+        // no writer is still adding to a graph that is being deleted.
+        if inventory?.householdID == householdID {
+            await inventory?.closeCommandAdmission()
+        }
+
+        var transition: HouseholdLifecycleTransition
+        if household.isShared {
+            transition = HouseholdLifecycleTransition(kind: .deleteShared, phase: .purgePending,
+                                                      sourceHouseholdID: householdID)
+        } else {
+            // Captured before mutation: afterwards there is nothing left to ask
+            // which CloudKit records this fridge was.
+            let captured: [CapturedCloudKitRecord]
+            do {
+                captured = try await tasks.run(context: session.context) {
+                    try await sharing.capturedRecords(of: householdID)
+                }
+            } catch is AccountTaskRegistry.Rejection {
+                inventory?.reopenCommandAdmission()
+                return false
+            } catch {
+                inventory?.reopenCommandAdmission()
+                householdFailure = HouseholdActionFailure(error, stage: "delete")
+                return false
+            }
+            transition = HouseholdLifecycleTransition(kind: .deletePrivate,
+                                                      phase: .privateDeletePrepared,
+                                                      sourceHouseholdID: householdID,
+                                                      capturedRecords: captured)
+        }
+        transitions.save(transition)
+        applySuppression(of: transition)
+        return await runHouseholdDeletion(transition, for: session)
+    }
+
+    /// Runs — or resumes — a deletion from whatever phase it is recorded at.
+    private func runHouseholdDeletion(_ recorded: HouseholdLifecycleTransition,
+                                      for session: AccountSession) async -> Bool {
+        guard let sharing, let transitions else { return false }
+        var transition = recorded
+        let context = session.context
+        let persistence = session.persistence
+        let source = transition.sourceHouseholdID
+
+        do {
+            switch transition.kind {
+            case .deleteShared:
+                try await tasks.run(context: context) {
+                    // No copy: this deletes the fridge for every member, which
+                    // is exactly what the confirmation said.
+                    _ = try await sharing.purgeZone(of: source, in: .privateDatabase)
+                    try await persistence.ensureLocalGraphAbsent(of: source)
+                }
+
+            case .deletePrivate:
+                if transition.phase == .privateDeletePrepared {
+                    // Idempotent: already absent simply advances the phase.
+                    try await tasks.run(context: context) {
+                        try await persistence.ensureLocalGraphAbsent(of: source)
+                    }
+                    transition.phase = .privateDeleteAwaitingCloud
+                    transitions.save(transition)
+                    applyTransitionPhase(transition, for: context)
+                    // The user gets their fallback fridge now; only the claim
+                    // that iCloud is finished has to wait.
+                    await finishHouseholdRemoval(source, for: context, controller: persistence)
+                }
+
+                guard try await confirmCloudDeletion(of: transition, sharing: sharing,
+                                                     context: context)
+                else {
+                    householdFailure = HouseholdActionFailure(
+                        reason: .unavailable,
+                        message: "Still removing this fridge from iCloud. Tridge will finish it.",
+                        diagnosticID: "delete.awaitingCloud")
+                    return false
+                }
+
+            case .stopSharing:
+                return false
+            }
+        } catch is AccountTaskRegistry.Rejection {
+            return false
+        } catch {
+            inventory?.reopenCommandAdmission()
+            householdFailure = HouseholdActionFailure(error, stage: "delete")
+            applySuppression(of: transition)
+            return false
+        }
+
+        transitions.clear()
+        pendingLifecycleTransition = nil
+        if transition.kind == .deleteShared {
+            await finishHouseholdRemoval(source, for: context, controller: persistence)
+        } else {
+            inventory?.reopenCommandAdmission()
+        }
+        return true
+    }
+
+    /// Waits for the next successful private-store export, then reads the
+    /// captured records back.
+    ///
+    /// The export event alone is not confirmation — it says work was sent, not
+    /// that these records are gone — so completion requires every captured id
+    /// to come back unknown-item.
+    private func confirmCloudDeletion(of transition: HouseholdLifecycleTransition,
+                                      sharing: any HouseholdSharing,
+                                      context: AccountSessionContext) async throws -> Bool {
+        let captured = transition.capturedRecords
+        // Nothing was ever mirrored, so the verified local save is the whole
+        // deletion.
+        guard !captured.isEmpty else { return true }
+
+        let exported = await syncMonitor.waitForNextSuccessfulExport(
+            generation: context.generation, storeIdentifier: context.privateStoreIdentifier)
+        guard exported else { return false }
+        return try await tasks.run(context: context) {
+            try await sharing.confirmRecordsAbsent(captured)
+        }
     }
 
     // MARK: - Leaving and losing access

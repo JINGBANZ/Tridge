@@ -142,6 +142,21 @@ protocol HouseholdSharing: AnyObject {
     /// cleanup path rather than a completed purge.
     func purgeZone(of householdID: UUID,
                    in scope: HouseholdDatabaseScope) async throws -> PurgeOutcome
+
+    /// The CloudKit records this Household's local graph currently maps to.
+    ///
+    /// Captured *before* the graph is deleted, because afterwards there is
+    /// nothing left to ask. Objects with no mapped record simply do not appear:
+    /// they need only local deletion.
+    func capturedRecords(of householdID: UUID) async throws -> [CapturedCloudKitRecord]
+
+    /// Whether every captured record is really gone from the private database.
+    ///
+    /// A local Core Data delete only queues an export, so this read is what
+    /// makes "deleted" a claim rather than a hope. Completion requires every
+    /// result to be unknown-item; a record that is still there, or any other
+    /// error, leaves the deletion pending.
+    func confirmRecordsAbsent(_ records: [CapturedCloudKitRecord]) async throws -> Bool
 }
 
 /// What a zone purge found.
@@ -262,6 +277,47 @@ final class CloudKitHouseholdSharing: HouseholdSharing {
             // Proof only that the remote zone is absent. The local check that
             // follows is what actually finishes the transition.
             return .zoneAlreadyMissing
+        }
+    }
+
+    func capturedRecords(of householdID: UUID) async throws -> [CapturedCloudKitRecord] {
+        guard let household = try record(householdID, in: persistence.privateStore) else {
+            return []
+        }
+        var objectIDs: [NSManagedObjectID] = [household.objectID]
+        objectIDs += household.itemMerges.map(\.objectID)
+        objectIDs += household.clearEvents.map(\.objectID)
+        for item in household.items {
+            objectIDs.append(item.objectID)
+            objectIDs += item.stockChanges.map(\.objectID)
+        }
+
+        return persistence.container.recordIDs(for: objectIDs).values.map {
+            CapturedCloudKitRecord(recordName: $0.recordName, zoneName: $0.zoneID.zoneName,
+                                   zoneOwnerName: $0.zoneID.ownerName)
+        }
+    }
+
+    func confirmRecordsAbsent(_ records: [CapturedCloudKitRecord]) async throws -> Bool {
+        guard !records.isEmpty else { return true }
+        let database = CKContainer(identifier: TridgeCloudKit.containerIdentifier)
+            .privateCloudDatabase
+        let ids = records.map {
+            CKRecord.ID(recordName: $0.recordName,
+                        zoneID: CKRecordZone.ID(zoneName: $0.zoneName,
+                                                ownerName: $0.zoneOwnerName))
+        }
+        do {
+            // `desiredKeys: []` asks only whether the record is there. Nothing
+            // about its contents is fetched, let alone logged.
+            let results = try await database.records(for: ids, desiredKeys: [])
+            return results.values.allSatisfy { result in
+                guard case .failure(let error) = result else { return false }
+                return (error as? CKError)?.code == .unknownItem
+            }
+        } catch let error as CKError where Self.meansZoneIsGone(error) {
+            // The whole zone is gone, so every record in it is.
+            return true
         }
     }
 

@@ -385,6 +385,27 @@ final class FakeHouseholdSharing: HouseholdSharing {
     var purgeFailure: Error?
     private(set) var purgedHouseholds: [UUID] = []
 
+    /// What `capturedRecords` reports for a Household — empty means it was
+    /// never mirrored, which completes a private deletion on the local save.
+    var recordsByHousehold: [UUID: [CapturedCloudKitRecord]] = [:]
+    /// Records the private database still reports as present.
+    var recordsStillPresent: Set<String> = []
+    var confirmFailure: Error?
+    private(set) var confirmCount = 0
+
+    func capturedRecords(of householdID: UUID) async throws -> [CapturedCloudKitRecord] {
+        recordsByHousehold[householdID] ?? []
+    }
+
+    func confirmRecordsAbsent(_ records: [CapturedCloudKitRecord]) async throws -> Bool {
+        confirmCount += 1
+        if let confirmFailure {
+            self.confirmFailure = nil
+            throw confirmFailure
+        }
+        return records.allSatisfy { !recordsStillPresent.contains($0.recordName) }
+    }
+
     func purgeZone(of householdID: UUID,
                    in scope: HouseholdDatabaseScope) async throws -> PurgeOutcome {
         if let purgeFailure {

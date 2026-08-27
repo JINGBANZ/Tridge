@@ -78,6 +78,12 @@ public struct SyncSessionReducer: Equatable, Sendable {
     /// Accepted starts that have not been completed yet, keyed by event id.
     private var pendingStarts: [String: SyncEvent] = [:]
     private var outcomes: [StoreEventKey: Outcome] = [:]
+    /// How many successful exports this session has accepted per store.
+    ///
+    /// Counted rather than flagged because the verified-deletion path needs the
+    /// *next* export after its save, not merely evidence that one has ever
+    /// happened.
+    private var acceptedExports: [String: Int] = [:]
 
     public init() {}
 
@@ -125,6 +131,9 @@ public struct SyncSessionReducer: Equatable, Sendable {
         let key = StoreEventKey(storeIdentifier: event.storeIdentifier, kind: event.kind)
         if event.succeeded {
             outcomes[key] = .succeeded
+            if event.kind == .exportChanges {
+                acceptedExports[event.storeIdentifier, default: 0] += 1
+            }
         } else {
             outcomes[key] = event.isTransientFailure ? .failedTransient : .failedPermanent
         }
@@ -139,6 +148,12 @@ public struct SyncSessionReducer: Equatable, Sendable {
         [SyncEventKind.setup, .importChanges].allSatisfy {
             outcomes[StoreEventKey(storeIdentifier: storeIdentifier, kind: $0)] == .succeeded
         }
+    }
+
+    /// Successful exports accepted for this store so far. A caller records the
+    /// value, then waits for it to move.
+    public func successfulExportCount(storeIdentifier: String) -> Int {
+        acceptedExports[storeIdentifier] ?? 0
     }
 
     public func status(account: SyncAccountState, isNetworkReachable: Bool) -> SyncStatus {

@@ -18,6 +18,7 @@ struct HouseholdScreen: View {
     @State private var showStopWarning = false
     @State private var showStopConfirmation = false
     @State private var showEraseConfirmation = false
+    @State private var showDeleteConfirmation = false
 
     var body: some View {
         List {
@@ -61,6 +62,13 @@ struct HouseholdScreen: View {
             Button("Cancel", role: .cancel) { renameDraft = nil }
         } message: {
             Text("Everyone in this fridge sees the new name.")
+        }
+        .confirmationDialog(deleteTitle, isPresented: $showDeleteConfirmation,
+                            titleVisibility: .visible) {
+            Button("Delete", role: .destructive) { deleteHousehold() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(deleteMessage)
         }
         .confirmationDialog("Erase the old inventory file?", isPresented: $showEraseConfirmation,
                             titleVisibility: .visible) {
@@ -177,9 +185,26 @@ struct HouseholdScreen: View {
                 }
                 .disabled(!coordinator.canRunDestructiveShareAction)
                 .accessibilityIdentifier("household.stopSharing")
+
+                Button("Delete Shared Fridge for Everyone…", role: .destructive) {
+                    showDeleteConfirmation = true
+                }
+                .disabled(!coordinator.canRunDestructiveShareAction)
+                .accessibilityIdentifier("household.deleteShared")
+            } else {
+                // Never an implicit Stop Sharing: this appears only while there
+                // is no share at all.
+                Button("Delete Fridge…", role: .destructive) { showDeleteConfirmation = true }
+                    .disabled(!coordinator.canRunDestructiveShareAction)
+                    .accessibilityIdentifier("household.delete")
             }
         } footer: {
-            if coordinator.pendingLifecycleTransition != nil {
+            if coordinator.pendingLifecycleTransition?.phase == .privateDeleteAwaitingCloud {
+                // Not "deleted": the local graph is gone, but that only queued
+                // an export. Completion waits until iCloud confirms absence.
+                Text("Deleting from iCloud…")
+                    .accessibilityIdentifier("household.deletingFromCloud")
+            } else if coordinator.pendingLifecycleTransition != nil {
                 Text("Finishing a change to this fridge…")
                     .accessibilityIdentifier("household.pendingTransition")
             } else if coordinator.householdsWithStaleShareTitle.contains(household.id) {
@@ -281,6 +306,30 @@ struct HouseholdScreen: View {
     private var failureBinding: Binding<Bool> {
         Binding(get: { coordinator.householdFailure != nil },
                 set: { if !$0 { coordinator.clearHouseholdFailure() } })
+    }
+
+    private var deleteTitle: String {
+        coordinator.activeHousehold?.isShared == true
+            ? "Delete this fridge for everyone?"
+            : "Delete this fridge?"
+    }
+
+    private var deleteMessage: String {
+        let shared = coordinator.activeHousehold?.isShared == true
+        let base = shared
+            ? """
+            Everything in it goes, for you and for everyone you shared it with.             This can't be undone.
+            """
+            : "Everything in it goes. This can't be undone."
+        guard coordinator.hasLegacyArchive else { return base }
+        // Honest about what this action does *not* cover.
+        return base + " The old local inventory file stays until you erase it below."
+    }
+
+    private func deleteHousehold() {
+        guard let householdID = coordinator.activeHouseholdID else { return }
+        Haptics.warning()
+        Task { await coordinator.deleteHousehold(householdID) }
     }
 
     private func erase() {

@@ -34,6 +34,15 @@ protocol SyncStatusProviding: AnyObject {
     /// the account changes, or the caller is cancelled first.
     func waitForInitialImport(generation: AccountGeneration,
                               storeIdentifier: String) async -> Bool
+
+    /// Resolves true when a successful export completes for this store *after*
+    /// this call, or false if the session ends, the account changes, or the
+    /// caller is cancelled first.
+    ///
+    /// The verified-deletion path needs the next export after its own save; an
+    /// export that already happened proves nothing about it.
+    func waitForNextSuccessfulExport(generation: AccountGeneration,
+                                     storeIdentifier: String) async -> Bool
 }
 
 /// Reduces `NSPersistentCloudKitContainer` events into sync state for the
@@ -53,6 +62,16 @@ final class StoreScopedSyncMonitor: SyncStatusProviding {
         let continuation: CheckedContinuation<Bool, Never>
     }
 
+    /// Waits for the export count of one store to move past what it was when
+    /// the wait started.
+    private struct ExportWaiter {
+        let id: UUID
+        let generation: AccountGeneration
+        let storeIdentifier: String
+        let baseline: Int
+        let continuation: CheckedContinuation<Bool, Never>
+    }
+
     private var generation: AccountGeneration?
     private var reducer = SyncSessionReducer()
     private var accountState: SyncAccountState = .validated
@@ -65,6 +84,7 @@ final class StoreScopedSyncMonitor: SyncStatusProviding {
     private let statusStreams = StatusStreamRegistry()
     private var pathMonitor: NWPathMonitor?
     private var importWaiters: [ImportWaiter] = []
+    private var exportWaiters: [ExportWaiter] = []
 
     private(set) var currentStatus: SyncStatus = .syncing
 
@@ -108,6 +128,7 @@ final class StoreScopedSyncMonitor: SyncStatusProviding {
         guard generation == self.generation else { return }
         reducer.activate(storeIdentifiers: storeIdentifiers)
         resolveImportWaiters()
+        resolveExportWaiters()
         refreshStatus()
     }
 
@@ -128,6 +149,7 @@ final class StoreScopedSyncMonitor: SyncStatusProviding {
         guard generation != nil else { return }
         reducer.record(event)
         resolveImportWaiters()
+        resolveExportWaiters()
         refreshStatus()
     }
 
@@ -202,6 +224,44 @@ final class StoreScopedSyncMonitor: SyncStatusProviding {
         }
     }
 
+    func waitForNextSuccessfulExport(generation: AccountGeneration,
+                                     storeIdentifier: String) async -> Bool {
+        guard generation == self.generation else { return false }
+        let baseline = reducer.successfulExportCount(storeIdentifier: storeIdentifier)
+        let id = UUID()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                guard !Task.isCancelled else {
+                    continuation.resume(returning: false)
+                    return
+                }
+                exportWaiters.append(ExportWaiter(id: id, generation: generation,
+                                                  storeIdentifier: storeIdentifier,
+                                                  baseline: baseline,
+                                                  continuation: continuation))
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in self?.resumeExportWaiter(id, with: false) }
+        }
+    }
+
+    private func resolveExportWaiters() {
+        guard let generation else { return }
+        let resolved = exportWaiters.filter {
+            $0.generation == generation
+                && reducer.successfulExportCount(storeIdentifier: $0.storeIdentifier) > $0.baseline
+        }
+        guard !resolved.isEmpty else { return }
+        let resolvedIDs = Set(resolved.map(\.id))
+        exportWaiters.removeAll { resolvedIDs.contains($0.id) }
+        for waiter in resolved { waiter.continuation.resume(returning: true) }
+    }
+
+    private func resumeExportWaiter(_ id: UUID, with value: Bool) {
+        guard let index = exportWaiters.firstIndex(where: { $0.id == id }) else { return }
+        exportWaiters.remove(at: index).continuation.resume(returning: value)
+    }
+
     private func resolveImportWaiters() {
         guard let generation else { return }
         let resolved = importWaiters.filter {
@@ -224,6 +284,10 @@ final class StoreScopedSyncMonitor: SyncStatusProviding {
         let waiters = importWaiters
         importWaiters = []
         for waiter in waiters { waiter.continuation.resume(returning: value) }
+
+        let exports = exportWaiters
+        exportWaiters = []
+        for waiter in exports { waiter.continuation.resume(returning: value) }
     }
 }
 
