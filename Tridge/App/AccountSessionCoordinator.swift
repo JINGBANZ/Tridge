@@ -64,6 +64,12 @@ final class AccountSessionCoordinator {
     /// A multi-step lifecycle change this installation is part-way through.
     /// It survives termination and is resumed before normal selection.
     private(set) var pendingLifecycleTransition: HouseholdLifecycleTransition?
+    /// A written export waiting for the system share sheet. Temporary, and
+    /// cleared once the sheet closes.
+    private(set) var exportedDocumentURL: URL?
+    /// Whether the archived pre-sharing store is still on this device. The
+    /// files are the record, so this needs no marker of its own.
+    private(set) var hasLegacyArchive: Bool
 
     let tasks: AccountTaskRegistry
     let syncMonitor: any SyncStatusProviding
@@ -85,6 +91,7 @@ final class AccountSessionCoordinator {
     private let barrier: BootstrapBarrierStore
     private let activeHouseholds: ActiveHouseholdStore
     private let upgrade: LegacyInventoryUpgrade
+    private let eraser: LegacyArchiveEraser
     private let makePersistence: @Sendable (AccountScopeHash) async throws -> PersistenceController
     private let makeSharing: @MainActor (PersistenceController) -> any HouseholdSharing
 
@@ -132,6 +139,7 @@ final class AccountSessionCoordinator {
          barrier: BootstrapBarrierStore = BootstrapBarrierStore(),
          activeHouseholds: ActiveHouseholdStore = ActiveHouseholdStore(),
          upgrade: LegacyInventoryUpgrade = LegacyInventoryUpgrade(),
+         eraser: LegacyArchiveEraser = LegacyArchiveEraser(),
          invitations: ShareInvitationRouter = .shared,
          makePersistence: @escaping @Sendable (AccountScopeHash) async throws
              -> PersistenceController = AccountSessionCoordinator.loadCloudKitStack,
@@ -145,6 +153,8 @@ final class AccountSessionCoordinator {
         self.barrier = barrier
         self.activeHouseholds = activeHouseholds
         self.upgrade = upgrade
+        self.eraser = eraser
+        self.hasLegacyArchive = eraser.hasRemnants
         self.invitations = invitations
         self.makePersistence = makePersistence
         self.makeSharing = makeSharing
@@ -582,6 +592,78 @@ final class AccountSessionCoordinator {
         isHouseholdActionInFlight = true
         defer { isHouseholdActionInFlight = false }
         return await body()
+    }
+
+    // MARK: - Data rights
+
+    /// Writes one Household's complete inventory history to a temporary file,
+    /// ready for the system share sheet.
+    ///
+    /// Every accessible Household offers this, whatever the user's role: an
+    /// export is about the data, not about who owns the share.
+    @discardableResult
+    func exportHousehold(_ householdID: UUID) async -> Bool {
+        await runHouseholdAction { await self.performExport(householdID) }
+    }
+
+    /// Called when the share sheet closes; the temporary file is not kept
+    /// around waiting to be shared a second time.
+    func clearExportedDocument() {
+        if let url = exportedDocumentURL {
+            try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
+        }
+        exportedDocumentURL = nil
+    }
+
+    private func performExport(_ householdID: UUID) async -> Bool {
+        guard let session, households.contains(where: { $0.id == householdID }) else {
+            householdFailure = HouseholdActionFailure(
+                reason: .householdUnavailable,
+                message: "That fridge isn't available on this device any more.",
+                diagnosticID: "export.household")
+            return false
+        }
+        householdFailure = nil
+        clearExportedDocument()
+
+        let context = session.context
+        let exporter = InventoryExporter(persistence: session.persistence)
+        let today = InventoryDay.today()
+        do {
+            let url = try await tasks.run(context: context) {
+                try await exporter.exportDocument(for: householdID, today: today)
+            }
+            guard currentGeneration == context.generation else { return false }
+            exportedDocumentURL = url
+            return true
+        } catch is AccountTaskRegistry.Rejection {
+            return false
+        } catch {
+            householdFailure = HouseholdActionFailure(error, stage: "export")
+            return false
+        }
+    }
+
+    /// Destroys the archived pre-sharing store on this device.
+    ///
+    /// Deliberately separate from every Household action: the archive is
+    /// installation-wide, has no safe account or Household mapping, and
+    /// deleting it claims nothing about CloudKit data.
+    @discardableResult
+    func eraseLegacyArchive() async -> Bool {
+        await runHouseholdAction {
+            self.householdFailure = nil
+            let eraser = self.eraser
+            do {
+                try await Task.detached(priority: .userInitiated) { try eraser.erase() }.value
+            } catch {
+                self.householdFailure = HouseholdActionFailure(error, stage: "legacyErase")
+                self.hasLegacyArchive = eraser.hasRemnants
+                return false
+            }
+            self.hasLegacyArchive = false
+            return true
+        }
     }
 
     // MARK: - Stop sharing, keep the fridge

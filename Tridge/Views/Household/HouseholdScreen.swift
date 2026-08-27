@@ -17,6 +17,7 @@ struct HouseholdScreen: View {
     @State private var showLeaveConfirmation = false
     @State private var showStopWarning = false
     @State private var showStopConfirmation = false
+    @State private var showEraseConfirmation = false
 
     var body: some View {
         List {
@@ -38,6 +39,8 @@ struct HouseholdScreen: View {
                 invitationSection
             }
 
+            dataSection
+
             Section {
                 SyncStatusRow(status: coordinator.syncStatus)
             } footer: {
@@ -58,6 +61,20 @@ struct HouseholdScreen: View {
             Button("Cancel", role: .cancel) { renameDraft = nil }
         } message: {
             Text("Everyone in this fridge sees the new name.")
+        }
+        .confirmationDialog("Erase the old inventory file?", isPresented: $showEraseConfirmation,
+                            titleVisibility: .visible) {
+            Button("Erase", role: .destructive) { erase() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("""
+            This removes the database the previous version of Tridge kept on             this iPhone, including eaten and tossed history and old receipt             text. Your current fridges are not affected.
+            """)
+        }
+        .sheet(isPresented: exportSheetBinding) {
+            if let url = coordinator.exportedDocumentURL {
+                ExportShareSheet(url: url) { coordinator.clearExportedDocument() }
+            }
         }
         .sheet(isPresented: shareSheetBinding) {
             if let item = coordinator.preparedShare {
@@ -191,6 +208,42 @@ struct HouseholdScreen: View {
         .disabled(coordinator.isHouseholdActionInFlight)
     }
 
+    // MARK: - Data rights
+
+    /// The honest data-controls section. Each action says exactly what it does
+    /// and to what: export copies, deletion removes a Household, Clear All only
+    /// moves the inventory frontier, Leave removes access, and the legacy
+    /// erasure is device-local.
+    @ViewBuilder
+    private var dataSection: some View {
+        Section("Data") {
+            ForEach(coordinator.households) { household in
+                Button("Export \"\(household.name)\"…") {
+                    Task { await coordinator.exportHousehold(household.id) }
+                }
+                .accessibilityIdentifier("household.export.\(household.id.uuidString)")
+            }
+            if coordinator.hasLegacyArchive {
+                Button("Erase Old Local Inventory…", role: .destructive) {
+                    showEraseConfirmation = true
+                }
+                .accessibilityIdentifier("household.eraseLegacy")
+            }
+        } footer: {
+            Text(coordinator.hasLegacyArchive
+                 ? """
+                 Export writes a file of everything in a fridge, including items \
+                 you've finished. Erasing the old local inventory removes the \
+                 previous version's database from this iPhone only.
+                 """
+                 : """
+                 Export writes a file of everything in a fridge, including items \
+                 you've finished.
+                 """)
+        }
+        .disabled(coordinator.isHouseholdActionInFlight)
+    }
+
     // MARK: - Invitation status
 
     @ViewBuilder
@@ -215,6 +268,11 @@ struct HouseholdScreen: View {
         Binding(get: { renameDraft != nil }, set: { if !$0 { renameDraft = nil } })
     }
 
+    private var exportSheetBinding: Binding<Bool> {
+        Binding(get: { coordinator.exportedDocumentURL != nil },
+                set: { if !$0 { coordinator.clearExportedDocument() } })
+    }
+
     private var shareSheetBinding: Binding<Bool> {
         Binding(get: { coordinator.preparedShare != nil },
                 set: { if !$0 { coordinator.clearPreparedShare() } })
@@ -223,6 +281,11 @@ struct HouseholdScreen: View {
     private var failureBinding: Binding<Bool> {
         Binding(get: { coordinator.householdFailure != nil },
                 set: { if !$0 { coordinator.clearHouseholdFailure() } })
+    }
+
+    private func erase() {
+        Haptics.warning()
+        Task { await coordinator.eraseLegacyArchive() }
     }
 
     private func stopSharing() {
@@ -292,6 +355,51 @@ struct ShareInvitationSheet: View {
         }
         .presentationDetents([.medium])
         .accessibilityIdentifier("household.shareSheet")
+    }
+}
+
+/// Hands the written export to the system share sheet.
+///
+/// The file is temporary and is deleted when this closes, so a document that
+/// contains a whole fridge's history does not sit around waiting to be found.
+struct ExportShareSheet: View {
+    let url: URL
+    let done: () -> Void
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: AppTheme.ghostSpacing) {
+                Text("📄")
+                    .font(AppTheme.ghostArtFont)
+                Text(url.lastPathComponent)
+                    .font(AppTheme.ghostTextFont)
+                    .foregroundStyle(AppTheme.ink)
+                    .multilineTextAlignment(.center)
+                Text("""
+                Everything in this fridge, including items you've finished. It \
+                contains no receipt text, no account details, and nothing about \
+                who it's shared with.
+                """)
+                    .font(AppTheme.countFont)
+                    .foregroundStyle(AppTheme.mutedInk)
+                    .multilineTextAlignment(.center)
+                ShareLink(item: url) {
+                    Label("Save or Send", systemImage: "square.and.arrow.up")
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(AppTheme.brandGreen)
+                .accessibilityIdentifier("household.exportLink")
+            }
+            .padding(AppTheme.screenMargin)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done", action: done)
+                }
+            }
+        }
+        .presentationDetents([.medium])
+        .accessibilityIdentifier("household.exportSheet")
     }
 }
 

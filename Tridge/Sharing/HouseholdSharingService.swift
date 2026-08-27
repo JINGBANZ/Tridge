@@ -43,6 +43,10 @@ struct HouseholdActionFailure: Error, Equatable, Identifiable {
             self = Self(repository: repository, stage: stage)
         case let cloudKit as CKError:
             self = Self(cloudKit: cloudKit, stage: stage)
+        case let erase as LegacyArchiveEraser.Failure:
+            self.init(reason: .unresolved,
+                      message: "Tridge couldn't remove the old inventory file. Try again.",
+                      diagnosticID: erase.diagnosticID)
         default:
             let details = error as NSError
             self.init(reason: .unresolved, message: Self.retryMessage,
