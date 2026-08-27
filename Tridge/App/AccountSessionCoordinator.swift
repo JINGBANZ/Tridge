@@ -184,12 +184,16 @@ final class AccountSessionCoordinator {
     /// Validates the account and brings up its stack. Safe to call again for
     /// Retry: an existing session is torn down first.
     func start() async {
+        // Started here rather than by the caller: the destructive share actions
+        // gate on `syncStatus`, so a coordinator whose mirror was never started
+        // would refuse all of them and say the fridge is still syncing.
+        observeSyncStatus()
         await enqueueTransition { await self.restart() }
     }
 
     /// Mirrors the monitor's status into observed state, so the Household
     /// screen can render it without owning an `AsyncStream` of its own.
-    func observeSyncStatus() {
+    private func observeSyncStatus() {
         guard syncStatusTask == nil else { return }
         let updates = syncMonitor.statusUpdates
         syncStatusTask = Task { [weak self] in

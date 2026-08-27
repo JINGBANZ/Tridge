@@ -18,7 +18,6 @@ struct RootView: View {
                 // The test bundle is hosted by this app; its suites open their
                 // own stacks and this one must stay out of their way.
                 guard !ProcessInfo.processInfo.isHostingTests else { return }
-                coordinator.observeSyncStatus()
                 coordinator.observeAccountChanges()
                 await coordinator.start()
             }

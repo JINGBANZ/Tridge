@@ -162,7 +162,9 @@ final class ShareInvitationTests: XCTestCase {
         router.receive(Invitation())
         await waitUntil("the invitation is accepted") { self.router.status == .accepted }
 
-        XCTAssertTrue(defaults.dictionaryRepresentation().isEmpty,
+        // The suite's own domain, not `dictionaryRepresentation()`, which
+        // reports every inherited global as well.
+        XCTAssertTrue((defaults.persistentDomain(forName: suiteName) ?? [:]).isEmpty,
                       "invitation URLs, zones, phase, and selection intent are memory-only")
     }
 

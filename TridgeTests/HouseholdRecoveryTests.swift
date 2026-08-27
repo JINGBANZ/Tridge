@@ -242,17 +242,16 @@ final class HouseholdRecoveryTests: XCTestCase {
 
         emitRecovery(.encryptionKeyReset, ownedStore: false)
 
-        await waitUntil("the received fridge is gone") {
-            !self.coordinator.households.contains { $0.id == fridges.received }
+        let controller = try XCTUnwrap(coordinator.session?.persistence)
+        await waitUntil("the received fridge is really gone") {
+            let listed = self.coordinator.households.contains { $0.id == fridges.received }
+            return !listed && !(await controller.containsHousehold(fridges.received))
         }
         let request = try XCTUnwrap(coordinator.pendingRecovery)
         XCTAssertEqual(request.role, .member)
         XCTAssertFalse(request.needsConfirmation)
         XCTAssertTrue(request.message.lowercased().contains("invitation"))
         XCTAssertEqual(coordinator.activeHouseholdID, fridges.owned, "selection falls back")
-        let controller = try XCTUnwrap(coordinator.session?.persistence)
-        let stillThere = await controller.containsHousehold(fridges.received)
-        XCTAssertFalse(stillThere)
     }
 
     // MARK: - Store and generation isolation

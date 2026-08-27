@@ -104,13 +104,13 @@ final class StopSharingTests: XCTestCase {
         await waitUntil("share state is applied") {
             self.coordinator.activeHousehold?.isShared == true
         }
-        settleSync()
+        await settleSync()
         return id
     }
 
     /// Emits the setup and import that make both stores report up to date, which
     /// is the precondition every destructive share action requires.
-    private func settleSync() {
+    private func settleSync() async {
         guard let context = coordinator.session?.context else { return }
         for storeIdentifier in [context.privateStoreIdentifier, context.sharedStoreIdentifier] {
             for kind in [SyncEventKind.setup, .importChanges] {
@@ -120,6 +120,11 @@ final class StopSharingTests: XCTestCase {
                 monitor.receive(SyncEvent(identifier: id, storeIdentifier: storeIdentifier,
                                           kind: kind, isComplete: true, succeeded: true))
             }
+        }
+        // The mirror is fed by an AsyncStream, so the status settles a turn
+        // later than the events that settle it.
+        await waitUntil("both stores report up to date") {
+            self.coordinator.canRunDestructiveShareAction
         }
     }
 
@@ -183,7 +188,7 @@ final class StopSharingTests: XCTestCase {
         sharing.sharedHouseholds = [received]
         await coordinator.start()
         await waitUntil("both fridges are listed") { self.coordinator.households.count == 2 }
-        settleSync()
+        await settleSync()
 
         let stopped = await coordinator.stopSharing(received)
 
@@ -242,7 +247,8 @@ final class StopSharingTests: XCTestCase {
         let source = try await startWithSharedFridge()
         try await addItems([("Milk", 1)])
 
-        _ = await coordinator.stopSharing(source)
+        let stopped = await coordinator.stopSharing(source)
+        XCTAssertTrue(stopped)
 
         let households = try await storedHouseholds()
         let copy = try XCTUnwrap(households.first)
@@ -261,7 +267,8 @@ final class StopSharingTests: XCTestCase {
         let source = try await startWithSharedFridge(name: "Home")
         try await addItems([("Milk", 1)])
 
-        _ = await coordinator.stopSharing(source)
+        let stopped = await coordinator.stopSharing(source)
+        XCTAssertTrue(stopped)
 
         let households = try await storedHouseholds()
         let copyID = try XCTUnwrap(households.first?.id)
@@ -278,7 +285,8 @@ final class StopSharingTests: XCTestCase {
         let source = try await startWithSharedFridge()
         try await addItems([("Milk", 1)])
 
-        _ = await coordinator.stopSharing(source)
+        let stopped = await coordinator.stopSharing(source)
+        XCTAssertTrue(stopped)
 
         XCTAssertEqual(sharing.purgedHouseholds, [source])
         let controller = try XCTUnwrap(coordinator.session?.persistence)

@@ -73,11 +73,14 @@ final class StackLoader: @unchecked Sendable {
 extension XCTestCase {
     /// Polls until `condition` holds, for the coordinator work that settles
     /// after the call that started it has already returned.
+    ///
+    /// The condition may await — a store read is often the only honest way to
+    /// ask whether a transition has really finished.
     @MainActor
-    func waitUntil(_ description: String, _ condition: @MainActor () -> Bool,
+    func waitUntil(_ description: String, _ condition: @MainActor () async -> Bool,
                    file: StaticString = #filePath, line: UInt = #line) async {
         for _ in 0..<400 {
-            if condition() { return }
+            if await condition() { return }
             await Task.yield()
             try? await Task.sleep(nanoseconds: 5_000_000)
         }

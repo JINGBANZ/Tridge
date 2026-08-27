@@ -13,6 +13,7 @@ final class InventoryCommandTests: XCTestCase {
     private var baseDirectory: URL!
     private var controller: PersistenceController!
     private var repository: CoreDataInventoryRepository!
+    private var reconciler: DuplicateReconciler!
     private var householdID: UUID!
 
     private static let today = InventoryDay(year: 2026, month: 8, day: 26)!
@@ -30,11 +31,14 @@ final class InventoryCommandTests: XCTestCase {
             configuration: .localOnly(accountScope: Self.scope, baseDirectory: baseDirectory))
         repository = CoreDataInventoryRepository(persistence: controller,
                                                  capabilities: FakeStoreCapabilities())
+        reconciler = DuplicateReconciler(persistence: controller,
+                                         capabilities: FakeStoreCapabilities())
         householdID = try makeHousehold(in: controller.privateStore)
     }
 
     override func tearDown() async throws {
         repository = nil
+        reconciler = nil
         controller?.tearDown()
         controller = nil
         try? FileManager.default.removeItem(at: baseDirectory)
@@ -91,11 +95,17 @@ final class InventoryCommandTests: XCTestCase {
 
     /// Two same-name roots with known byte order, so the lower id is
     /// unambiguously the canonical member of the resulting group.
+    ///
+    /// The claim is persisted, exactly as `HouseholdSession` does after every
+    /// save: the projector's in-memory union only holds while both roots are
+    /// independently visible, so a consume that takes one of them to zero would
+    /// otherwise split the group before the next command resolved it.
     @discardableResult
     private func addLinkedPair(name: String = "Milk") async throws -> (low: UUID, high: UUID) {
         let low = Self.id(1)
         let high = Self.id(2)
         _ = try await add([draft(name, id: low), draft(name, id: high)])
+        _ = try await reconciler.reconcile(householdID: householdID, today: Self.today)
         return (low, high)
     }
 
