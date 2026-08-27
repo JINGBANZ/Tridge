@@ -14,6 +14,7 @@ struct HouseholdScreen: View {
     let coordinator: AccountSessionCoordinator
 
     @State private var renameDraft: String?
+    @State private var showLeaveConfirmation = false
 
     var body: some View {
         List {
@@ -23,8 +24,12 @@ struct HouseholdScreen: View {
                 }
             }
 
-            if let active = coordinator.activeHousehold, active.ownership == .owned {
-                ownerSection(active)
+            if let active = coordinator.activeHousehold {
+                if active.ownership == .owned {
+                    ownerSection(active)
+                } else {
+                    memberSection
+                }
             }
 
             if coordinator.invitations.status != .idle {
@@ -56,6 +61,15 @@ struct HouseholdScreen: View {
             if let item = coordinator.preparedShare {
                 ShareInvitationSheet(item: item) { coordinator.clearPreparedShare() }
             }
+        }
+        .confirmationDialog("Leave this fridge?", isPresented: $showLeaveConfirmation,
+                            titleVisibility: .visible) {
+            Button("Leave", role: .destructive) { leave() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("""
+            It disappears from your devices. The person who started it keeps             everything in it — leaving deletes nothing for them.
+            """)
         }
         .alert("Couldn't do that", isPresented: failureBinding) {
             Button("OK", role: .cancel) { coordinator.clearHouseholdFailure() }
@@ -132,6 +146,19 @@ struct HouseholdScreen: View {
         .disabled(coordinator.isHouseholdActionInFlight)
     }
 
+    /// A member's only lifecycle action. There is no rename, no invitation, no
+    /// Manage Sharing, and no second system-UI leave path (ADR 0012).
+    @ViewBuilder
+    private var memberSection: some View {
+        Section("This fridge") {
+            Button("Leave Household…", role: .destructive) { showLeaveConfirmation = true }
+                .accessibilityIdentifier("household.leave")
+        } footer: {
+            Text("The person who started this fridge keeps it. Leaving deletes nothing for them.")
+        }
+        .disabled(coordinator.isHouseholdActionInFlight)
+    }
+
     // MARK: - Invitation status
 
     @ViewBuilder
@@ -164,6 +191,12 @@ struct HouseholdScreen: View {
     private var failureBinding: Binding<Bool> {
         Binding(get: { coordinator.householdFailure != nil },
                 set: { if !$0 { coordinator.clearHouseholdFailure() } })
+    }
+
+    private func leave() {
+        guard let householdID = coordinator.activeHouseholdID else { return }
+        Haptics.warning()
+        Task { await coordinator.leaveHousehold(householdID) }
     }
 
     private func commitRename() {

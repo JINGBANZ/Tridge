@@ -120,6 +120,26 @@ protocol HouseholdSharing: AnyObject {
 
     /// Accepts one invitation into this account's shared store.
     func accept(_ metadata: any ShareInvitationMetadata) async throws
+
+    /// Purges a Household's record zone and its local graph.
+    ///
+    /// A member leaving purges their own shared-store mirror; an owner stopping
+    /// or deleting purges the shared zone for everyone. Apple's API removes
+    /// **both** the CloudKit records and the local Core Data graph, which is
+    /// why a copy that must survive is made *before* this is called.
+    ///
+    /// Reports whether the server zone was already gone, because that is a
+    /// cleanup path rather than a completed purge.
+    func purgeZone(of householdID: UUID,
+                   in scope: HouseholdDatabaseScope) async throws -> PurgeOutcome
+}
+
+/// What a zone purge found.
+enum PurgeOutcome: Equatable {
+    case purged
+    /// The zone is not on the server — already purged, deleted by its owner, or
+    /// never created. The local graph still has to be verified absent.
+    case zoneAlreadyMissing
 }
 
 /// The production implementation over `NSPersistentCloudKitContainer`.
@@ -184,6 +204,54 @@ final class CloudKitHouseholdSharing: HouseholdSharing {
                 }
             }
         }
+    }
+
+    func purgeZone(of householdID: UUID,
+                   in scope: HouseholdDatabaseScope) async throws -> PurgeOutcome {
+        let store = persistence.store(for: scope)
+        guard let record = try record(householdID, in: store),
+              let share = try persistence.container
+                  .fetchShares(matching: [record.objectID])[record.objectID]
+        else {
+            // No share means no zone to purge; the caller still verifies that
+            // nothing of the Household is left locally.
+            return .zoneAlreadyMissing
+        }
+
+        let zoneID = share.recordID.zoneID
+        let container = persistence.container
+        do {
+            try await withCheckedThrowingContinuation {
+                (continuation: CheckedContinuation<Void, Error>) in
+                container.purgeObjectsAndRecordsInZone(with: zoneID, in: store) { _, error in
+                    if let error {
+                        continuation.resume(throwing: error)
+                    } else {
+                        continuation.resume()
+                    }
+                }
+            }
+            return .purged
+        } catch let error as CKError where Self.meansZoneIsGone(error) {
+            // Proof only that the remote zone is absent. The local check that
+            // follows is what actually finishes the transition.
+            return .zoneAlreadyMissing
+        }
+    }
+
+    /// The two codes that mean the zone is not there any more, which is not a
+    /// failure for a purge whose whole purpose was to remove it.
+    static func meansZoneIsGone(_ error: CKError) -> Bool {
+        error.code == .zoneNotFound || error.code == .userDeletedZone
+    }
+
+    private func record(_ householdID: UUID, in store: NSPersistentStore) throws
+    -> HouseholdRecord? {
+        let request = HouseholdRecord.fetchRequest()
+        request.predicate = NSPredicate(format: "id == %@", householdID as NSUUID)
+        request.affectedStores = [store]
+        request.fetchLimit = 1
+        return try persistence.viewContext.fetch(request).first
     }
 
     /// The Household's record, refused unless it is in this account's private

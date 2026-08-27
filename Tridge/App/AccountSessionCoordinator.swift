@@ -57,6 +57,10 @@ final class AccountSessionCoordinator {
     /// Households whose share title could not be written. Their invitation
     /// would show a stale fridge name, so Send Invite retries the write first.
     private(set) var householdsWithStaleShareTitle: Set<UUID> = []
+    /// Households hidden from normal interaction while they are being removed
+    /// or recovered. They are out of the picker and out of selection, and their
+    /// reminders are already retired.
+    private(set) var suppressedHouseholdIDs: Set<UUID> = []
 
     let tasks: AccountTaskRegistry
     let syncMonitor: any SyncStatusProviding
@@ -243,6 +247,7 @@ final class AccountSessionCoordinator {
         householdFailure = nil
         preparedShare = nil
         householdsWithStaleShareTitle = []
+        suppressedHouseholdIDs = []
         // The router keeps its metadata for this process, but it may not accept
         // into a store that is about to be removed.
         invitations.bind(accept: nil)
@@ -539,6 +544,95 @@ final class AccountSessionCoordinator {
         return await body()
     }
 
+    // MARK: - Leaving and losing access
+
+    /// A member leaves a received Household.
+    ///
+    /// It makes no private copy and cannot delete the owner's share or zone: it
+    /// removes this member's participation and their local mirror, and says so.
+    @discardableResult
+    func leaveHousehold(_ householdID: UUID) async -> Bool {
+        await runHouseholdAction {
+            guard let household = self.households.first(where: { $0.id == householdID }),
+                  household.ownership == .received
+            else {
+                self.householdFailure = HouseholdActionFailure(
+                    reason: .householdUnavailable,
+                    message: "That fridge isn't available on this device any more.",
+                    diagnosticID: "leave.household")
+                return false
+            }
+            return await self.removeReceivedHousehold(householdID, stage: "leave")
+        }
+    }
+
+    /// CloudKit refused a write to a received Household: the member's access is
+    /// gone.
+    ///
+    /// The Household disappears from normal interaction at once — before any
+    /// purge is attempted — so nothing keeps offering a fridge that can no
+    /// longer be opened.
+    func handleLostAccess(to householdID: UUID) {
+        guard households.contains(where: { $0.id == householdID }) else { return }
+        suppressedHouseholdIDs.insert(householdID)
+        households.removeAll { $0.id == householdID }
+        Task { [weak self] in
+            guard let self else { return }
+            await self.runHouseholdAction {
+                await self.removeReceivedHousehold(householdID, stage: "accessLost")
+            }
+        }
+    }
+
+    /// Purges the member's shared-zone objects, verifies local absence, and
+    /// falls back.
+    ///
+    /// A server zone that is already missing is a cleanup path, not success:
+    /// whatever is still local is deleted and verified absent before this
+    /// reports completion.
+    private func removeReceivedHousehold(_ householdID: UUID, stage: String) async -> Bool {
+        guard let session, let sharing else { return false }
+        householdFailure = nil
+        suppressedHouseholdIDs.insert(householdID)
+        households.removeAll { $0.id == householdID }
+
+        let context = session.context
+        let persistence = session.persistence
+        if inventory?.householdID == householdID {
+            await inventory?.closeCommandAdmission()
+        }
+
+        do {
+            try await tasks.run(context: context) {
+                _ = try await sharing.purgeZone(of: householdID, in: .sharedDatabase)
+                try await persistence.ensureLocalGraphAbsent(of: householdID)
+            }
+        } catch is AccountTaskRegistry.Rejection {
+            return false
+        } catch {
+            // The Household stays hidden and the failure stays retryable; no
+            // stale inventory is exposed in the meantime.
+            inventory?.reopenCommandAdmission()
+            householdFailure = HouseholdActionFailure(error, stage: stage)
+            return false
+        }
+
+        await finishHouseholdRemoval(householdID, for: context, controller: persistence)
+        return true
+    }
+
+    /// Retires the removed Household's local effects and picks a replacement.
+    private func finishHouseholdRemoval(_ householdID: UUID,
+                                        for context: AccountSessionContext,
+                                        controller: PersistenceController) async {
+        guard currentGeneration == context.generation else { return }
+        await reminders.retire(scope: .household(accountScope: context.accountScope.value,
+                                                 householdID: householdID))
+        if activeHouseholdID == householdID { activeHouseholdID = nil }
+        inventory?.reopenCommandAdmission()
+        selectActiveHousehold(for: context, controller: controller)
+    }
+
     // MARK: - Remote history
 
     /// Brings up this generation's history consumer and starts observing remote
@@ -653,11 +747,14 @@ final class AccountSessionCoordinator {
     private func selectActiveHousehold(for context: AccountSessionContext,
                                        controller: PersistenceController) {
         let (available, issues) = controller.householdSnapshots()
-        households = available
+        // A suppression lasts exactly as long as the record it hides: once the
+        // graph is really gone, a later re-invitation is free to bring it back.
+        suppressedHouseholdIDs.formIntersection(Set(available.map(\.id)))
+        households = available.filter { !suppressedHouseholdIDs.contains($0.id) }
         // A share title that could not be written survives termination, so the
         // marker is re-read whenever the accessible set changes.
         householdsWithStaleShareTitle = Set(
-            available.map(\.id).filter { shareTitles?.needsRetry($0) ?? false })
+            households.map(\.id).filter { shareTitles?.needsRetry($0) ?? false })
         for issue in issues {
             AppLog.household.error("Omitted a corrupt record: \(issue.diagnosticDescription)")
         }
@@ -708,6 +805,9 @@ final class AccountSessionCoordinator {
             repository: CoreDataInventoryRepository(persistence: controller),
             reconciler: DuplicateReconciler(persistence: controller),
             tasks: tasks, reminders: reminders)
+        // A refused write is how a member learns their access is gone; the
+        // coordinator turns that into local cleanup and a fallback.
+        session.onAccessLost = { [weak self] id in self?.handleLostAccess(to: id) }
         inventory = session
         // The work itself registers with the task registry; this handle only
         // exists so an account change stops awaiting it.

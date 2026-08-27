@@ -136,6 +136,13 @@ final class HouseholdSession {
     /// Purchases take their turn one at a time — see `awaitTurn()`.
     @ObservationIgnored private var isCommandRunning = false
     @ObservationIgnored private var waitingCommands: [CheckedContinuation<Void, Never>] = []
+    /// Closed while a Household-level transition runs, so a command cannot slip
+    /// in between the quiescence barrier and the copy or purge it protects.
+    @ObservationIgnored private var isAdmittingCommands = true
+    /// Called when CloudKit refuses a write to this Household — the signal that
+    /// access was revoked, which the coordinator turns into local cleanup and a
+    /// fallback.
+    @ObservationIgnored var onAccessLost: (@MainActor (UUID) -> Void)?
     @ObservationIgnored private var reminderTask: Task<Void, Never>?
     /// Permission is asked once, on the first successful add — never from a
     /// remote import the user did not initiate.
@@ -290,6 +297,23 @@ final class HouseholdSession {
         return await commit { try await repository.consumeItem(command, today: day) }
     }
 
+    /// Closes command admission for this Household and waits for every writer
+    /// that was already admitted to return.
+    ///
+    /// This is a local quiescence barrier, not a cross-device lock: it makes
+    /// "the inventory this installation can see" a fixed thing for as long as a
+    /// copy or a purge needs it to be.
+    func closeCommandAdmission() async {
+        isAdmittingCommands = false
+        await awaitTurn()
+        endTurn()
+    }
+
+    /// Reopens admission after a transition that did not remove the Household.
+    func reopenCommandAdmission() {
+        isAdmittingCommands = true
+    }
+
     /// Renames the Household this session projects.
     ///
     /// Owner-only: the repository refuses a Household that arrived through
@@ -360,6 +384,13 @@ final class HouseholdSession {
         let householdID = self.householdID
         await awaitTurn()
         defer { endTurn() }
+        guard isAdmittingCommands else {
+            // A Household-level transition owns this fridge right now. Nothing
+            // was written and the caller's draft is intact.
+            lastFailure = InventoryCommandFailure(
+                InventoryRepositoryError.householdUnavailable)
+            return false
+        }
         // Cleared once this purchase is the one actually writing, so a purchase
         // waiting its turn cannot wipe the failure of the one still running.
         lastFailure = nil
@@ -419,6 +450,11 @@ final class HouseholdSession {
             let failure = InventoryCommandFailure(error)
             AppLog.household.error("Inventory command failed: \(failure.diagnosticID)")
             lastFailure = failure
+            if failure.reason == .permissionDenied {
+                // CloudKit is the authority: a refused write is how a member
+                // learns their access is gone.
+                onAccessLost?(householdID)
+            }
             return nil
         }
     }

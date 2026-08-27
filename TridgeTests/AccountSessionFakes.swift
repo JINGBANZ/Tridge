@@ -376,6 +376,23 @@ final class FakeHouseholdSharing: HouseholdSharing {
         }
     }
 
+    /// Zones whose purge should report the server zone already gone.
+    var missingZones: Set<UUID> = []
+    var purgeFailure: Error?
+    private(set) var purgedHouseholds: [UUID] = []
+
+    func purgeZone(of householdID: UUID,
+                   in scope: HouseholdDatabaseScope) async throws -> PurgeOutcome {
+        if let purgeFailure {
+            self.purgeFailure = nil
+            throw purgeFailure
+        }
+        purgedHouseholds.append(householdID)
+        guard !missingZones.contains(householdID) else { return .zoneAlreadyMissing }
+        sharedHouseholds.remove(householdID)
+        return .purged
+    }
+
     /// A share object constructed locally. It is never saved, so no container
     /// is contacted.
     private static func makeShare() -> CKShare {
