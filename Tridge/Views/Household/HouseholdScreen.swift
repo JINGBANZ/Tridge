@@ -76,7 +76,9 @@ struct HouseholdScreen: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("""
-            This removes the database the previous version of Tridge kept on             this iPhone, including eaten and tossed history and old receipt             text. Your current fridges are not affected.
+            This removes the database the previous version of Tridge kept on \
+            this iPhone, including eaten and tossed history and old receipt \
+            text. Your current fridges are not affected.
             """)
         }
         .sheet(isPresented: exportSheetBinding) {
@@ -97,7 +99,8 @@ struct HouseholdScreen: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("""
-            You'll keep everything this iPhone can see right now. Anyone you             shared with loses access.
+            You'll keep everything this iPhone can see right now. Anyone you \
+            shared with loses access.
             """)
         }
         .alert("Keep only what's here?", isPresented: $showStopConfirmation) {
@@ -105,7 +108,9 @@ struct HouseholdScreen: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("""
-            Only changes already synced to this device will be kept. Changes             still offline on someone else's device may be lost. Ask everyone to             open Tridge online before you stop sharing.
+            Only changes already synced to this device will be kept. Changes \
+            still offline on someone else's device may be lost. Ask everyone to \
+            open Tridge online before you stop sharing.
             """)
         }
         .confirmationDialog("Leave this fridge?", isPresented: $showLeaveConfirmation,
@@ -114,7 +119,8 @@ struct HouseholdScreen: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("""
-            It disappears from your devices. The person who started it keeps             everything in it — leaving deletes nothing for them.
+            It disappears from your devices. The person who started it keeps \
+            everything in it — leaving deletes nothing for them.
             """)
         }
         .alert("Couldn't do that", isPresented: failureBinding) {
@@ -324,7 +330,8 @@ struct HouseholdScreen: View {
         let shared = coordinator.activeHousehold?.isShared == true
         let base = shared
             ? """
-            Everything in it goes, for you and for everyone you shared it with.             This can't be undone.
+            Everything in it goes, for you and for everyone you shared it with. \
+            This can't be undone.
             """
             : "Everything in it goes. This can't be undone."
         guard coordinator.hasLegacyArchive else { return base }
