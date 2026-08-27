@@ -669,6 +669,14 @@ final class AccountSessionCoordinator {
         preparedShare = item
         shareTitles?.clear(householdID)
         householdsWithStaleShareTitle.remove(householdID)
+        // The share exists now. Share metadata produces no history transaction,
+        // so without this the list would keep offering "Share Fridge…" — and a
+        // rename would skip the share-title write — until something else
+        // happened to re-run selection.
+        sharedHouseholdIDs.insert(householdID)
+        households = households.map {
+            $0.id == householdID ? $0.withShareState(isShared: true) : $0
+        }
     }
 
     private func recordStaleShareTitle(_ householdID: UUID) {
