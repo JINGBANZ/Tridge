@@ -11,7 +11,12 @@ import SwiftUI
 /// creating and saving a *new* share, which would bypass that guarantee.
 struct HouseholdShareItem: Transferable {
     let share: CKShare
-    let container: CKContainer
+    /// The container the share belongs to, by identifier.
+    ///
+    /// Resolved to a `CKContainer` only when the sheet actually exports it:
+    /// constructing one requires the iCloud entitlement, and nothing else here
+    /// needs a container at all.
+    let containerIdentifier: String
     /// The Household name, used for the share sheet's preview.
     let title: String
 
@@ -34,7 +39,8 @@ struct HouseholdShareItem: Transferable {
 
     static var transferRepresentation: some TransferRepresentation {
         CKShareTransferRepresentation { item in
-            .existing(item.share, container: item.container,
+            .existing(item.share,
+                      container: CKContainer(identifier: item.containerIdentifier),
                       allowedSharingOptions: Self.allowedSharingOptions)
         }
     }

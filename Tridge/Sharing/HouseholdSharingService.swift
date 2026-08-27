@@ -185,8 +185,6 @@ final class CloudKitHouseholdSharing: HouseholdSharing {
 
     func prepareShare(for householdID: UUID, title: String) async throws -> HouseholdShareItem {
         let record = try ownedRecord(householdID)
-        let container = CKContainer(identifier: TridgeCloudKit.containerIdentifier)
-
         var share: CKShare
         if let existing = try persistence.container
             .fetchShares(matching: [record.objectID])[record.objectID] {
@@ -206,7 +204,9 @@ final class CloudKitHouseholdSharing: HouseholdSharing {
             share = try await persistence.container.persistUpdatedShare(
                 share, in: persistence.privateStore)
         }
-        return HouseholdShareItem(share: share, container: container, title: title)
+        return HouseholdShareItem(share: share,
+                                  containerIdentifier: TridgeCloudKit.containerIdentifier,
+                                  title: title)
     }
 
     func accept(_ metadata: any ShareInvitationMetadata) async throws {

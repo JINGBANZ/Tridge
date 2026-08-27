@@ -367,7 +367,7 @@ final class FakeHouseholdSharing: HouseholdSharing {
         sharedHouseholds.insert(householdID)
         titles[householdID] = title
         return HouseholdShareItem(share: Self.makeShare(),
-                                  container: CKContainer(identifier: TridgeCloudKit.containerIdentifier),
+                                  containerIdentifier: TridgeCloudKit.containerIdentifier,
                                   title: title)
     }
 
