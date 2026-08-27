@@ -923,7 +923,7 @@ final class AccountSessionCoordinator {
                 try await tasks.run(context: context) {
                     // Whether the zone goes now or was already gone, the local
                     // source graph still has to be verified absent.
-                    _ = try await sharing.purgeZone(of: source, in: .privateDatabase)
+                    try await sharing.purgeZone(of: source, in: .privateDatabase)
                     try await persistence.ensureLocalGraphAbsent(of: source)
                 }
             }
@@ -1101,7 +1101,7 @@ final class AccountSessionCoordinator {
                 try await tasks.run(context: context) {
                     // No copy: this deletes the fridge for every member, which
                     // is exactly what the confirmation said.
-                    _ = try await sharing.purgeZone(of: source, in: .privateDatabase)
+                    try await sharing.purgeZone(of: source, in: .privateDatabase)
                     try await persistence.ensureLocalGraphAbsent(of: source)
                 }
 
@@ -1273,7 +1273,7 @@ final class AccountSessionCoordinator {
 
         do {
             try await tasks.run(context: context) {
-                _ = try await sharing.purgeZone(of: householdID, in: .sharedDatabase)
+                try await sharing.purgeZone(of: householdID, in: .sharedDatabase)
                 try await persistence.ensureLocalGraphAbsent(of: householdID)
             }
         } catch is AccountTaskRegistry.Rejection {

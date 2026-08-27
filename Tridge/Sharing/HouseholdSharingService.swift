@@ -117,10 +117,6 @@ protocol HouseholdSharing: AnyObject {
     /// account changes, and foreground activation — rather than observed.
     func sharedHouseholdIDs(among householdIDs: [UUID]) async -> Set<UUID>
 
-    /// The Household's current share, refreshed from the container. Nil when it
-    /// has never been shared.
-    func currentShare(for householdID: UUID) async throws -> CKShare?
-
     /// Creates the Household's share if it has none, then makes sure the saved
     /// share title matches `title` before returning it.
     ///
@@ -138,10 +134,10 @@ protocol HouseholdSharing: AnyObject {
     /// **both** the CloudKit records and the local Core Data graph, which is
     /// why a copy that must survive is made *before* this is called.
     ///
-    /// Reports whether the server zone was already gone, because that is a
-    /// cleanup path rather than a completed purge.
-    func purgeZone(of householdID: UUID,
-                   in scope: HouseholdDatabaseScope) async throws -> PurgeOutcome
+    /// A server zone that is already gone is not a failure — the purge wanted
+    /// it gone — but it is not completion either: every caller follows this
+    /// with a verified local-absence check.
+    func purgeZone(of householdID: UUID, in scope: HouseholdDatabaseScope) async throws
 
     /// The CloudKit records this Household's local graph currently maps to.
     ///
@@ -157,14 +153,6 @@ protocol HouseholdSharing: AnyObject {
     /// result to be unknown-item; a record that is still there, or any other
     /// error, leaves the deletion pending.
     func confirmRecordsAbsent(_ records: [CapturedCloudKitRecord]) async throws -> Bool
-}
-
-/// What a zone purge found.
-enum PurgeOutcome: Equatable {
-    case purged
-    /// The zone is not on the server — already purged, deleted by its owner, or
-    /// never created. The local graph still has to be verified absent.
-    case zoneAlreadyMissing
 }
 
 /// The production implementation over `NSPersistentCloudKitContainer`.
@@ -193,11 +181,6 @@ final class CloudKitHouseholdSharing: HouseholdSharing {
               let shares = try? persistence.container.fetchShares(matching: Array(byObjectID.keys))
         else { return [] }
         return Set(shares.keys.compactMap { byObjectID[$0] })
-    }
-
-    func currentShare(for householdID: UUID) async throws -> CKShare? {
-        let record = try ownedRecord(householdID)
-        return try persistence.container.fetchShares(matching: [record.objectID])[record.objectID]
     }
 
     func prepareShare(for householdID: UUID, title: String) async throws -> HouseholdShareItem {
@@ -247,8 +230,7 @@ final class CloudKitHouseholdSharing: HouseholdSharing {
         }
     }
 
-    func purgeZone(of householdID: UUID,
-                   in scope: HouseholdDatabaseScope) async throws -> PurgeOutcome {
+    func purgeZone(of householdID: UUID, in scope: HouseholdDatabaseScope) async throws {
         let store = persistence.store(for: scope)
         guard let record = try record(householdID, in: store),
               let share = try persistence.container
@@ -256,7 +238,7 @@ final class CloudKitHouseholdSharing: HouseholdSharing {
         else {
             // No share means no zone to purge; the caller still verifies that
             // nothing of the Household is left locally.
-            return .zoneAlreadyMissing
+            return
         }
 
         let zoneID = share.recordID.zoneID
@@ -272,11 +254,9 @@ final class CloudKitHouseholdSharing: HouseholdSharing {
                     }
                 }
             }
-            return .purged
         } catch let error as CKError where Self.meansZoneIsGone(error) {
             // Proof only that the remote zone is absent. The local check that
             // follows is what actually finishes the transition.
-            return .zoneAlreadyMissing
         }
     }
 

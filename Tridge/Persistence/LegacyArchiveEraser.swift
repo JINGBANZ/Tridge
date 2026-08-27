@@ -68,8 +68,13 @@ struct LegacyArchiveEraser {
         // after a crash that left only the sidecars.
         if let base = targets.first, fileManager.fileExists(atPath: base.path) {
             do {
-                try NSPersistentStoreCoordinator.destroyPersistentStore(
-                    at: base, type: .sqlite, options: nil)
+                // A throwaway coordinator over an empty model: destroying a
+                // store file needs a coordinator but not the schema inside it,
+                // and reusing a live one would attach this URL to a stack that
+                // has no business with it.
+                let coordinator = NSPersistentStoreCoordinator(
+                    managedObjectModel: NSManagedObjectModel())
+                try coordinator.destroyPersistentStore(at: base, type: .sqlite, options: nil)
             } catch {
                 let details = error as NSError
                 throw Failure.destroyFailed(

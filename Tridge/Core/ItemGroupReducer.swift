@@ -83,12 +83,6 @@ public struct ItemGroupProjection: Hashable, Sendable {
     public let inferredClaims: [ItemMergeClaim]
     public let issues: [RecordIntegrityIssue]
     public let stockIssues: [StockIntegrityIssue]
-
-    /// The component a command addresses. Commands and stale sheets may name
-    /// the logical id or any member id, so both resolve here.
-    public func group(addressing itemID: UUID) -> ItemGroupSnapshot? {
-        groups.first { $0.id == itemID || $0.memberIDs.contains(itemID) }
-    }
 }
 
 /// Projects physical purchase roots into the logical items Home renders.

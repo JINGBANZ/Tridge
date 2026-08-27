@@ -170,7 +170,7 @@ struct HouseholdScreen: View {
     /// share, and no invitation control at all.
     @ViewBuilder
     private func ownerSection(_ household: HouseholdSnapshot) -> some View {
-        Section("This fridge") {
+        Section {
             Button("Rename…") { renameDraft = household.name }
                 .accessibilityIdentifier("household.rename")
 
@@ -198,6 +198,8 @@ struct HouseholdScreen: View {
                     .disabled(!coordinator.canRunDestructiveShareAction)
                     .accessibilityIdentifier("household.delete")
             }
+        } header: {
+            Text("This fridge")
         } footer: {
             if coordinator.pendingLifecycleTransition?.phase == .privateDeleteAwaitingCloud {
                 // Not "deleted": the local graph is gone, but that only queued
@@ -224,9 +226,11 @@ struct HouseholdScreen: View {
     /// Manage Sharing, and no second system-UI leave path (ADR 0012).
     @ViewBuilder
     private var memberSection: some View {
-        Section("This fridge") {
+        Section {
             Button("Leave Household…", role: .destructive) { showLeaveConfirmation = true }
                 .accessibilityIdentifier("household.leave")
+        } header: {
+            Text("This fridge")
         } footer: {
             Text("The person who started this fridge keeps it. Leaving deletes nothing for them.")
         }
@@ -241,7 +245,7 @@ struct HouseholdScreen: View {
     /// erasure is device-local.
     @ViewBuilder
     private var dataSection: some View {
-        Section("Data") {
+        Section {
             ForEach(coordinator.households) { household in
                 Button("Export \"\(household.name)\"…") {
                     Task { await coordinator.exportHousehold(household.id) }
@@ -254,6 +258,8 @@ struct HouseholdScreen: View {
                 }
                 .accessibilityIdentifier("household.eraseLegacy")
             }
+        } header: {
+            Text("Data")
         } footer: {
             Text(coordinator.hasLegacyArchive
                  ? """

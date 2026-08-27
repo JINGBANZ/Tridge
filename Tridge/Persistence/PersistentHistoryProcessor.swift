@@ -88,7 +88,12 @@ actor PersistentHistoryProcessor {
     }
 
     /// One store's unprocessed transactions, merged into the view context.
-    private struct Batch {
+    ///
+    /// `@unchecked Sendable` because `NSPersistentHistoryToken` is not marked
+    /// `Sendable` even though it is an immutable, archivable value object: this
+    /// crosses out of a `context.perform` block only to be compared and
+    /// archived, and nothing mutates it.
+    private struct Batch: @unchecked Sendable {
         let token: NSPersistentHistoryToken
         /// Households whose graph the batch touched, as far as the changes can
         /// be resolved. A deletion cannot name its Household, so a batch that

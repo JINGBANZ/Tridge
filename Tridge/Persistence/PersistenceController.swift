@@ -151,7 +151,7 @@ final class PersistenceController {
     }
 
     func initializeDevelopmentSchema() throws {
-        try container.initializeCloudKitSchema(options: [])
+        _ = try container.initializeCloudKitSchema(options: [])
     }
 #endif
 

@@ -355,10 +355,6 @@ final class FakeHouseholdSharing: HouseholdSharing {
         sharedHouseholds.intersection(householdIDs)
     }
 
-    func currentShare(for householdID: UUID) async throws -> CKShare? {
-        sharedHouseholds.contains(householdID) ? Self.makeShare() : nil
-    }
-
     func prepareShare(for householdID: UUID, title: String) async throws -> HouseholdShareItem {
         prepareCount += 1
         if let prepareFailure {
@@ -406,16 +402,16 @@ final class FakeHouseholdSharing: HouseholdSharing {
         return records.allSatisfy { !recordsStillPresent.contains($0.recordName) }
     }
 
-    func purgeZone(of householdID: UUID,
-                   in scope: HouseholdDatabaseScope) async throws -> PurgeOutcome {
+    func purgeZone(of householdID: UUID, in scope: HouseholdDatabaseScope) async throws {
         if let purgeFailure {
             self.purgeFailure = nil
             throw purgeFailure
         }
         purgedHouseholds.append(householdID)
-        guard !missingZones.contains(householdID) else { return .zoneAlreadyMissing }
+        // A zone the server no longer has is not a failure here either; the
+        // caller's local-absence check is what finishes the transition.
+        guard !missingZones.contains(householdID) else { return }
         sharedHouseholds.remove(householdID)
-        return .purged
     }
 
     /// A share object constructed locally. It is never saved, so no container
