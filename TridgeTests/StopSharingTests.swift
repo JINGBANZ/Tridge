@@ -244,7 +244,8 @@ final class StopSharingTests: XCTestCase {
 
         _ = await coordinator.stopSharing(source)
 
-        let copy = try XCTUnwrap(try await storedHouseholds().first)
+        let households = try await storedHouseholds()
+        let copy = try XCTUnwrap(households.first)
         let controller = try XCTUnwrap(coordinator.session?.persistence)
         let context = controller.newReaderContext()
         let initialEpoch: UUID? = await context.perform {
@@ -262,7 +263,8 @@ final class StopSharingTests: XCTestCase {
 
         _ = await coordinator.stopSharing(source)
 
-        let copyID = try XCTUnwrap(try await storedHouseholds().first?.id)
+        let households = try await storedHouseholds()
+        let copyID = try XCTUnwrap(households.first?.id)
         XCTAssertEqual(coordinator.activeHouseholdID, copyID)
         XCTAssertEqual(coordinator.activeHousehold?.name, "Home")
         XCTAssertEqual(ActiveHouseholdStore(defaults: defaults).savedID(for: Self.scope()), copyID)

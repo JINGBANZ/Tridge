@@ -50,8 +50,12 @@ final class ReminderReconcilerTests: XCTestCase {
     }
 
     private func makeReconciler() -> ReminderReconciler {
-        ReminderReconciler(center: center, defaults: defaults,
-                           calendar: { Self.calendar }, now: { Self.now })
+        // Copied into locals first: the closures are `@Sendable`, and a static
+        // on this main-actor suite cannot be read from inside one.
+        let calendar = Self.calendar
+        let now = Self.now
+        return ReminderReconciler(center: center, defaults: defaults,
+                                  calendar: { calendar }, now: { now })
     }
 
     private func item(_ name: String, id: UUID = UUID(),

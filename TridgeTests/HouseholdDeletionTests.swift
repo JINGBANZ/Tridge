@@ -275,7 +275,8 @@ final class HouseholdDeletionTests: XCTestCase {
         _ = await coordinator.deleteHousehold(fridges.target)
 
         XCTAssertFalse(coordinator.isHouseholdActionInFlight)
-        XCTAssertTrue(await coordinator.exportHousehold(fridges.keep))
+        let exported = await coordinator.exportHousehold(fridges.keep)
+        XCTAssertTrue(exported)
         coordinator.clearExportedDocument()
         XCTAssertFalse(coordinator.canRunDestructiveShareAction,
                        "but a second destructive action still cannot start")
