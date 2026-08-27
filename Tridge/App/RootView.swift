@@ -15,6 +15,7 @@ struct RootView: View {
     var body: some View {
         content
             .task {
+                coordinator.observeSyncStatus()
                 coordinator.observeAccountChanges()
                 await coordinator.start()
             }

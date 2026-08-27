@@ -41,6 +41,13 @@ final class AccountSessionCoordinator {
     /// The Active Household's Inventory, as value snapshots. Exists only while
     /// a Household is selected for the current generation.
     private(set) var inventory: HouseholdSession?
+    /// Overall sync health for this session's two stores. Diagnostic only: it
+    /// never claims another device has received a change.
+    private(set) var syncStatus: SyncStatus = .syncing
+    /// True while a Household-level transition — rename, share, leave, stop,
+    /// delete — is running. Every such control reads it, so none can be started
+    /// twice or started on top of another.
+    private(set) var isHouseholdActionInFlight = false
 
     let tasks: AccountTaskRegistry
     let syncMonitor: any SyncStatusProviding
@@ -86,6 +93,7 @@ final class AccountSessionCoordinator {
     /// Kept so an account change can retire that exact prefix — including the
     /// alerts already delivered — without touching another scope.
     @ObservationIgnored private var lastValidatedScope: AccountScopeHash?
+    @ObservationIgnored private var syncStatusTask: Task<Void, Never>?
 
     init(identity: any AccountIdentityProviding = CloudKitAccountIdentity(),
          syncMonitor: any SyncStatusProviding,
@@ -124,6 +132,19 @@ final class AccountSessionCoordinator {
     /// Retry: an existing session is torn down first.
     func start() async {
         await enqueueTransition { await self.restart() }
+    }
+
+    /// Mirrors the monitor's status into observed state, so the Household
+    /// screen can render it without owning an `AsyncStream` of its own.
+    func observeSyncStatus() {
+        guard syncStatusTask == nil else { return }
+        let updates = syncMonitor.statusUpdates
+        syncStatusTask = Task { [weak self] in
+            for await status in updates {
+                guard let self else { return }
+                self.syncStatus = status
+            }
+        }
     }
 
     /// Begins observing `CKAccountChanged`. Separate from `start()` so tests
@@ -195,6 +216,8 @@ final class AccountSessionCoordinator {
         // before the drain rather than after it.
         remoteChangeObserver.remove()
         history = nil
+        syncStatus = .syncing
+        isHouseholdActionInFlight = false
         barrierWatch?.cancel()
         barrierWatch = nil
         // The migration itself is registered work, so the drain waits for it;
@@ -303,6 +326,36 @@ final class AccountSessionCoordinator {
         session = AccountSession(context: context, persistence: controller)
         applyBootstrapGate(for: context, controller: controller)
         startHistoryProcessing(for: context, controller: controller)
+    }
+
+    // MARK: - Household selection
+
+    /// Switches the Active Household.
+    ///
+    /// Selection is local: only the account-scoped UUID is persisted, and it is
+    /// deliberately not synchronized to another device. An unknown id — one
+    /// that was left, revoked, or deleted between the row being drawn and
+    /// tapped — falls through to the deterministic fallback instead.
+    func selectHousehold(_ id: UUID) {
+        guard let session, id != activeHouseholdID else { return }
+        guard households.contains(where: { $0.id == id }) else {
+            selectActiveHousehold(for: session.context, controller: session.persistence)
+            return
+        }
+        activate(householdID: id, for: session.context, controller: session.persistence)
+    }
+
+    /// Runs one Household-level transition at a time.
+    ///
+    /// Loading and destructive actions disable the Inventory controls while
+    /// they run, and a second tap on one already running is dropped rather than
+    /// queued — a duplicate purge or delete is exactly what must not happen.
+    @discardableResult
+    func runHouseholdAction(_ body: @MainActor () async -> Bool) async -> Bool {
+        guard !isHouseholdActionInFlight else { return false }
+        isHouseholdActionInFlight = true
+        defer { isHouseholdActionInFlight = false }
+        return await body()
     }
 
     // MARK: - Remote history

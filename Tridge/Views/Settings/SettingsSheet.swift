@@ -27,6 +27,17 @@ struct SettingsSheet: View {
         NavigationStack {
             Form {
                 Section {
+                    NavigationLink {
+                        HouseholdScreen(coordinator: coordinator)
+                    } label: {
+                        LabeledContent {
+                            Text(coordinator.activeHousehold?.name ?? "—")
+                        } label: {
+                            row(icon: "🏠", "Household")
+                        }
+                    }
+                    .accessibilityIdentifier("settings.household")
+
                     Picker(selection: $notificationHour) {
                         ForEach(0..<24, id: \.self) { hour in
                             Text(hourLabel(hour)).tag(hour)
