@@ -1,40 +1,49 @@
 import SwiftUI
-import SwiftData
+
+/// The values an Add as New carries over from a draft whose item turned out to
+/// be closed, so nothing the user typed is lost.
+struct ManualAddPrefill: Equatable {
+    let name: String
+    let artKey: String
+    let quantity: Int64
+    let storage: StorageLocation
+    let expiryDay: InventoryDay
+}
 
 /// Hand-typed alternative to scanning: one edit page for every case. Quick-fill
-/// chips (ranked from the household's own history) sit above the name input;
-/// art resolves automatically from the name (remembered art first, then
+/// chips (ranked from the Household's own purchase history) sit above the name
+/// input; art resolves automatically from the name (remembered art first, then
 /// `ArtInference`); quantity and expiry stay editable; a single Add button
-/// confirms — merging into a matching active item instead of duplicating it.
+/// confirms — grouping with a matching active item instead of duplicating it.
+///
+/// Every purchase creates its own physical root (ADR 0008); grouping is the
+/// projection of exact-name roots, not a quantity rewritten in place.
 struct ManualAddSheet: View {
-    @Environment(\.modelContext) private var context
-    @Environment(\.dismiss) private var dismiss
-    @AppStorage("notificationHour") private var notificationHour = 9
-    @AppStorage("emojiFreeMode") private var emojiFreeMode = false
+    let session: HouseholdSession
+    var prefill: ManualAddPrefill?
 
-    /// Every row ever saved (any status) — the suggestion and remembered-art
-    /// source. Consumed rows are never deleted, so history is complete.
-    @Query private var allItems: [FridgeItem]
+    @Environment(\.dismiss) private var dismiss
+    @AppStorage("emojiFreeMode") private var emojiFreeMode = false
 
     @State private var name = ""
     @State private var artKey = ItemID.unknown.rawValue
     /// The name key the art was explicitly chosen for (picker or chip); auto
     /// inference backs off while the typed name still resolves to this key.
     @State private var artChosenForKey: String?
-    @State private var quantity = 1
+    @State private var quantity: Int64 = 1
     @State private var storage = StorageLocation.fridge
-    // A week out — a neutral starting point the user adjusts, unlike scanned
-    // items whose expiry the LLM estimates.
-    @State private var expiryDate = Calendar.current.date(byAdding: .day, value: 7,
-                                                          to: Date()) ?? Date()
-    /// Distinguishes a deliberate date edit from a chip prefill: on a merge,
-    /// only an edited date overwrites the existing item's expiry.
-    @State private var expiryEdited = false
+    @State private var expiryDay = InventoryDay.today().adding(days: 7) ?? InventoryDay.today()
+    /// Which fields the user changed on purpose. A chip prefill, an inferred
+    /// art, and a form default are deliberately absent, so none of them can
+    /// overwrite metadata an existing same-name item already established
+    /// (ADR 0011).
+    @State private var explicitFields: Set<ExplicitMetadataField> = []
     @State private var showArtPicker = false
+    @State private var isSaving = false
     /// History aggregates, built once at presentation: the history can't change
     /// while the sheet is up (adding dismisses it), and regrouping every row
-    /// ever saved — with per-row `Calendar` math — on each keystroke would
-    /// hitch the keyboard once the household has a year of receipts.
+    /// ever saved on each keystroke would hitch the keyboard once the household
+    /// has a year of receipts.
     @State private var history = History()
 
     var body: some View {
@@ -60,10 +69,10 @@ struct ManualAddSheet: View {
                         chipsRow
                     }
                     ItemFieldRows(namespace: "manualAdd",
-                                  name: $name,
+                                  name: .editable($name),
                                   quantity: $quantity,
-                                  storage: $storage,
-                                  expiryDate: expiryBinding)
+                                  storage: storageBinding,
+                                  expiryDay: expiryBinding)
                 }
             }
             .navigationTitle("Add an item")
@@ -74,24 +83,33 @@ struct ManualAddSheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Add") { add() }
-                        .disabled(trimmedName.isEmpty)
+                        .disabled(trimmedName.isEmpty || isSaving)
                         .accessibilityIdentifier("manualAdd.saveButton")
                 }
             }
         }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
-        .onAppear { history = Self.buildHistory(from: allItems) }
+        .onAppear {
+            history = History(purchases: session.purchaseHistory, active: session.items)
+            applyPrefill()
+        }
         .onChange(of: name) { resolveArt() }
         .sheet(isPresented: $showArtPicker) {
             ArtPicker(selection: artPickerBinding)
+        }
+        .alert("Couldn't add that", isPresented: failureBinding) {
+            Button("OK", role: .cancel) { session.clearFailure() }
+        } message: {
+            Text(session.lastFailure?.message ?? "")
         }
     }
 
     // MARK: Quick-fill chips
 
     /// One tappable chip per suggested past item, best match first. Tapping
-    /// fills the form — it never commits anything.
+    /// fills the form — it never commits anything, and never counts as an
+    /// explicit metadata edit.
     private var chipsRow: some View {
         ScrollView(.horizontal) {
             HStack(spacing: 8) {
@@ -113,6 +131,7 @@ struct ManualAddSheet: View {
                         .background(AppTheme.brandGreen.opacity(0.12), in: Capsule())
                     }
                     .buttonStyle(.plain)
+                    .accessibilityIdentifier("manualAdd.chip.\(suggestion.normalizedName)")
                 }
             }
         }
@@ -120,22 +139,54 @@ struct ManualAddSheet: View {
         .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
     }
 
-    /// A distinct past item, aggregated from its history rows.
-    private struct Suggestion: Identifiable {
+    /// A distinct past item, aggregated from its purchase roots.
+    struct Suggestion: Identifiable {
         let normalizedName: String
         let displayName: String
         let artKey: String
         /// Set when a non-expired active row exists — its date prefills the
-        /// expiry field so an untouched Add preserves it on merge.
-        let activeExpiry: Date?
+        /// expiry field so an untouched Add preserves it.
+        let activeExpiry: InventoryDay?
         let typicalShelfLifeDays: Int
         var id: String { normalizedName }
     }
 
     /// The once-built aggregates `suggestions` and `resolveArt` rank against.
-    private struct History {
+    struct History {
         var byKey: [String: Suggestion] = [:]
         var entries: [SearchEntry] = []
+
+        init() {}
+
+        /// Built from every physical root the Household ever saved — including
+        /// zero, deleted, and superseded ones — because purchase history is
+        /// what the chips rank, not current stock.
+        init(purchases: [PhysicalItemSnapshot], active: [InventoryItemSnapshot]) {
+            let activeByKey = Dictionary(active.map { ($0.normalizedName, $0) },
+                                         uniquingKeysWith: { first, _ in first })
+            let groups = Dictionary(grouping: purchases.filter { !$0.normalizedName.isEmpty },
+                                    by: \.normalizedName)
+            for (key, roots) in groups {
+                guard let latest = roots.max(by: { $0.purchaseDay < $1.purchaseDay }) else {
+                    continue
+                }
+                byKey[key] = Suggestion(
+                    normalizedName: key,
+                    displayName: latest.name,
+                    artKey: latest.artKey,
+                    activeExpiry: activeByKey[key]?.expiryDay,
+                    typicalShelfLifeDays: Self.typicalShelfLife(of: roots))
+                entries.append(SearchEntry(normalizedName: key,
+                                           lastUsed: latest.createdAt,
+                                           useCount: roots.count))
+            }
+        }
+
+        /// Median of the item's past purchase→expiry spans, in days.
+        private static func typicalShelfLife(of roots: [PhysicalItemSnapshot]) -> Int {
+            let spans = roots.map { max(1, $0.expiryDay.days(since: $0.purchaseDay)) }.sorted()
+            return spans.isEmpty ? 7 : spans[spans.count / 2]
+        }
     }
 
     /// The cached history ranked against the typed name — the only per-keystroke
@@ -145,54 +196,31 @@ struct ManualAddSheet: View {
             .compactMap { history.byKey[$0.normalizedName] }
     }
 
-    /// History grouped by name key: latest display name/art, the current active
-    /// row's expiry, and the typical shelf life.
-    private static func buildHistory(from allItems: [FridgeItem]) -> History {
-        var history = History()
-        let groups = Dictionary(grouping: allItems.filter { !$0.normalizedName.isEmpty },
-                                by: \.normalizedName)
-        for (key, rows) in groups {
-            guard let latest = rows.max(by: { $0.purchaseDate < $1.purchaseDate }) else { continue }
-            // Expired rows never absorb a new purchase, so their chip fills a
-            // fresh batch instead of advertising ×N.
-            let activeRow = rows
-                .filter { $0.status == .active && !$0.isExpired }
-                .max(by: { $0.purchaseDate < $1.purchaseDate })
-            history.byKey[key] = Suggestion(
-                normalizedName: key,
-                displayName: latest.name,
-                artKey: latest.artKey,
-                activeExpiry: activeRow?.expiryDate,
-                typicalShelfLifeDays: typicalShelfLife(of: rows))
-            history.entries.append(SearchEntry(normalizedName: key,
-                                               lastUsed: latest.purchaseDate,
-                                               useCount: rows.count))
-        }
-        return history
-    }
-
-    /// Median of the item's past purchase→expiry spans, in days.
-    private static func typicalShelfLife(of rows: [FridgeItem]) -> Int {
-        let spans = rows.compactMap {
-            Calendar.current.dateComponents([.day], from: $0.purchaseDate,
-                                            to: $0.expiryDate).day
-        }.map { max(1, $0) }.sorted()
-        return spans.isEmpty ? 7 : spans[spans.count / 2]
-    }
-
     /// Chip tap: fill the form. In-fridge items prefill their current expiry
     /// (so an untouched Add preserves it); past items prefill today + their
-    /// typical shelf life.
+    /// typical shelf life. Nothing here is an explicit edit.
     private func fill(with suggestion: Suggestion) {
         name = suggestion.displayName
         artKey = suggestion.artKey
         artChosenForKey = suggestion.normalizedName
-        expiryDate = suggestion.activeExpiry
-            ?? Calendar.current.date(byAdding: .day,
-                                     value: suggestion.typicalShelfLifeDays,
-                                     to: Date())
-            ?? expiryDate
-        expiryEdited = false
+        expiryDay = suggestion.activeExpiry
+            ?? InventoryDay.today().adding(days: suggestion.typicalShelfLifeDays)
+            ?? expiryDay
+        explicitFields.remove(.art)
+        explicitFields.remove(.expiryDay)
+    }
+
+    /// Carried over from a detail draft whose item turned out to be closed. The
+    /// user chose these values on the previous sheet, so they are explicit.
+    private func applyPrefill() {
+        guard let prefill, name.isEmpty else { return }
+        name = prefill.name
+        artKey = prefill.artKey
+        artChosenForKey = NameKey.normalize(prefill.name)
+        quantity = prefill.quantity
+        storage = prefill.storage
+        expiryDay = prefill.expiryDay
+        explicitFields = [.art, .storage, .expiryDay]
     }
 
     // MARK: Automatic art
@@ -202,13 +230,14 @@ struct ManualAddSheet: View {
     }
 
     /// Tier 0 first — a name the household saved before keeps the art it was
-    /// given (latest row wins) — then `ArtInference` for new names. Backs off
+    /// given (latest root wins) — then `ArtInference` for new names. Backs off
     /// while an explicit pick still covers the typed name.
     private func resolveArt() {
         let key = NameKey.normalize(name)
         if let chosen = artChosenForKey, chosen == key { return }
         artChosenForKey = nil
-        // The cached aggregate already carries the latest row's art per key.
+        explicitFields.remove(.art)
+        // The cached aggregate already carries the latest root's art per key.
         if let remembered = history.byKey[key]?.artKey {
             artKey = remembered
         } else {
@@ -221,6 +250,7 @@ struct ManualAddSheet: View {
                 set: {
                     artKey = $0
                     artChosenForKey = NameKey.normalize(name)
+                    explicitFields.insert(.art)
                 })
     }
 
@@ -230,59 +260,48 @@ struct ManualAddSheet: View {
         name.trimmingCharacters(in: .whitespaces)
     }
 
-    private var expiryBinding: Binding<Date> {
-        Binding(get: { expiryDate },
+    private var storageBinding: Binding<StorageLocation> {
+        Binding(get: { storage },
                 set: {
-                    expiryDate = $0
-                    expiryEdited = true
+                    storage = $0
+                    explicitFields.insert(.storage)
                 })
+    }
+
+    private var expiryBinding: Binding<InventoryDay> {
+        Binding(get: { expiryDay },
+                set: {
+                    expiryDay = $0
+                    explicitFields.insert(.expiryDay)
+                })
+    }
+
+    private var failureBinding: Binding<Bool> {
+        Binding(get: { session.lastFailure != nil },
+                set: { if !$0 { session.clearFailure() } })
     }
 
     // MARK: Save
 
-    /// Groups into a matching active item (quantity adds; the existing expiry
-    /// stays unless the user deliberately edited the date) or inserts a new
-    /// row. Only an explicit edit can overwrite a date — never a prefill.
+    /// Confirms one purchase. It always creates a fresh physical root; if an
+    /// eligible same-name item is already in the fridge, the projector groups
+    /// the two immediately and the reconciler makes that link permanent.
     private func add() {
-        let active = allItems.filter { $0.status == .active }
-        var scheduleTarget: FridgeItem?
-
-        if case .merge(let id, let resultingQuantity) = MergePlanner.decide(
-               name: trimmedName, quantity: quantity,
-               existing: active.map(\.mergeCandidate)),
-           let target = active.first(where: { $0.id == id }) {
-            target.quantity = resultingQuantity
-            if expiryEdited {
-                target.expiryDate = expiryDate
-                target.expirySource = .userSet
-                scheduleTarget = target
-            }
-        } else {
-            let item = FridgeItem(
-                name: trimmedName,
-                artKey: artKey,
-                quantity: quantity,
-                storage: storage,
-                expiryDate: expiryDate,
-                expirySource: .userSet)
-            context.insert(item)
-            scheduleTarget = item
-        }
-        Haptics.success()
-        if let scheduleTarget {
-            Task {
-                // Permission is requested on first successful add, not at launch.
-                await NotificationService.requestPermissionIfNeeded()
-                NotificationService.schedule(for: scheduleTarget, hour: notificationHour)
+        let today = InventoryDay.today()
+        let draft = PurchaseDraft(itemID: UUID(), stockChangeID: UUID(), name: trimmedName,
+                                  quantity: quantity, artKey: artKey, storage: storage,
+                                  purchaseDay: today, expiryDay: expiryDay,
+                                  expirySource: explicitFields.contains(.expiryDay)
+                                      ? .userSet : .llmEstimate,
+                                  explicitMetadataFields: explicitFields)
+        isSaving = true
+        Task {
+            let saved = await session.addManualItem(draft)
+            isSaving = false
+            if saved {
+                Haptics.success()
+                dismiss()
             }
         }
-        dismiss()
     }
 }
-
-#if DEBUG
-#Preview {
-    ManualAddSheet()
-        .modelContainer(PreviewData.container)
-}
-#endif

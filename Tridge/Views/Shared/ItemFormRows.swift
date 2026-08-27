@@ -39,6 +39,16 @@ struct HeroArtRow: View {
     }
 }
 
+/// Whether the sheet may still change the item's name.
+///
+/// A name is editable in a manual or receipt-review draft and immutable once
+/// saved (ADR 0005) — that is what keeps every exact-name merge permanent, so
+/// Item Detail presents the saved name as text rather than a field.
+enum ItemNameField {
+    case editable(Binding<String>)
+    case readOnly(String)
+}
+
 /// The editable core of an item: Name · Quantity · Storage · Expires, each a
 /// label-left / value-right form row.
 struct ItemFieldRows: View {
@@ -46,17 +56,13 @@ struct ItemFieldRows: View {
     /// identifiers per host sheet — e.g. "manualAdd.nameField" vs
     /// "itemDetail.nameField".
     let namespace: String
-    @Binding var name: String
-    @Binding var quantity: Int
+    let name: ItemNameField
+    @Binding var quantity: Int64
     @Binding var storage: StorageLocation
-    @Binding var expiryDate: Date
+    @Binding var expiryDay: InventoryDay
 
     var body: some View {
-        LabeledContent("Name") {
-            TextField("e.g. Milk", text: $name)
-                .multilineTextAlignment(.trailing)
-                .accessibilityIdentifier("\(namespace).nameField")
-        }
+        nameRow
         QuantityRow(quantity: $quantity)
             .accessibilityIdentifier("\(namespace).quantityField")
         Picker("Storage", selection: $storage) {
@@ -65,20 +71,51 @@ struct ItemFieldRows: View {
             }
         }
         .accessibilityIdentifier("\(namespace).storagePicker")
-        DatePicker("Expires", selection: $expiryDate, displayedComponents: .date)
+        DatePicker("Expires", selection: expiryDateBinding, displayedComponents: .date)
             .accessibilityIdentifier("\(namespace).expiryPicker")
+    }
+
+    @ViewBuilder
+    private var nameRow: some View {
+        switch name {
+        case .editable(let binding):
+            LabeledContent("Name") {
+                TextField("e.g. Milk", text: binding)
+                    .multilineTextAlignment(.trailing)
+                    .accessibilityIdentifier("\(namespace).nameField")
+            }
+        case .readOnly(let value):
+            LabeledContent("Name", value: value)
+                .accessibilityIdentifier("\(namespace).nameField")
+        }
+    }
+
+    /// The civil day rendered for a viewer in the device's time zone. The
+    /// stored value stays an ordinal (ADR 0003), so two members in different
+    /// zones still agree on the expiry date.
+    private var expiryDateBinding: Binding<Date> {
+        Binding(get: { expiryDay.startOfDay(in: .current) ?? Date() },
+                set: { date in
+                    if let day = InventoryDay(date: date, calendar: .current) {
+                        expiryDay = day
+                    }
+                })
     }
 }
 
-/// Type-in quantity (1–99) backed by its own text state so the field can be
-/// emptied while retyping; each parsable number commits as typed, and losing
-/// focus snaps the text back to the canonical clamped value.
+/// Type-in quantity backed by its own text state so the field can be emptied
+/// while retyping; each parsable positive number commits as typed, and losing
+/// focus snaps the text back to the canonical value.
+///
+/// There is no product cap: a quantity is any positive whole number the store
+/// can represent (ADR 0004), and an unparsable or nonpositive entry is simply
+/// not committed rather than silently clamped to something the user never chose.
 private struct QuantityRow: View {
-    @Binding var quantity: Int
+    @Binding var quantity: Int64
     @State private var text: String
     @FocusState private var isFocused: Bool
 
-    init(quantity: Binding<Int>) {
+    init(quantity: Binding<Int64>) {
         _quantity = quantity
         _text = State(initialValue: String(quantity.wrappedValue))
     }
@@ -91,15 +128,15 @@ private struct QuantityRow: View {
                 .focused($isFocused)
         }
         .onChange(of: text) {
-            if let typed = Int(text) {
-                quantity = min(max(typed, 1), 99)
+            if let typed = try? InventoryQuantity.parse(text) {
+                quantity = typed
             }
         }
         .onChange(of: isFocused) {
             if !isFocused { text = String(quantity) }
         }
         .onChange(of: quantity) {
-            // External changes (e.g. "Ate it" decrementing) re-sync the field.
+            // External changes (e.g. a remote import) re-sync the field.
             if !isFocused { text = String(quantity) }
         }
     }

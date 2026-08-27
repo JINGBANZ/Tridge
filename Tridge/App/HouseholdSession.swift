@@ -11,6 +11,12 @@ struct InventoryCommandFailure: Equatable, Sendable, Identifiable {
         case permissionDenied
         /// The Household is gone from this account: deleted, left, or revoked.
         case householdUnavailable
+        /// The logical item a stale sheet addressed is closed — deleted,
+        /// consumed to zero, or retired by a Clear All. The draft is intact and
+        /// the UI offers Add as New.
+        case itemUnavailable
+        /// A command only a Household owner may run addressed a received one.
+        case notHouseholdOwner
         /// The draft itself cannot be saved — an empty name, a quantity that is
         /// not a positive whole number.
         case invalidCommand
@@ -49,6 +55,14 @@ struct InventoryCommandFailure: Equatable, Sendable, Identifiable {
             self.init(reason: .householdUnavailable,
                       message: "That fridge isn't available on this device any more.",
                       diagnosticID: "command.household")
+        case .itemUnavailable:
+            self.init(reason: .itemUnavailable,
+                      message: "That item isn't in the fridge any more. Add it as new?",
+                      diagnosticID: "command.item")
+        case .householdNotOwned:
+            self.init(reason: .notHouseholdOwner,
+                      message: "Only the person who started this fridge can change that.",
+                      diagnosticID: "command.owner")
         case .conflictingRetry:
             self.init(reason: .integrity, message: Self.integrityMessage,
                       diagnosticID: "command.conflict")
@@ -110,8 +124,11 @@ final class HouseholdSession {
 
     @ObservationIgnored private let accountContext: AccountSessionContext
     @ObservationIgnored private let repository: any InventoryRepository
-    @ObservationIgnored private let reconciler: DuplicateReconciler
+    /// Nil in previews, which never persist a claim.
+    @ObservationIgnored private let reconciler: DuplicateReconciler?
     @ObservationIgnored private let tasks: AccountTaskRegistry
+    /// Nil in the projection tests, which have no notification centre to drive.
+    @ObservationIgnored private let reminders: ReminderReconciler?
     @ObservationIgnored private let today: @Sendable () -> InventoryDay
     @ObservationIgnored private var isInvalidated = false
     @ObservationIgnored private var issuedRequest: UInt64 = 0
@@ -119,16 +136,21 @@ final class HouseholdSession {
     /// Purchases take their turn one at a time — see `awaitTurn()`.
     @ObservationIgnored private var isCommandRunning = false
     @ObservationIgnored private var waitingCommands: [CheckedContinuation<Void, Never>] = []
+    @ObservationIgnored private var reminderTask: Task<Void, Never>?
+    /// Permission is asked once, on the first successful add — never from a
+    /// remote import the user did not initiate.
+    @ObservationIgnored private var hasAskedForNotificationPermission = false
 
     init(householdID: UUID, accountContext: AccountSessionContext,
-         repository: any InventoryRepository, reconciler: DuplicateReconciler,
-         tasks: AccountTaskRegistry,
+         repository: any InventoryRepository, reconciler: DuplicateReconciler? = nil,
+         tasks: AccountTaskRegistry, reminders: ReminderReconciler? = nil,
          today: @escaping @Sendable () -> InventoryDay = { InventoryDay.today() }) {
         self.householdID = householdID
         self.accountContext = accountContext
         self.repository = repository
         self.reconciler = reconciler
         self.tasks = tasks
+        self.reminders = reminders
         self.today = today
     }
 
@@ -150,10 +172,14 @@ final class HouseholdSession {
     /// so the previous Household's rows are never on screen under the new name.
     func select(householdID: UUID) async {
         guard householdID != self.householdID else { return }
+        let previous = self.householdID
         self.householdID = householdID
         items = []
         purchaseHistory = []
         lastFailure = nil
+        // The old Household's reminders and delivered alerts go before the new
+        // Household's are built, using the exact prefix it was scheduled under.
+        await retireReminders(for: previous)
         await load()
     }
 
@@ -181,7 +207,9 @@ final class HouseholdSession {
                                            draft: draft)
         let repository = self.repository
         let day = today()
-        return await commit { try await repository.addManualItem(command, today: day) }
+        let saved = await commit { try await repository.addManualItem(command, today: day) }
+        if saved { await askForNotificationPermissionOnce() }
+        return saved
     }
 
     /// Confirms a whole reviewed receipt in one atomic save. The rows carry the
@@ -194,13 +222,103 @@ final class HouseholdSession {
                                              rows: drafts)
         let repository = self.repository
         let day = today()
-        return await commit { try await repository.addReviewedRows(command, today: day) }
+        let saved = await commit { try await repository.addReviewedRows(command, today: day) }
+        if saved { await askForNotificationPermissionOnce() }
+        return saved
+    }
+
+    // MARK: - Inventory commands
+
+    /// Commits an Item Detail draft. Only the fields that actually moved are
+    /// passed, so an untouched form writes nothing.
+    ///
+    /// There is no name parameter: a saved Item Name is immutable, which is
+    /// what keeps every exact-name merge permanent (ADR 0005).
+    @discardableResult
+    func updateItem(_ itemID: UUID, targetQuantity: Int64? = nil, artKey: String? = nil,
+                    storage: StorageLocation? = nil,
+                    expiryDay: InventoryDay? = nil) async -> Bool {
+        let command = UpdateItemCommand(householdID: householdID, commandID: UUID(),
+                                        itemID: itemID, stockChangeID: UUID(),
+                                        targetQuantity: targetQuantity, artKey: artKey,
+                                        storage: storage, expiryDay: expiryDay)
+        let repository = self.repository
+        let day = today()
+        return await commit { try await repository.updateItem(command, today: day) }
+    }
+
+    /// Eats one unit of a logical item.
+    @discardableResult
+    func eatOne(_ itemID: UUID) async -> Bool {
+        await consume(itemID, reason: .eaten)
+    }
+
+    /// Tosses one unit of a logical item.
+    @discardableResult
+    func tossOne(_ itemID: UUID) async -> Bool {
+        await consume(itemID, reason: .tossed)
+    }
+
+    /// Closes one logical item permanently. Its history stays exportable.
+    @discardableResult
+    func deleteItem(_ itemID: UUID) async -> Bool {
+        let command = DeleteItemCommand(householdID: householdID, commandID: UUID(),
+                                        itemID: itemID, stockChangeID: UUID())
+        let repository = self.repository
+        let day = today()
+        return await commit { try await repository.deleteItem(command, today: day) }
+    }
+
+    /// Clear All: advances the Household's causal frontier by one leaf. It
+    /// writes no item-level event, so an item an offline peer adds from the
+    /// superseded frontier cannot reappear (ADR 0009).
+    @discardableResult
+    func clearAll() async -> Bool {
+        let command = ClearHouseholdCommand(householdID: householdID, commandID: UUID(),
+                                            clearRecordID: UUID(), epochID: UUID())
+        let repository = self.repository
+        let day = today()
+        return await commit { try await repository.clearActiveHousehold(command, today: day) }
+    }
+
+    private func consume(_ itemID: UUID, reason: StockReason) async -> Bool {
+        guard let command = ConsumeItemCommand(householdID: householdID, commandID: UUID(),
+                                               itemID: itemID, stockChangeID: UUID(),
+                                               reason: reason) else { return false }
+        let repository = self.repository
+        let day = today()
+        return await commit { try await repository.consumeItem(command, today: day) }
+    }
+
+    /// Dismisses the last failure once the user has seen it, so a later sheet
+    /// does not reopen an alert about a draft that is long gone.
+    func clearFailure() {
+        lastFailure = nil
+    }
+
+    /// Rebuilds the Active Household's reminders — the reminder-hour change and
+    /// foreground refresh both land here.
+    func refreshReminders() {
+        reconcileReminders()
+    }
+
+    /// Retires one Household's pending requests and delivered alerts.
+    func retireReminders(for householdID: UUID) async {
+        guard let reminders else { return }
+        reminderTask?.cancel()
+        let scope = ReminderScope.household(accountScope: accountContext.accountScope.value,
+                                            householdID: householdID)
+        _ = try? await tasks.run(context: accountContext) {
+            await reminders.retire(scope: scope)
+        }
     }
 
     /// Stops this session applying anything else. Called before the account's
     /// stores are drained and removed.
     func invalidate() {
         isInvalidated = true
+        reminderTask?.cancel()
+        reminderTask = nil
         items = []
         purchaseHistory = []
         lastFailure = nil
@@ -232,6 +350,35 @@ final class HouseholdSession {
         return true
     }
 
+    /// A purchase is the first thing a user does that has anything to remind
+    /// them about, so permission is asked here rather than at launch.
+    private func askForNotificationPermissionOnce() async {
+        guard let reminders, !hasAskedForNotificationPermission else { return }
+        hasAskedForNotificationPermission = true
+        await reminders.requestPermissionIfNeeded()
+    }
+
+    /// Brings reminders and the badge in line with the snapshots now on screen.
+    ///
+    /// Registered like every other account-bound operation, and superseded
+    /// rather than queued: only the newest snapshots matter, and the diff makes
+    /// a skipped intermediate pass invisible.
+    private func reconcileReminders() {
+        guard let reminders, !isInvalidated else { return }
+        let items = self.items
+        let accountContext = self.accountContext
+        let householdID = self.householdID
+        let tasks = self.tasks
+        reminderTask?.cancel()
+        reminderTask = Task {
+            _ = try? await tasks.run(context: accountContext) {
+                await reminders.reconcile(items: items,
+                                          accountScope: accountContext.accountScope,
+                                          householdID: householdID)
+            }
+        }
+    }
+
     private func run(
         _ operation: @escaping @Sendable () async throws -> HouseholdProjection
     ) async -> HouseholdProjection? {
@@ -252,7 +399,7 @@ final class HouseholdSession {
     }
 
     private func persistMergeClaims(for householdID: UUID) async {
-        let reconciler = self.reconciler
+        guard let reconciler else { return }
         let day = today()
         do {
             _ = try await tasks.run(context: accountContext) {
@@ -321,5 +468,35 @@ final class HouseholdSession {
         for issue in projection.stockIssues {
             AppLog.household.error("Stock integrity: \(issue.diagnosticDescription)")
         }
+        // Every snapshot application is exactly "the inventory changed", which
+        // is the contract's trigger for reminder and badge reconciliation.
+        reconcileReminders()
     }
 }
+
+#if DEBUG
+extension HouseholdSession {
+    /// A session pre-seeded with snapshots, for Xcode previews.
+    ///
+    /// It is built in this file because `items` and `purchaseHistory` are
+    /// `private(set)`: previews render the fixture directly rather than going
+    /// through a repository, so no store is needed to see the grid.
+    static func preview(items: [InventoryItemSnapshot] = PreviewData.previewItems(),
+                        history: [PhysicalItemSnapshot] = PreviewData.previewHistory())
+    -> HouseholdSession {
+        let householdID = UUID()
+        let session = HouseholdSession(
+            householdID: householdID,
+            accountContext: PreviewData.previewAccountContext,
+            repository: PreviewInventoryRepository(
+                fixed: HouseholdProjection(householdID: householdID, items: items,
+                                                groups: [], physicalItems: history,
+                                                inferredClaims: [], issues: [],
+                                                stockIssues: [])),
+            tasks: AccountTaskRegistry())
+        session.items = items
+        session.purchaseHistory = history
+        return session
+    }
+}
+#endif

@@ -1,5 +1,4 @@
 import SwiftUI
-import SwiftData
 import UIKit
 
 /// Notification hour, emoji-free mode, and the copy-diagnostics feedback loop.
@@ -7,17 +6,22 @@ import UIKit
 /// share one section with emoji icon chips, the destructive action sits alone
 /// below, and a version line closes the sheet — no headers or footer prose.
 struct SettingsSheet: View {
-    @Environment(\.modelContext) private var context
+    let session: HouseholdSession
+    let coordinator: AccountSessionCoordinator
+
     @Environment(\.dismiss) private var dismiss
-    @AppStorage("notificationHour") private var notificationHour = 9
+    @AppStorage(ReminderReconciler.reminderHourKey)
+    private var notificationHour = ReminderReconciler.defaultHour
     /// Hides all item art: the home grid becomes a name list, and the add,
     /// review, and detail sheets drop their icons.
     @AppStorage("emojiFreeMode") private var emojiFreeMode = false
-    @Query private var items: [FridgeItem]
 
     @State private var copiedDiagnostics = false
     @State private var collectingDiagnostics = false
     @State private var showingClearConfirmation = false
+    @State private var isClearing = false
+
+    private var items: [InventoryItemSnapshot] { session.items }
 
     var body: some View {
         NavigationStack {
@@ -50,7 +54,8 @@ struct SettingsSheet: View {
                         showingClearConfirmation = true
                     }
                     .frame(maxWidth: .infinity)
-                    .disabled(items.isEmpty)
+                    .disabled(items.isEmpty || isClearing)
+                    .accessibilityIdentifier("settings.clearAll")
                 } footer: {
                     Text(versionLine)
                         .frame(maxWidth: .infinity)
@@ -63,6 +68,9 @@ struct SettingsSheet: View {
                     Button("Done") { dismiss() }
                 }
             }
+            // The hour is a local preference, so a change reschedules this
+            // installation's pending requests at the new time immediately.
+            .onChange(of: notificationHour) { session.refreshReminders() }
             .confirmationDialog(
                 "Clear all fridge items?",
                 isPresented: $showingClearConfirmation,
@@ -71,18 +79,31 @@ struct SettingsSheet: View {
                 Button("Clear all items", role: .destructive) { clearAllItems() }
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("This permanently deletes all \(items.count) item\(items.count == 1 ? "" : "s") and cannot be undone.")
+                Text(clearWarning)
             }
         }
     }
 
+    /// Clear All is an inventory action, not a privacy erasure: the causal
+    /// epoch and every past operation stay in this Household's history and
+    /// export. The warning has to be honest about the offline case, which is
+    /// the one that surprises people.
+    private var clearWarning: String {
+        let name = coordinator.activeHousehold?.name ?? "this fridge"
+        return """
+        This clears the current inventory in \(name) for everyone. \
+        Items added on an offline device before it receives this clear will \
+        also disappear when that device syncs.
+        """
+    }
+
     private func clearAllItems() {
         Haptics.warning()
-        for item in items {
-            NotificationService.cancel(for: item.id)
-            context.delete(item)
+        isClearing = true
+        Task {
+            await session.clearAll()
+            isClearing = false
         }
-        NotificationService.updateBadge(expiredCount: 0)
     }
 
     /// One settings row: emoji on a soft green chip, then the label in ink —

@@ -136,6 +136,11 @@ extension PersistenceController {
         return (valid, issues)
     }
 
+    /// Whether one Household currently has a `CKShare`.
+    func isShared(_ household: HouseholdRecord) -> Bool {
+        !sharedRecordIDs(among: [household]).isEmpty
+    }
+
     /// Share status comes from the container's own share records. A store with
     /// no CloudKit mirroring — a test stack, or one whose lookup failed — has
     /// no shares to report, which is the same answer as "not shared".

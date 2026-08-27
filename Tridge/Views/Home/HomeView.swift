@@ -1,36 +1,38 @@
 import SwiftUI
-import SwiftData
 import PhotosUI
 import UIKit
 
 /// The whole app on one screen: frameless item grid on the chilled background,
 /// one scan button, drag-to-consume.
+///
+/// Everything it renders is a value snapshot of the Active Household, and every
+/// change it makes is a repository command. It holds no managed object and no
+/// model context, so nothing on screen can outlive the account that produced it.
 struct HomeView: View {
     private static let gridLayout = Array(
         repeating: GridItem(.flexible(), spacing: AppTheme.gridColumnGap),
         count: AppTheme.gridColumns
     )
 
-    @Environment(\.modelContext) private var context
+    let session: HouseholdSession
+    let coordinator: AccountSessionCoordinator
+
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @AppStorage("notificationHour") private var notificationHour = 9
     /// Settings → Emoji-free mode: items render as name rows, no art anywhere.
     @AppStorage("emojiFreeMode") private var emojiFreeMode = false
 
-    // Soonest-expiring first puts expired items at the very top.
-    @Query(filter: #Predicate<FridgeItem> { $0.statusRaw == "active" },
-           sort: \FridgeItem.expiryDate)
-    private var items: [FridgeItem]
-
     @State private var scanFlow = ScanFlowModel()
-    @State private var selectedItem: FridgeItem?
+    @State private var selectedItem: InventoryItemSnapshot?
     @State private var showSettings = false
-    @State private var showManualAdd = false
+    @State private var manualAdd: ManualAddRequest?
     @State private var showAddMenu = false
     @State private var pickedPhoto: PhotosPickerItem?
     @State private var searchText = ""
     @State private var animatedItemIDs: Set<UUID> = []
+    /// Re-read when the app comes forward, so a fridge left open overnight
+    /// grades its urgency against the right day.
+    @State private var today = InventoryDay.today()
 
     // Filter state: nil = "All" on that axis.
     @State private var filterStorage: StorageLocation?
@@ -40,9 +42,11 @@ struct HomeView: View {
     // Drag-to-consume state. The item changes once per drag and may drive
     // `body`; the live position/scale change every frame and live in `drag`
     // so only the ghost and drop bar re-render.
-    @State private var draggedItem: FridgeItem?
+    @State private var draggedItem: InventoryItemSnapshot?
     @State private var drag = DragModel()
     @State private var zoneFrames: [DropZone: CGRect] = [:]
+
+    private var items: [InventoryItemSnapshot] { session.items }
 
     var body: some View {
         NavigationStack {
@@ -76,16 +80,17 @@ struct HomeView: View {
         .onPreferenceChange(DropZoneFramesKey.self) { zoneFrames = $0 }
         .animation(AppTheme.dragSpring, value: draggedItem == nil)
         .sheet(item: $selectedItem) { item in
-            ItemDetailSheet(item: item)
+            ItemDetailSheet(item: item, session: session, today: today,
+                            onAddAsNew: { manualAdd = ManualAddRequest(prefill: $0) })
         }
         .sheet(isPresented: $showSettings) {
-            SettingsSheet()
+            SettingsSheet(session: session, coordinator: coordinator)
         }
         .sheet(isPresented: reviewBinding) {
-            ReviewSheet(model: scanFlow)
+            ReviewSheet(model: scanFlow, session: session)
         }
-        .sheet(isPresented: $showManualAdd) {
-            ManualAddSheet()
+        .sheet(item: $manualAdd) { request in
+            ManualAddSheet(session: session, prefill: request.prefill)
         }
         .sheet(isPresented: $showFilterSheet) {
             FilterSheet(storage: $filterStorage, category: $filterCategory)
@@ -106,10 +111,18 @@ struct HomeView: View {
         }, message: {
             Text("\(failureMessage)\n\nDetails were logged — Settings → Copy diagnostics.")
         })
+        // A command the user started from Home itself — a drag-to-consume —
+        // has no sheet of its own to report into.
+        .alert("Couldn't save", isPresented: homeFailureBinding, actions: {
+            Button("OK", role: .cancel) { session.clearFailure() }
+        }, message: {
+            Text(session.lastFailure?.message ?? "")
+        })
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active { updateBadge() }
+            guard phase == .active else { return }
+            today = InventoryDay.today()
+            session.refreshReminders()
         }
-        .onChange(of: items.count) { updateBadge() }
         .onChange(of: items.isEmpty) { _, empty in
             // Filters and search don't outlive the inventory: the last item
             // leaving also removes the search bar, so nothing could clear a
@@ -127,7 +140,7 @@ struct HomeView: View {
         filterStorage != nil || filterCategory != nil
     }
 
-    private var filteredItems: [FridgeItem] {
+    private var filteredItems: [InventoryItemSnapshot] {
         items.filter { item in
             (filterStorage == nil || item.storage == filterStorage)
                 && (filterCategory == nil || item.foodCategory == filterCategory)
@@ -197,8 +210,13 @@ struct HomeView: View {
 
     /// The header counts units, not rows — a ×3 milk is three items — and
     /// follows the active filter.
-    private var unitCount: Int {
-        filteredItems.reduce(0) { $0 + $1.quantity }
+    private var unitCount: Int64 {
+        // Quantities are unbounded positive whole numbers (ADR 0004), so the
+        // running total is reported rather than trapped if it ever leaves the
+        // representable range.
+        filteredItems.reduce(Int64(0)) { total, item in
+            total.addingReportingOverflow(item.quantity).partialValue
+        }
     }
 
     @ToolbarContentBuilder
@@ -281,7 +299,7 @@ struct HomeView: View {
     /// The grid filtered by the search field on top of the active Storage /
     /// Food Category filters; expiry order is preserved. Matching is
     /// diacritic-blind via the stored normalized key.
-    private var visibleItems: [FridgeItem] {
+    private var visibleItems: [InventoryItemSnapshot] {
         let query = NameKey.normalize(searchText)
         guard !query.isEmpty else { return filteredItems }
         return filteredItems.filter {
@@ -314,12 +332,12 @@ struct HomeView: View {
         .scrollIndicators(.hidden)
     }
 
-    private func gridBody(_ visible: [FridgeItem]) -> some View {
+    private func gridBody(_ visible: [InventoryItemSnapshot]) -> some View {
         LazyVGrid(
             columns: Self.gridLayout,
             spacing: AppTheme.gridRowGap
         ) {
-            ForEach(Array(visible.enumerated()), id: \.element.persistentModelID) { index, item in
+            ForEach(Array(visible.enumerated()), id: \.element.id) { index, item in
                 slot(for: item, index: index)
             }
         }
@@ -329,18 +347,19 @@ struct HomeView: View {
 
     /// Emoji-free mode's stand-in for the grid: one name row per item, same
     /// order, same tap-to-edit and drag-to-consume gestures.
-    private func listBody(_ visible: [FridgeItem]) -> some View {
+    private func listBody(_ visible: [InventoryItemSnapshot]) -> some View {
         LazyVStack(spacing: 0) {
-            ForEach(Array(visible.enumerated()), id: \.element.persistentModelID) { index, item in
+            ForEach(Array(visible.enumerated()), id: \.element.id) { index, item in
                 slot(for: item, index: index)
             }
         }
         .padding(.top, AppTheme.screenMargin)
     }
 
-    private func slot(for item: FridgeItem, index: Int) -> some View {
+    private func slot(for item: InventoryItemSnapshot, index: Int) -> some View {
         GridSlot(
             item: item,
+            today: today,
             emojiFree: emojiFreeMode,
             index: index,
             popInEnabled: !reduceMotion
@@ -363,9 +382,9 @@ struct HomeView: View {
         .equatable()
     }
 
-    private func slotOpacity(for item: FridgeItem) -> Double {
-        guard draggedItem != nil else { return 1 }
-        return item === draggedItem ? 0.25 : 0.4
+    private func slotOpacity(for item: InventoryItemSnapshot) -> Double {
+        guard let draggedItem else { return 1 }
+        return item.id == draggedItem.id ? 0.25 : 0.4
     }
 
     // MARK: Drag to consume
@@ -400,16 +419,17 @@ struct HomeView: View {
         drag.scale = 1.3
     }
 
-    /// ×N items decrement one unit and stay until the count hits zero.
-    private func consume(_ item: FridgeItem, into zone: DropZone) {
-        if item.quantity > 1 {
-            item.quantity -= 1
-        } else {
-            item.status = zone == .ate ? .eaten : .tossed
-            item.consumedDate = Date()
-            NotificationService.cancel(for: item.id)
+    /// One unit leaves the logical item. ×N rows stay until the projection
+    /// reaches zero; nothing is decremented in place, so a member consuming the
+    /// same item offline still composes.
+    private func consume(_ item: InventoryItemSnapshot, into zone: DropZone) {
+        Task {
+            if zone == .ate {
+                await session.eatOne(item.id)
+            } else {
+                await session.tossOne(item.id)
+            }
         }
-        updateBadge()
     }
 
     // MARK: Bottom area
@@ -458,12 +478,12 @@ struct HomeView: View {
             }
             Button("Choose from library") { scanFlow.startScan(from: .photoLibrary) }
                 .accessibilityIdentifier("home.scanMenu.library")
-            Button("Type to add") { showManualAdd = true }
+            Button("Type to add") { manualAdd = ManualAddRequest(prefill: nil) }
                 .accessibilityIdentifier("home.scanMenu.manualAdd")
             #if DEBUG
             Button("Try sample receipt") { scanFlow.scanSampleReceipt() }
                 .accessibilityIdentifier("home.scanMenu.sample")
-            Button("Seed the App") { PreviewData.seed(into: context) }
+            Button("Seed the App") { seedDebugInventory() }
                 .accessibilityIdentifier("home.scanMenu.seed")
             #endif
             Button("Cancel", role: .cancel) {}
@@ -472,6 +492,15 @@ struct HomeView: View {
         .accessibilityLabel("Add items")
         .accessibilityIdentifier("home.scanButton")
     }
+
+    #if DEBUG
+    /// The debug seed is an ordinary multirow confirmation, so it exercises the
+    /// same repository path a receipt does instead of writing rows the projector
+    /// never saw created.
+    private func seedDebugInventory() {
+        Task { await session.addReviewedRows(PreviewData.seedPurchases(today: today)) }
+    }
+    #endif
 
     // MARK: Scan flow plumbing
 
@@ -499,14 +528,24 @@ struct HomeView: View {
         }, set: { if !$0, case .failed = scanFlow.phase { scanFlow.reset() } })
     }
 
+    /// Only failures with no sheet of their own reach Home's alert: a detail or
+    /// add sheet keeps its own draft open and reports there.
+    private var homeFailureBinding: Binding<Bool> {
+        Binding(get: { session.lastFailure != nil && selectedItem == nil && manualAdd == nil },
+                set: { if !$0 { session.clearFailure() } })
+    }
+
     private var failureMessage: String {
         if case .failed(let message) = scanFlow.phase { return message }
         return ""
     }
+}
 
-    private func updateBadge() {
-        NotificationService.updateBadge(expiredCount: items.filter(\.isExpired).count)
-    }
+/// A manual-add presentation, optionally prefilled. Identifiable so the sheet
+/// is rebuilt for each request rather than reusing the previous draft.
+struct ManualAddRequest: Identifiable {
+    let id = UUID()
+    let prefill: ManualAddPrefill?
 }
 
 /// The live drag position and ghost scale, updated every frame of a
@@ -526,7 +565,7 @@ private final class DragModel {
 /// own view means only it re-renders as `drag` changes each frame.
 private struct DragGhostView: View {
     let drag: DragModel
-    let item: FridgeItem?
+    let item: InventoryItemSnapshot?
     let emojiFree: Bool
 
     var body: some View {
@@ -545,13 +584,13 @@ private struct DragGhostView: View {
     }
 
     @ViewBuilder
-    private func ghostArt(for item: FridgeItem) -> some View {
+    private func ghostArt(for item: InventoryItemSnapshot) -> some View {
         if emojiFree {
             Text(item.name)
                 .font(AppTheme.listRowNameFont)
                 .foregroundStyle(AppTheme.ink)
         } else {
-            Text(Artwork.artwork(for: item))
+            Text(Artwork.emoji(forKey: item.artKey))
                 .font(.system(size: AppTheme.artPointSize))
         }
     }
@@ -591,12 +630,13 @@ private struct NativeSearchModifier: ViewModifier {
 
 /// One grid cell, `Equatable`-gated so the closures it carries (which SwiftUI
 /// can't diff) don't force a re-evaluation of every cell on each `HomeView`
-/// body pass — e.g. the passes at drag start/end, or a search keystroke. Item
-/// *content* changes still propagate: the SwiftData model is
-/// `@Observable`-backed, so `ItemSprite` tracks the properties it reads
-/// directly, past this gate.
+/// body pass — e.g. the passes at drag start/end, or a search keystroke. The
+/// item is now an immutable snapshot, so comparing it by value is exactly the
+/// right gate: a projection that changed the row rebuilds it, and one that did
+/// not cannot.
 private struct GridSlot: View, Equatable {
-    let item: FridgeItem
+    let item: InventoryItemSnapshot
+    let today: InventoryDay
     let emojiFree: Bool
     let index: Int
     let popInEnabled: Bool
@@ -608,7 +648,8 @@ private struct GridSlot: View, Equatable {
     let onDragEnded: (CGPoint?) -> Void
 
     static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.item === rhs.item
+        lhs.item == rhs.item
+            && lhs.today == rhs.today
             && lhs.emojiFree == rhs.emojiFree
             && lhs.index == rhs.index
             && lhs.popInEnabled == rhs.popInEnabled
@@ -618,9 +659,9 @@ private struct GridSlot: View, Equatable {
     var body: some View {
         Group {
             if emojiFree {
-                ItemRow(item: item)
+                ItemRow(item: item, today: today)
             } else {
-                ItemSprite(item: item)
+                ItemSprite(item: item, today: today)
             }
         }
         .modifier(PopIn(index: index, enabled: popInEnabled, onFinished: onPopInFinished))
@@ -707,10 +748,3 @@ private struct PopIn: ViewModifier {
         }
     }
 }
-
-#if DEBUG
-#Preview {
-    HomeView()
-        .modelContainer(PreviewData.container)
-}
-#endif

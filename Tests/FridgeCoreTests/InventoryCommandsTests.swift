@@ -282,6 +282,27 @@ final class PurchasePlannerTests: XCTestCase {
         XCTAssertNil(PurchasePlanner.match(name: "   ", in: items, today: today))
     }
 
+    /// The identity key is diacritic-blind, so a receipt that prints
+    /// "Jalapeño" groups with a hand-typed "Jalapeno".
+    func testMatchingIsDiacriticInsensitive() {
+        let items = [existing(name: "Jalapeño Peppers")]
+
+        XCTAssertEqual(
+            PurchasePlanner.match(name: "jalapeno peppers", in: items, today: today)?.name,
+            "Jalapeño Peppers")
+    }
+
+    /// A row with no usable name has no identity to group by, so two of them
+    /// stay separate rather than collapsing into one nameless item.
+    func testUnnamedRowsNeverStackOnEachOther() throws {
+        let plans = try PurchasePlanner.plan(rows: [draft(name: "  "), draft(name: "")],
+                                             in: [], today: today)
+
+        XCTAssertEqual(plans.count, 2)
+        XCTAssertTrue(plans.allSatisfy { $0.canonicalEdit == nil })
+        XCTAssertEqual(plans[1].rootMetadata.name, "")
+    }
+
     func testTheMostRecentPurchaseWinsAmongSeveralMatches() {
         let older = existing(name: "Milk")
         let newer = InventoryItemSnapshot(id: UUID(), memberIDs: [UUID()], name: "Milk",

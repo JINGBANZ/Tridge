@@ -3,10 +3,11 @@ import SwiftUI
 /// One emoji-free home row: name, ×N, and the freshness pill — no art, no
 /// card. `ItemSprite`'s counterpart when emoji-free mode is on.
 struct ItemRow: View {
-    let item: FridgeItem
+    let item: InventoryItemSnapshot
+    let today: InventoryDay
 
     var body: some View {
-        let daysLeft = UrgencyRules.daysLeft(until: item.expiryDate)
+        let daysLeft = item.daysLeft(from: today)
 
         HStack(spacing: AppTheme.listRowQuantityGap) {
             Text(item.name)

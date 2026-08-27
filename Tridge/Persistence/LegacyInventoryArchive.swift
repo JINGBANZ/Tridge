@@ -21,11 +21,12 @@ protocol LegacyInventoryArchiveReading: Sendable {
 /// is never attached to the sharing stack, never saves, and never mirrors to
 /// CloudKit (wiki/household-sharing.md → "Upgrade from the shipping build").
 ///
-/// Because it opens read-only it cannot lightweight-migrate an older archive.
-/// It does not have to: the app's own SwiftData container still opens this store
-/// read-write at launch and brings it to the current `FridgeItem` schema first.
-/// Whichever step retires that container has to keep this reader running after a
-/// launch that has already opened it, or migrate the schema itself.
+/// The sharing build no longer opens a SwiftData container of its own, so
+/// nothing brings an older archive up to the shipping `FridgeItem` schema first
+/// — and a read-only store cannot lightweight-migrate itself. An installation
+/// updating from a build older than that schema therefore reads through a
+/// throwaway copy: the migration runs on the copy, and the archive the user can
+/// still choose to erase survives byte for byte.
 struct LegacyInventoryArchive: LegacyInventoryArchiveReading {
     struct ReadError: Error, Equatable {
         let diagnosticID: String
@@ -38,6 +39,9 @@ struct LegacyInventoryArchive: LegacyInventoryArchiveReading {
                                      appropriateFor: nil, create: false)
             .appendingPathComponent("default.store", isDirectory: false)
     }
+
+    /// The sidecar suffixes SQLite writes beside the base file.
+    static let sidecarSuffixes = ["-wal", "-shm"]
 
     /// Nil when Application Support cannot be resolved, which is the same
     /// answer as "there is no archive to migrate".
@@ -54,20 +58,28 @@ struct LegacyInventoryArchive: LegacyInventoryArchiveReading {
 
     func readActiveRows() throws -> [LegacyInventoryRow] {
         guard let storeURL, exists else { return [] }
+        do {
+            return try Self.readRows(at: storeURL, allowsSave: false)
+        } catch {
+            // The likely cause is a schema older than the shipping one, which a
+            // read-only store cannot migrate. Anything else fails again on the
+            // copy and surfaces from there.
+            return try Self.readRowsFromDisposableCopy(of: storeURL)
+        }
+    }
 
+    /// Opens one store and returns its active rows.
+    private static func readRows(at url: URL, allowsSave: Bool) throws -> [LegacyInventoryRow] {
         let container: ModelContainer
         do {
-            // `allowsSave: false` is the enforcement, not a convention — the
-            // archive must survive the migration byte-for-byte so the user can
-            // still erase it deliberately. `.none` keeps a store that predates
-            // the iCloud entitlement from mirroring itself into the container
-            // the sharing stack owns.
+            // `.none` keeps a store that predates the iCloud entitlement from
+            // mirroring itself into the container the sharing stack owns.
             let configuration = ModelConfiguration(schema: Schema([FridgeItem.self]),
-                                                   url: storeURL, allowsSave: false,
+                                                   url: url, allowsSave: allowsSave,
                                                    cloudKitDatabase: .none)
             container = try ModelContainer(for: FridgeItem.self, configurations: configuration)
         } catch {
-            throw ReadError(diagnosticID: "legacy.open.\(Self.diagnosticID(for: error))")
+            throw ReadError(diagnosticID: "legacy.open.\(diagnosticID(for: error))")
         }
 
         let context = ModelContext(container)
@@ -78,10 +90,37 @@ struct LegacyInventoryArchive: LegacyInventoryArchiveReading {
             // against the archived schema.
             items = try context.fetch(FetchDescriptor<FridgeItem>())
         } catch {
-            throw ReadError(diagnosticID: "legacy.read.\(Self.diagnosticID(for: error))")
+            throw ReadError(diagnosticID: "legacy.read.\(diagnosticID(for: error))")
         }
 
-        return items.filter { $0.status == .active }.map(Self.row)
+        return items.filter { $0.status == .active }.map(row)
+    }
+
+    /// Migrates and reads a copy, then deletes it.
+    ///
+    /// The copy is what makes `allowsSave: false` a real guarantee rather than
+    /// a convention: the archive must survive the migration untouched so the
+    /// user can still erase it deliberately, and a lightweight migration would
+    /// otherwise rewrite it in place.
+    private static func readRowsFromDisposableCopy(of url: URL) throws -> [LegacyInventoryRow] {
+        let manager = FileManager.default
+        let directory = manager.temporaryDirectory
+            .appendingPathComponent("LegacyArchiveRead-\(UUID().uuidString)", isDirectory: true)
+        defer { try? manager.removeItem(at: directory) }
+
+        let copy = directory.appendingPathComponent(url.lastPathComponent, isDirectory: false)
+        do {
+            try manager.createDirectory(at: directory, withIntermediateDirectories: true)
+            try manager.copyItem(at: url, to: copy)
+            for suffix in sidecarSuffixes {
+                let sidecar = URL(fileURLWithPath: url.path + suffix)
+                guard manager.fileExists(atPath: sidecar.path) else { continue }
+                try manager.copyItem(at: sidecar, to: URL(fileURLWithPath: copy.path + suffix))
+            }
+        } catch {
+            throw ReadError(diagnosticID: "legacy.copy.\(diagnosticID(for: error))")
+        }
+        return try readRows(at: copy, allowsSave: true)
     }
 
     /// Receipt text is not read at all, so it cannot reach a Household store.

@@ -45,7 +45,14 @@ final class AccountSessionCoordinator {
     let tasks: AccountTaskRegistry
     let syncMonitor: any SyncStatusProviding
 
+    /// The Active Household's snapshot, when one is selected and still valid.
+    var activeHousehold: HouseholdSnapshot? {
+        guard let activeHouseholdID else { return nil }
+        return households.first { $0.id == activeHouseholdID }
+    }
+
     private let identity: any AccountIdentityProviding
+    let reminders: ReminderReconciler
     private let barrier: BootstrapBarrierStore
     private let activeHouseholds: ActiveHouseholdStore
     private let upgrade: LegacyInventoryUpgrade
@@ -67,16 +74,22 @@ final class AccountSessionCoordinator {
     @ObservationIgnored private var barrierWatch: Task<Void, Never>?
     @ObservationIgnored private var upgradeTask: Task<Void, Never>?
     @ObservationIgnored private var inventoryTask: Task<Void, Never>?
+    /// The last account scope whose reminders this installation scheduled.
+    /// Kept so an account change can retire that exact prefix — including the
+    /// alerts already delivered — without touching another scope.
+    @ObservationIgnored private var lastValidatedScope: AccountScopeHash?
 
     init(identity: any AccountIdentityProviding = CloudKitAccountIdentity(),
          syncMonitor: any SyncStatusProviding,
          tasks: AccountTaskRegistry = AccountTaskRegistry(),
+         reminders: ReminderReconciler = ReminderReconciler(),
          barrier: BootstrapBarrierStore = BootstrapBarrierStore(),
          activeHouseholds: ActiveHouseholdStore = ActiveHouseholdStore(),
          upgrade: LegacyInventoryUpgrade = LegacyInventoryUpgrade(),
          makePersistence: @escaping @Sendable (AccountScopeHash) async throws
              -> PersistenceController = AccountSessionCoordinator.loadCloudKitStack) {
         self.identity = identity
+        self.reminders = reminders
         self.syncMonitor = syncMonitor
         self.tasks = tasks
         self.barrier = barrier
@@ -203,7 +216,15 @@ final class AccountSessionCoordinator {
             accountScope = try await identity.validateCurrentAccountScope()
         } catch let error as AccountIdentityError {
             syncMonitor.updateAccountState(.unavailable)
-            launchState = LaunchState(accountError: error)
+            let state = LaunchState(accountError: error)
+            // Only a settled signed-out or restricted account retires the
+            // previous scope's reminders. A transient lookup failure is not
+            // evidence that the account went away, and wiping the schedule on
+            // it would stop notifying for a fridge that is still there.
+            if case .iCloudAccountRequired(let availability) = state, !availability.isTransient {
+                await retireRemindersOfPreviousAccount(replacedBy: nil)
+            }
+            launchState = state
             return
         } catch {
             // An unmodelled failure is undetermined, not signed out: a cold
@@ -214,6 +235,10 @@ final class AccountSessionCoordinator {
         }
 
         syncMonitor.updateAccountState(.validated)
+        // Before this account's own reminders are built, and using the exact
+        // prefix the previous one scheduled under.
+        await retireRemindersOfPreviousAccount(replacedBy: accountScope)
+        lastValidatedScope = accountScope
         let generationContext = AccountGenerationContext(accountScope: accountScope)
         currentGeneration = generationContext.generation
         await tasks.open(generationContext.generation)
@@ -263,6 +288,19 @@ final class AccountSessionCoordinator {
                                     storeIdentifiers: context.storeIdentifiers)
         session = AccountSession(context: context, persistence: controller)
         applyBootstrapGate(for: context, controller: controller)
+    }
+
+    /// Retires the previous account's reminders when the account really
+    /// changed — or when there is no account any more, so a signed-out
+    /// installation stops notifying about a fridge it cannot open.
+    ///
+    /// A Retry for the same account is deliberately not a transition: wiping
+    /// and rebuilding its own schedule would only make reminders flicker.
+    private func retireRemindersOfPreviousAccount(replacedBy scope: AccountScopeHash?) async {
+        guard let previous = lastValidatedScope, previous != scope else { return }
+        await reminders.retire(scope: .account(previous.value))
+        reminders.clearBadge()
+        lastValidatedScope = nil
     }
 
     // MARK: - Bootstrap gate
@@ -339,7 +377,7 @@ final class AccountSessionCoordinator {
             accountContext: context,
             repository: CoreDataInventoryRepository(persistence: controller),
             reconciler: DuplicateReconciler(persistence: controller),
-            tasks: tasks)
+            tasks: tasks, reminders: reminders)
         inventory = session
         // The work itself registers with the task registry; this handle only
         // exists so an account change stops awaiting it.

@@ -240,6 +240,31 @@ final class GatedInventoryRepository: InventoryRepository, @unchecked Sendable {
         await respond()
     }
 
+    func updateItem(_ command: UpdateItemCommand,
+                    today: InventoryDay) async throws -> HouseholdProjection {
+        await respond()
+    }
+
+    func consumeItem(_ command: ConsumeItemCommand,
+                     today: InventoryDay) async throws -> HouseholdProjection {
+        await respond()
+    }
+
+    func deleteItem(_ command: DeleteItemCommand,
+                    today: InventoryDay) async throws -> HouseholdProjection {
+        await respond()
+    }
+
+    func clearActiveHousehold(_ command: ClearHouseholdCommand,
+                              today: InventoryDay) async throws -> HouseholdProjection {
+        await respond()
+    }
+
+    func renameOwnedHousehold(_ command: RenameHouseholdCommand) async throws -> HouseholdSnapshot {
+        HouseholdSnapshot(id: command.householdID, name: command.name, ownership: .owned,
+                          createdAt: Date(), isShared: false)
+    }
+
     private func respond() async -> HouseholdProjection {
         let call: Int = lock.withLock {
             _commandCount += 1

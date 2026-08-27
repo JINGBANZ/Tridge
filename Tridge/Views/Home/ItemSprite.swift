@@ -2,11 +2,16 @@ import SwiftUI
 
 /// One grid slot: frameless art on the background with pill, quantity badge,
 /// and name — no tile, no card.
+///
+/// It renders one *logical* item: the projection of every physical purchase root
+/// permanent merge claims have joined, so a ×3 milk may be three separate
+/// receipts.
 struct ItemSprite: View {
-    let item: FridgeItem
+    let item: InventoryItemSnapshot
+    let today: InventoryDay
 
     var body: some View {
-        let daysLeft = UrgencyRules.daysLeft(until: item.expiryDate)
+        let daysLeft = item.daysLeft(from: today)
 
         VStack(spacing: 3) {
             art(daysLeft: daysLeft)
@@ -27,7 +32,7 @@ struct ItemSprite: View {
     private func art(daysLeft: Int) -> some View {
         let isExpired = daysLeft < 0
 
-        return Text(Artwork.artwork(for: item))
+        return Text(Artwork.emoji(forKey: item.artKey))
             .font(.system(size: AppTheme.artPointSize))
             .shadow(color: AppTheme.artShadow.color.opacity(isExpired ? 0.6 : 1),
                     radius: AppTheme.artShadow.radius,
