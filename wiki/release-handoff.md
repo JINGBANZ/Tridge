@@ -22,9 +22,14 @@
    so a Debug build never carries a production push environment.
 
 Until step 1 exists, **the TestFlight lane cannot archive** — the signed build
-requests a container that is not there. Unsigned simulator builds and CI are
-unaffected, which is why the repository work could be completed and verified
-without it.
+requests a container that is not there. CI is unaffected, which is why the
+repository work could be completed and verified without it.
+
+An unsigned Simulator build is affected in one specific way: a process with no
+iCloud entitlement cannot construct a `CKContainer` at all, so the app would
+never reach Home. Launch it with `-localOnlyStores` (Debug only) to open the same
+two stores locally with mirroring off; every sharing action then reports that it
+is unavailable instead of pretending, and the rest of the app behaves normally.
 
 ## 2. Development schema
 

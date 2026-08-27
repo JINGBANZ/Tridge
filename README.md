@@ -28,6 +28,13 @@ exist — see [`wiki/release-handoff.md`](wiki/release-handoff.md).
   `xcodebuild -scheme Tridge -destination 'generic/platform=iOS Simulator' build`.
   No build-time secret — the app authenticates to the scan worker with Apple App
   Attest, whose key is generated on-device at runtime.
+- Simulator without an iCloud container: launch with `-localOnlyStores` (Debug
+  only) to open the same two stores locally with mirroring off. Sharing actions
+  report that they are unavailable rather than pretending; everything else —
+  Home, the sheets, the Household screen, export, legacy erasure — works. Without
+  it, an unsigned build cannot construct a CloudKit container and will not reach
+  Home until `iCloud.com.tridge.app` is provisioned
+  ([`wiki/release-handoff.md`](wiki/release-handoff.md)).
 - Apple-platform tests (macOS + Xcode 26): `xcodebuild -scheme Tridge -destination
   'platform=iOS Simulator,name=<device>' test` — the `TridgeTests` bundle covers
   the Core Data model, store routing, repository commands, history and session

@@ -16,8 +16,21 @@ struct TridgeApp: App {
         // coordinator installs its observation *before* the stores load, so a
         // setup or import that runs during the load is buffered rather than
         // lost (wiki/household-sharing.md → "Adopt, do not reinvent").
-        let coordinator = AccountSessionCoordinator(syncMonitor: StoreScopedSyncMonitor())
-        _coordinator = State(initialValue: coordinator)
+        _coordinator = State(initialValue: Self.makeCoordinator(StoreScopedSyncMonitor()))
+    }
+
+    private static func makeCoordinator(
+        _ syncMonitor: any SyncStatusProviding
+    ) -> AccountSessionCoordinator {
+#if DEBUG
+        // A Simulator build with no iCloud entitlement cannot construct a
+        // CloudKit container at all, so this is the only way to see the app
+        // before `iCloud.com.tridge.app` exists.
+        if LocalOnlyLaunch.isRequested {
+            return LocalOnlyLaunch.coordinator(syncMonitor: syncMonitor)
+        }
+#endif
+        return AccountSessionCoordinator(syncMonitor: syncMonitor)
     }
 
     var body: some Scene {
