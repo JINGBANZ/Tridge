@@ -1,3 +1,4 @@
+import CoreData
 import Foundation
 import XCTest
 @testable import Tridge
@@ -81,6 +82,21 @@ extension XCTestCase {
         }
         XCTFail("timed out waiting for \(description)", file: file, line: line)
     }
+
+    /// Polls for something a test expects *never* to happen, so an interleaving
+    /// being ruled out can be asserted the same way one being waited for is.
+    @MainActor
+    func neverHappens(_ description: String, _ condition: @MainActor () -> Bool,
+                      file: StaticString = #filePath, line: UInt = #line) async {
+        for _ in 0..<40 {
+            if condition() {
+                XCTFail(description, file: file, line: line)
+                return
+            }
+            await Task.yield()
+            try? await Task.sleep(nanoseconds: 5_000_000)
+        }
+    }
 }
 
 /// An archive whose contents a test controls, so the upgrade can be driven
@@ -132,5 +148,104 @@ final class RecordingLegacyEffects: LegacyEffectsCleaning, @unchecked Sendable {
 
     func clearScheduledAndDeliveredNotifications() {
         lock.withLock { count += 1 }
+    }
+}
+
+/// Denies exactly what a revoked share denies, without a live `CKShare`. The
+/// answers are fixed at construction, so the writer queue and the test thread
+/// never race for them.
+final class FakeStoreCapabilities: StoreCapabilityChecking, @unchecked Sendable {
+    private let modify: Bool
+    private let update: Bool
+
+    init(canModify: Bool = true, canUpdate: Bool = true) {
+        self.modify = canModify
+        self.update = canUpdate
+    }
+
+    func canModifyManagedObjects(in store: NSPersistentStore) -> Bool { modify }
+
+    func canUpdateRecord(forManagedObjectWith objectID: NSManagedObjectID) -> Bool { update }
+}
+
+/// A one-shot handshake: callers wait here until the test opens the gate.
+actor TestGate {
+    private var isOpen = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func open() {
+        isOpen = true
+        let resumed = waiters
+        waiters = []
+        for waiter in resumed { waiter.resume() }
+    }
+
+    func wait() async {
+        guard !isOpen else { return }
+        await withCheckedContinuation { waiters.append($0) }
+    }
+}
+
+/// A repository whose reads and commands can each be held open, so a test can
+/// land a command's newer projection while an older read is still suspended, or
+/// re-point the session while a command is still in flight.
+final class GatedInventoryRepository: InventoryRepository, @unchecked Sendable {
+    private let lock = NSLock()
+    private let readProjection: HouseholdProjection
+    /// What each command answers with, in the order the commands arrive; the
+    /// last one answers every command after it.
+    private let commandProjections: [HouseholdProjection]
+    private var _readGate: (@Sendable () async -> Void)?
+    private var _commandGate: (@Sendable () async -> Void)?
+    private var _readCount = 0
+    private var _commandCount = 0
+
+    init(read: HouseholdProjection, commands: [HouseholdProjection]) {
+        self.readProjection = read
+        self.commandProjections = commands
+    }
+
+    /// Reads run off the main actor while the test sets this from it, so both
+    /// cross the same lock as `_readCount`.
+    var readGate: (@Sendable () async -> Void)? {
+        get { lock.withLock { _readGate } }
+        set { lock.withLock { _readGate = newValue } }
+    }
+
+    /// Held open the same way as `readGate`, so a test can re-point the
+    /// session while a command is still writing.
+    var commandGate: (@Sendable () async -> Void)? {
+        get { lock.withLock { _commandGate } }
+        set { lock.withLock { _commandGate = newValue } }
+    }
+
+    var readCount: Int { lock.withLock { _readCount } }
+
+    var commandCount: Int { lock.withLock { _commandCount } }
+
+    func projection(of householdID: UUID,
+                    today: InventoryDay) async throws -> HouseholdProjection {
+        lock.withLock { _readCount += 1 }
+        if let readGate { await readGate() }
+        return readProjection
+    }
+
+    func addManualItem(_ command: AddManualItemCommand,
+                       today: InventoryDay) async throws -> HouseholdProjection {
+        await respond()
+    }
+
+    func addReviewedRows(_ command: AddReviewedRowsCommand,
+                         today: InventoryDay) async throws -> HouseholdProjection {
+        await respond()
+    }
+
+    private func respond() async -> HouseholdProjection {
+        let call: Int = lock.withLock {
+            _commandCount += 1
+            return _commandCount
+        }
+        if let commandGate { await commandGate() }
+        return commandProjections[min(call, commandProjections.count) - 1]
     }
 }

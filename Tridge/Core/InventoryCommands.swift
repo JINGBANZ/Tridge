@@ -343,8 +343,12 @@ public enum PurchasePlanner {
     /// one receipt share a name; carrying each planned row forward means the
     /// first row establishes the metadata and the second copies it, instead of
     /// both stamping their own guess and letting UUID order decide which shows.
+    ///
+    /// Throws `quantityOutOfRange` when a row would push the group it joins past
+    /// the representable total, so the command is refused before anything is
+    /// written.
     public static func plan(rows: [PurchaseDraft], in items: [InventoryItemSnapshot],
-                            today: InventoryDay) -> [PurchasePlan] {
+                            today: InventoryDay) throws -> [PurchasePlan] {
         var candidates = items
         var plans: [PurchasePlan] = []
         for row in rows {
@@ -354,7 +358,7 @@ public enum PurchasePlanner {
 
             // Represent the resulting group so a later same-name row sees it,
             // including any edit that will land on its canonical member.
-            let group = candidate(for: row, plan: plan, replacing: existing)
+            let group = try candidate(for: row, plan: plan, replacing: existing)
             if let index = candidates.firstIndex(where: { $0.id == group.id }) {
                 candidates[index] = group
             } else {
@@ -366,15 +370,23 @@ public enum PurchasePlanner {
 
     private static func candidate(for row: PurchaseDraft, plan: PurchasePlan,
                                   replacing existing: InventoryItemSnapshot?)
-    -> InventoryItemSnapshot {
+    throws -> InventoryItemSnapshot {
         let metadata = plan.rootMetadata
         let edit = plan.canonicalEdit
+        // A quantity is any positive Int64 (ADR 0004), so a combined total can
+        // leave the representable range. Saving the purchase anyway would report
+        // success and then hand `StockReducer` a sum it has to call corrupt,
+        // taking a group the user can still see off Home with no way back — so
+        // the command is refused here, before the first insert, the way the
+        // contract refuses every other out-of-representation quantity.
+        let (combined, overflow) = (existing?.quantity ?? 0).addingReportingOverflow(row.quantity)
+        guard !overflow else { throw InventoryCommandError.quantityOutOfRange }
         return InventoryItemSnapshot(
             id: existing?.id ?? row.itemID,
             memberIDs: existing.map { $0.memberIDs + [row.itemID] } ?? [row.itemID],
             name: metadata.name,
             normalizedName: NameKey.normalize(metadata.name),
-            quantity: (existing?.quantity ?? 0) + row.quantity,
+            quantity: combined,
             artKey: edit?.artKey ?? metadata.artKey,
             storage: edit?.storage ?? metadata.storage,
             purchaseDay: metadata.purchaseDay,
@@ -385,12 +397,21 @@ public enum PurchasePlanner {
     public static func plan(for draft: PurchaseDraft,
                             matching existing: InventoryItemSnapshot?) -> PurchasePlan {
         guard let existing else {
+            // A first purchase establishes the metadata itself, so it has no
+            // canonical edit to carry the user's intent — the source it stamps
+            // is the only record of it. `explicitMetadataFields` is what says
+            // the user chose this date instead of accepting the guess, and a
+            // date the user chose is never overwritten by a later model guess
+            // (ADR 0011).
+            let expirySource: ExpirySource = draft.explicitMetadataFields.contains(.expiryDay)
+                ? .userSet
+                : draft.expirySource
             return PurchasePlan(
                 rootMetadata: PurchaseRootMetadata(name: draft.name, artKey: draft.artKey,
                                                    storage: draft.storage,
                                                    purchaseDay: draft.purchaseDay,
                                                    expiryDay: draft.expiryDay,
-                                                   expirySource: draft.expirySource),
+                                                   expirySource: expirySource),
                 canonicalEdit: nil)
         }
 

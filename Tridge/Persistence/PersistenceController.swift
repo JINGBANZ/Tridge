@@ -211,6 +211,24 @@ final class PersistenceController {
         return nil
     }
 
+    /// The Household and the store it lives in, searched private-store first so
+    /// ownership is always the store's answer rather than a participant field.
+    ///
+    /// Throws when it is in neither store — deleted, left, revoked, or never
+    /// imported — which is exactly the stale-selection case a command must
+    /// refuse rather than write somewhere plausible.
+    func resolveHousehold(_ id: UUID, in context: NSManagedObjectContext) throws
+    -> (household: HouseholdRecord, store: NSPersistentStore) {
+        for store in [privateStore, sharedStore] {
+            let request = HouseholdRecord.fetchRequest()
+            request.predicate = NSPredicate(format: "id == %@", id as NSUUID)
+            request.affectedStores = [store]
+            request.fetchLimit = 1
+            if let household = try context.fetch(request).first { return (household, store) }
+        }
+        throw InventoryRepositoryError.householdUnavailable
+    }
+
     /// A Household's store is the authority on ownership — private means owned,
     /// shared means received. Optional participant fields are never consulted.
     func ownership(of household: HouseholdRecord) -> HouseholdOwnership? {
@@ -232,6 +250,18 @@ final class PersistenceController {
     /// with its own author, so history processing can recognize its own work.
     func newReconcilerContext() -> NSManagedObjectContext {
         writerContext(author: "app.reconcile")
+    }
+
+    /// A short-lived reader for building value snapshots off the main queue.
+    ///
+    /// The view context merges a writer's save asynchronously, so a projection
+    /// read taken straight after a command could legitimately be a turn behind
+    /// the save the user just made. A fresh background context always sees the
+    /// store as it is. It never saves, so it needs no author or merge policy.
+    func newReaderContext() -> NSManagedObjectContext {
+        let context = container.newBackgroundContext()
+        context.name = "app.read"
+        return context
     }
 
     private func writerContext(author: String) -> NSManagedObjectContext {

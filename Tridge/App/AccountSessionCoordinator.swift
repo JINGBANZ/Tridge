@@ -38,6 +38,9 @@ final class AccountSessionCoordinator {
     /// The archive could not be migrated. Inventory is usable; the archive is
     /// intact; Retry is the only thing this asks for.
     private(set) var legacyMigrationFailure: LegacyMigrationFailure?
+    /// The Active Household's Inventory, as value snapshots. Exists only while
+    /// a Household is selected for the current generation.
+    private(set) var inventory: HouseholdSession?
 
     let tasks: AccountTaskRegistry
     let syncMonitor: any SyncStatusProviding
@@ -63,6 +66,7 @@ final class AccountSessionCoordinator {
     @ObservationIgnored private var transitionTask: Task<Void, Never>?
     @ObservationIgnored private var barrierWatch: Task<Void, Never>?
     @ObservationIgnored private var upgradeTask: Task<Void, Never>?
+    @ObservationIgnored private var inventoryTask: Task<Void, Never>?
 
     init(identity: any AccountIdentityProviding = CloudKitAccountIdentity(),
          syncMonitor: any SyncStatusProviding,
@@ -157,6 +161,13 @@ final class AccountSessionCoordinator {
         households = []
         activeHouseholdID = nil
         legacyMigrationFailure = nil
+        // Inventory stops applying before anything else suspends, so account
+        // A's rows cannot still be on screen while account B loads. The work it
+        // registered is drained with the rest of the generation.
+        inventory?.invalidate()
+        inventory = nil
+        inventoryTask?.cancel()
+        inventoryTask = nil
         barrierWatch?.cancel()
         barrierWatch = nil
         // The migration itself is registered work, so the drain waits for it;
@@ -289,7 +300,7 @@ final class AccountSessionCoordinator {
             hasCompletedInitialImport: hasCompletedInitialPrivateImport
         ) {
         case .select(let id):
-            activate(householdID: id, for: context)
+            activate(householdID: id, for: context, controller: controller)
         case .createDefaultHousehold:
             createDefaultHousehold(for: context, controller: controller)
         case .waitForInitialImport:
@@ -301,10 +312,51 @@ final class AccountSessionCoordinator {
         startLegacyUpgradeIfNeeded(for: context, controller: controller)
     }
 
-    private func activate(householdID: UUID, for context: AccountSessionContext) {
+    private func activate(householdID: UUID, for context: AccountSessionContext,
+                          controller: PersistenceController) {
         activeHouseholdID = householdID
         activeHouseholds.save(householdID, for: context.accountScope)
         launchState = .ready
+        openInventory(householdID: householdID, for: context, controller: controller)
+    }
+
+    /// Brings up — or re-points — the value-snapshot session Home reads from.
+    ///
+    /// One session per generation: switching Households re-points the existing
+    /// one, so a command already in flight is applied against the fridge it was
+    /// issued for or dropped, never redirected into another.
+    private func openInventory(householdID: UUID, for context: AccountSessionContext,
+                               controller: PersistenceController) {
+        if let inventory {
+            guard inventory.householdID != householdID else { return }
+            inventoryTask?.cancel()
+            inventoryTask = Task { await inventory.select(householdID: householdID) }
+            return
+        }
+
+        let session = HouseholdSession(
+            householdID: householdID,
+            accountContext: context,
+            repository: CoreDataInventoryRepository(persistence: controller),
+            reconciler: DuplicateReconciler(persistence: controller),
+            tasks: tasks)
+        inventory = session
+        // The work itself registers with the task registry; this handle only
+        // exists so an account change stops awaiting it.
+        inventoryTask = Task { await session.load() }
+    }
+
+    /// Re-reads the Active Household's snapshots and persists the merge claims
+    /// they imply, behind whatever the session is already doing: a reload that
+    /// overtook the first load would leave the older, emptier projection on
+    /// screen.
+    private func reloadInventory() {
+        guard let inventory else { return }
+        let previous = inventoryTask
+        inventoryTask = Task {
+            await previous?.value
+            await inventory.load()
+        }
     }
 
     private func createDefaultHousehold(for context: AccountSessionContext,
@@ -314,7 +366,7 @@ final class AccountSessionCoordinator {
                 named: HouseholdSelection.defaultHouseholdName)
             // Reached only when nothing was selectable, so this is the set.
             households = [created]
-            activate(householdID: created.id, for: context)
+            activate(householdID: created.id, for: context, controller: controller)
         } catch {
             // The stores opened but the account has no usable Household, so
             // there is nothing to show. Retry rebuilds the stack.
@@ -420,6 +472,14 @@ final class AccountSessionCoordinator {
             AppLog.household.info("Migrated \(migrated) legacy rows")
             upgrade.recordCompletionIfFinished()
             showsMigrationNotice = upgrade.needsNotice
+            // The session opened alongside the migration, so its first
+            // projection can already have read the destination while it was
+            // still empty. Nothing else writes to a Household from outside the
+            // session, so this is the one place that has to re-read — and it
+            // reloads rather than only reading, because a migrated root can
+            // share a name with one already in the Household and that link is
+            // permanent only once the reconciler has written it (ADR 0006).
+            reloadInventory()
         case .failure(let failure):
             // The archive is intact and the stores are fine, so this is a
             // retryable notice rather than a launch state.

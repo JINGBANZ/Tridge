@@ -80,6 +80,14 @@ final class InventoryDayTests: XCTestCase {
                        InventoryDay(year: 2026, month: 8, day: 18))
     }
 
+    func testTodayFollowsTheViewersTimeZone() {
+        let instant = Date(timeIntervalSince1970: 20_683 * 86_400 + 23 * 3_600 + 1_800)
+        XCTAssertEqual(InventoryDay.today(in: calendar("UTC"), now: instant),
+                       InventoryDay(year: 2026, month: 8, day: 18))
+        XCTAssertEqual(InventoryDay.today(in: calendar("Asia/Tokyo"), now: instant),
+                       InventoryDay(year: 2026, month: 8, day: 19))
+    }
+
     func testDayArithmetic() {
         let day = InventoryDay(year: 2026, month: 3, day: 1)!
         XCTAssertEqual(day.adding(days: -1), InventoryDay(year: 2026, month: 2, day: 28))

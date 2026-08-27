@@ -52,20 +52,25 @@ extension HouseholdClearRecord {
 }
 
 extension HouseholdRecord {
-    /// The complete causal frontier a new purchase root must capture, so a
-    /// concurrent Clear All can judge it by context rather than by clock.
+    /// This Household's causal epoch graph, reduced.
     ///
     /// A corrupt clear record is dropped rather than allowed to suppress
     /// otherwise valid inventory — the reducer treats the ones it can read as
     /// the whole graph.
-    func inventoryFrontier() throws -> Set<UUID> {
+    func epochReduction() throws -> InventoryEpochReduction {
         guard let initialInventoryEpochID else {
             throw RecordIntegrityIssue(entity: .household, id: id ?? Self.unidentifiable,
                                        category: .invalidContext)
         }
         let clears = clearEvents.compactMap { try? $0.event() }
         return InventoryEpochReducer.reduce(initialEpochID: initialInventoryEpochID,
-                                            clears: clears).frontier
+                                            clears: clears)
+    }
+
+    /// The complete causal frontier a new purchase root must capture, so a
+    /// concurrent Clear All can judge it by context rather than by clock.
+    func inventoryFrontier() throws -> Set<UUID> {
+        try epochReduction().frontier
     }
 }
 
