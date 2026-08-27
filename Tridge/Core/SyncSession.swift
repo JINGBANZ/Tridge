@@ -16,6 +16,21 @@ public enum SyncEventKind: Equatable, Hashable, Sendable {
     case exportChanges
 }
 
+/// A failure the container reports that no retry can fix, because the data it
+/// was syncing against is not there any more.
+///
+/// The two are told apart deliberately: one is a deletion the user (or another
+/// device) performed, the other is a key rotation that leaves existing encrypted
+/// values unreadable. Presenting either as the other would tell someone the
+/// wrong thing about their own data.
+public enum SyncRecoveryNeed: String, Equatable, Sendable {
+    /// A record zone this session relies on was deleted.
+    case zoneDeleted
+    /// The account's encrypted-data key was reset, so values written under the
+    /// old key can no longer be read.
+    case encryptionKeyReset
+}
+
 /// Whether the account itself permits syncing. The account coordinator is
 /// authoritative here; the monitor only reports what it is told.
 public enum SyncAccountState: Equatable, Sendable {
@@ -36,15 +51,20 @@ public struct SyncEvent: Equatable, Sendable {
     /// A failure the system retries by itself — lost connectivity, throttling,
     /// a busy zone. It is unsettled state, never something the user must fix.
     public let isTransientFailure: Bool
+    /// Set when the failure means the data this session syncs against is gone
+    /// or unreadable, so recovery — not a retry — is what is needed.
+    public let recovery: SyncRecoveryNeed?
 
     public init(identifier: String, storeIdentifier: String, kind: SyncEventKind,
-                isComplete: Bool, succeeded: Bool = false, isTransientFailure: Bool = false) {
+                isComplete: Bool, succeeded: Bool = false, isTransientFailure: Bool = false,
+                recovery: SyncRecoveryNeed? = nil) {
         self.identifier = identifier
         self.storeIdentifier = storeIdentifier
         self.kind = kind
         self.isComplete = isComplete
         self.succeeded = succeeded
         self.isTransientFailure = isTransientFailure
+        self.recovery = recovery
     }
 }
 
@@ -148,6 +168,12 @@ public struct SyncSessionReducer: Equatable, Sendable {
         [SyncEventKind.setup, .importChanges].allSatisfy {
             outcomes[StoreEventKey(storeIdentifier: storeIdentifier, kind: $0)] == .succeeded
         }
+    }
+
+    /// Whether this session actually opened the store an event names. A
+    /// recovery decision must never be taken on another account's failure.
+    public func isActiveStore(_ storeIdentifier: String) -> Bool {
+        isActive && activeStores.contains(storeIdentifier)
     }
 
     /// Successful exports accepted for this store so far. A caller records the

@@ -64,6 +64,9 @@ final class AccountSessionCoordinator {
     /// A multi-step lifecycle change this installation is part-way through.
     /// It survives termination and is resumed before normal selection.
     private(set) var pendingLifecycleTransition: HouseholdLifecycleTransition?
+    /// A CloudKit failure no retry can fix, waiting on the user's decision.
+    /// While it stands, the Households it names are hidden.
+    private(set) var pendingRecovery: HouseholdRecoveryRequest?
     /// A written export waiting for the system share sheet. Temporary, and
     /// cleared once the sheet closes.
     private(set) var exportedDocumentURL: URL?
@@ -268,6 +271,7 @@ final class AccountSessionCoordinator {
         suppressedHouseholdIDs = []
         sharedHouseholdIDs = []
         pendingLifecycleTransition = nil
+        pendingRecovery = nil
         // The router keeps its metadata for this process, but it may not accept
         // into a store that is about to be removed.
         invitations.bind(accept: nil)
@@ -401,6 +405,117 @@ final class AccountSessionCoordinator {
                                                defaults: defaults)
         invitations.bind { [weak self] metadata in
             try await self?.acceptInvitation(metadata, for: context, using: sharing)
+        }
+        syncMonitor.onRecoveryNeeded = { [weak self] need, storeIdentifier in
+            self?.handleRecoveryNeeded(need, storeIdentifier: storeIdentifier, for: context)
+        }
+    }
+
+    // MARK: - Zone loss and encryption-key resets
+
+    /// The container reported that a zone is gone or its key was rotated.
+    ///
+    /// The affected Households leave normal interaction immediately and their
+    /// reminders are retired, because whatever happens next they cannot be
+    /// synced as they are. An owner is then asked before anything local is
+    /// purged; a member is not, because a member cannot recreate somebody
+    /// else's zone and has nothing left to decide.
+    private func handleRecoveryNeeded(_ need: SyncRecoveryNeed, storeIdentifier: String,
+                                      for context: AccountSessionContext) {
+        guard currentGeneration == context.generation, pendingRecovery == nil else { return }
+        let role: HouseholdRecoveryRequest.Role =
+            storeIdentifier == context.privateStoreIdentifier ? .owner : .member
+        let affected = households
+            .filter { $0.ownership == (role == .owner ? .owned : .received) }
+            .map(\.id)
+        guard !affected.isEmpty else { return }
+
+        let request = HouseholdRecoveryRequest(
+            cause: need == .zoneDeleted ? .zoneDeleted : .encryptionKeyReset,
+            role: role, householdIDs: affected)
+        let side = role == .owner ? "private" : "shared"
+        AppLog.household.error("Recovery needed: \(need.rawValue) in the \(side) store")
+
+        suppressedHouseholdIDs.formUnion(affected)
+        households.removeAll { affected.contains($0.id) }
+        pendingRecovery = request
+
+        Task { [weak self] in
+            guard let self else { return }
+            await self.retireReminders(for: affected, in: context)
+            guard !request.needsConfirmation else { return }
+            // A member has nothing to confirm: the access is already gone.
+            await self.confirmRecovery()
+        }
+    }
+
+    /// Carries out what the pending recovery says, once the user has agreed to
+    /// it — or immediately, for a member who was never asked.
+    @discardableResult
+    func confirmRecovery() async -> Bool {
+        guard let request = pendingRecovery, let session else { return false }
+        return await runHouseholdAction {
+            await self.performRecovery(request, for: session)
+        }
+    }
+
+    /// Dismisses the explanation. The affected Households stay hidden, because
+    /// nothing about the failure has changed — an owner who taps Not Now can
+    /// export first and confirm later.
+    func dismissRecovery() {
+        pendingRecovery = nil
+    }
+
+    private func performRecovery(_ request: HouseholdRecoveryRequest,
+                                 for session: AccountSession) async -> Bool {
+        householdFailure = nil
+        switch request.role {
+        case .member:
+            // The owner's zone is theirs to rebuild. All this device can do is
+            // stop offering a fridge it cannot read, and say why.
+            for householdID in request.householdIDs {
+                _ = await removeReceivedHousehold(householdID, stage: "recovery")
+            }
+            // The request stands until the user dismisses it: the cleanup needed
+            // no permission, but the explanation is still owed.
+            return true
+
+        case .owner:
+            // Keep the validated local cache and drop the zone it can no longer
+            // be written to: the same copy-then-purge the owner's Stop Sharing
+            // performs, recorded under its own name.
+            guard let transitions,
+                  let householdID = request.householdIDs.first,
+                  let name = households.first(where: { $0.id == householdID })?.name
+                      ?? recoveredHouseholdName(householdID, in: session)
+            else {
+                pendingRecovery = nil
+                return false
+            }
+            let transition = HouseholdLifecycleTransition(
+                kind: .recoverOwnedZone, phase: .copying, sourceHouseholdID: householdID,
+                destinationHouseholdID: UUID())
+            transitions.save(transition)
+            applySuppression(of: transition)
+            let recovered = await runStopSharing(transition, named: name, for: session)
+            if recovered { pendingRecovery = nil }
+            return recovered
+        }
+    }
+
+    /// The name of a Household that has already been hidden, read back from the
+    /// store so the copy does not lose it.
+    private func recoveredHouseholdName(_ householdID: UUID,
+                                        in session: AccountSession) -> String? {
+        session.persistence.householdSnapshots().valid
+            .first { $0.id == householdID }?.name
+    }
+
+    private func retireReminders(for householdIDs: [UUID],
+                                 in context: AccountSessionContext) async {
+        for householdID in householdIDs {
+            await reminders.retire(scope: .household(accountScope: context.accountScope.value,
+                                                     householdID: householdID))
         }
     }
 
@@ -824,7 +939,7 @@ final class AccountSessionCoordinator {
             guard let self else { return }
             await self.runHouseholdAction {
                 switch transition.kind {
-                case .stopSharing:
+                case .stopSharing, .recoverOwnedZone:
                     return await self.runStopSharing(transition, named: name, for: session)
                 case .deletePrivate, .deleteShared:
                     return await self.runHouseholdDeletion(transition, for: session)
@@ -973,7 +1088,7 @@ final class AccountSessionCoordinator {
                     return false
                 }
 
-            case .stopSharing:
+            case .stopSharing, .recoverOwnedZone:
                 return false
             }
         } catch is AccountTaskRegistry.Rejection {
@@ -1046,7 +1161,14 @@ final class AccountSessionCoordinator {
     /// purge is attempted — so nothing keeps offering a fridge that can no
     /// longer be opened.
     func handleLostAccess(to householdID: UUID) {
-        guard households.contains(where: { $0.id == householdID }) else { return }
+        // Owned Households are never cleaned up on a refused write: an owner
+        // losing permission to their own fridge is a recovery case, not a
+        // reason to delete their only copy.
+        guard households.contains(where: { $0.id == householdID && $0.ownership == .received })
+        else {
+            if let session { refreshShareState(for: session.context) }
+            return
+        }
         suppressedHouseholdIDs.insert(householdID)
         households.removeAll { $0.id == householdID }
         Task { [weak self] in

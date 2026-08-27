@@ -27,6 +27,11 @@ struct HouseholdLifecycleTransition: Equatable, Codable {
         case deletePrivate
         /// The owner deletes a shared Household for everyone. No copy is made.
         case deleteShared
+        /// The owner's zone was deleted or its encryption key reset. The local
+        /// cache is kept and the unreadable zone is dropped — the same steps as
+        /// `stopSharing`, recorded under their own name so a resumed
+        /// transition still knows what the user actually agreed to.
+        case recoverOwnedZone
     }
 
     enum Phase: String, Codable {
@@ -64,7 +69,7 @@ struct HouseholdLifecycleTransition: Equatable, Codable {
     /// Households that must stay out of normal interaction until this finishes.
     var suppressedHouseholdIDs: Set<UUID> {
         switch kind {
-        case .stopSharing:
+        case .stopSharing, .recoverOwnedZone:
             // The destination is suppressed only while it is half-built; once
             // the copy is verified it is the Household the user should get.
             phase == .copying

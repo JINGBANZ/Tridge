@@ -43,6 +43,13 @@ protocol SyncStatusProviding: AnyObject {
     /// export that already happened proves nothing about it.
     func waitForNextSuccessfulExport(generation: AccountGeneration,
                                      storeIdentifier: String) async -> Bool
+
+    /// Called when this session's events show that a zone was deleted or the
+    /// account's encryption key was reset, with the store it happened to.
+    ///
+    /// A closure rather than a status: recovery is a decision the coordinator
+    /// takes once, not a state the screen polls.
+    var onRecoveryNeeded: ((SyncRecoveryNeed, String) -> Void)? { get set }
 }
 
 /// Reduces `NSPersistentCloudKitContainer` events into sync state for the
@@ -87,6 +94,10 @@ final class StoreScopedSyncMonitor: SyncStatusProviding {
     private var exportWaiters: [ExportWaiter] = []
 
     private(set) var currentStatus: SyncStatus = .syncing
+    var onRecoveryNeeded: ((SyncRecoveryNeed, String) -> Void)?
+    /// One report per store per session: the container retries a failing zone
+    /// repeatedly, and the user should be asked once.
+    private var reportedRecoveries: Set<String> = []
 
     init() {
         startPathMonitor()
@@ -120,6 +131,7 @@ final class StoreScopedSyncMonitor: SyncStatusProviding {
         resumeAllWaiters(with: false)
         self.generation = generation
         reducer = SyncSessionReducer()
+        reportedRecoveries = []
         installEventObserver()
         refreshStatus()
     }
@@ -136,6 +148,7 @@ final class StoreScopedSyncMonitor: SyncStatusProviding {
         guard generation == self.generation else { return }
         self.generation = nil
         reducer = SyncSessionReducer()
+        reportedRecoveries = []
         eventObserver.remove()
         resumeAllWaiters(with: false)
         refreshStatus()
@@ -150,7 +163,18 @@ final class StoreScopedSyncMonitor: SyncStatusProviding {
         reducer.record(event)
         resolveImportWaiters()
         resolveExportWaiters()
+        reportRecoveryIfNeeded(event)
         refreshStatus()
+    }
+
+    /// Reports a recovery need for a store this session actually opened.
+    private func reportRecoveryIfNeeded(_ event: SyncEvent) {
+        guard let recovery = event.recovery, event.isComplete, !event.succeeded,
+              reducer.isActiveStore(event.storeIdentifier)
+        else { return }
+        let key = "\(event.storeIdentifier).\(recovery.rawValue)"
+        guard reportedRecoveries.insert(key).inserted else { return }
+        onRecoveryNeeded?(recovery, event.storeIdentifier)
     }
 
     private func installEventObserver() {
@@ -304,7 +328,25 @@ extension SyncEvent {
                   kind: kind,
                   isComplete: event.endDate != nil,
                   succeeded: event.succeeded,
-                  isTransientFailure: Self.isTransientFailure(event.error))
+                  isTransientFailure: Self.isTransientFailure(event.error),
+                  recovery: Self.recoveryNeed(event.error))
+    }
+
+    /// Distinguishes a deleted zone from an encrypted-data-key reset.
+    ///
+    /// Apple reports the reset as a zone-not-found error carrying
+    /// `CKErrorUserDidResetEncryptedDataKey` in its `userInfo`, so the flag is
+    /// checked first — otherwise a key rotation would be reported to the user
+    /// as somebody having deleted their data.
+    static func recoveryNeed(_ error: Error?) -> SyncRecoveryNeed? {
+        guard let error = error as? CKError else { return nil }
+        if error.userInfo[CKErrorUserDidResetEncryptedDataKey] != nil {
+            return .encryptionKeyReset
+        }
+        switch error.code {
+        case .userDeletedZone, .zoneNotFound: return .zoneDeleted
+        default: return nil
+        }
     }
 
     /// A failure the system retries by itself — lost connectivity, throttling,

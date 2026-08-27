@@ -30,6 +30,18 @@ struct RootView: View {
             .sheet(isPresented: migrationNoticeBinding) {
                 MigrationNoticeSheet { coordinator.acknowledgeMigrationNotice() }
             }
+            // Zone loss and key resets can happen at any moment, so this lives
+            // above Home rather than on the Household screen.
+            .alert(coordinator.pendingRecovery?.title ?? "", isPresented: recoveryBinding) {
+                if let confirmation = coordinator.pendingRecovery?.confirmationTitle {
+                    Button(confirmation) { Task { await coordinator.confirmRecovery() } }
+                    Button("Not Now", role: .cancel) { coordinator.dismissRecovery() }
+                } else {
+                    Button("OK", role: .cancel) { coordinator.dismissRecovery() }
+                }
+            } message: {
+                Text(coordinator.pendingRecovery?.message ?? "")
+            }
             .alert("Couldn't move your old fridge", isPresented: migrationFailureBinding) {
                 Button("Try Again") { coordinator.retryLegacyMigration() }
                 Button("Not Now", role: .cancel) {}
@@ -72,6 +84,11 @@ struct RootView: View {
     private var migrationNoticeBinding: Binding<Bool> {
         Binding(get: { coordinator.showsMigrationNotice },
                 set: { if !$0 { coordinator.acknowledgeMigrationNotice() } })
+    }
+
+    private var recoveryBinding: Binding<Bool> {
+        Binding(get: { coordinator.pendingRecovery != nil },
+                set: { if !$0 { coordinator.dismissRecovery() } })
     }
 
     private var migrationFailureBinding: Binding<Bool> {
