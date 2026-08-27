@@ -26,3 +26,18 @@ struct TridgeApp: App {
         }
     }
 }
+
+extension ProcessInfo {
+    /// Whether this process was launched to host an XCTest bundle.
+    ///
+    /// `TridgeTests` is hosted by this app, so running it launches `TridgeApp`.
+    /// The suites build their own account sessions against local-only stacks,
+    /// and the host must not open one of its own: an unsigned simulator build
+    /// carries no iCloud entitlement, and `CKContainer` will not be constructed
+    /// without one.
+    var isHostingTests: Bool {
+        environment["XCTestConfigurationFilePath"] != nil
+            || environment["XCTestBundlePath"] != nil
+            || environment["XCTestSessionIdentifier"] != nil
+    }
+}
