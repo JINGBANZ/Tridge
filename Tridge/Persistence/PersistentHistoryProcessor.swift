@@ -63,7 +63,9 @@ actor PersistentHistoryProcessor {
     }
 
     private func process(_ store: NSPersistentStore) async {
-        let identifier = store.identifier
+        // Annotated: `NSPersistentStore.identifier` is implicitly unwrapped, so
+        // an inferred binding would carry the optional into the token key.
+        let identifier: String = store.identifier
         do {
             guard let batch = try await fetchBatch(store) else { return }
 
