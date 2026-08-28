@@ -179,7 +179,13 @@ final class CloudKitHouseholdSharing: HouseholdSharing {
             let request = HouseholdRecord.fetchRequest()
             request.predicate = NSPredicate(format: "id IN %@", householdIDs as NSArray)
             request.affectedStores = [store]
-            for record in (try? persistence.viewContext.fetch(request)) ?? [] {
+            // A store that could not be read leaves its Households out of the
+            // map, and the caller treats what comes back as authoritative — so
+            // a shared fridge would be relabelled unshared on a local read
+            // failure exactly as it would on a failed `fetchShares`. Unknown
+            // here too.
+            guard let records = try? persistence.viewContext.fetch(request) else { return nil }
+            for record in records {
                 if let id = record.id { byObjectID[record.objectID] = id }
             }
         }

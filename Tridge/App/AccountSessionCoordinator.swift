@@ -972,11 +972,26 @@ final class AccountSessionCoordinator {
         } catch is AccountTaskRegistry.Rejection {
             return false
         } catch {
-            inventory?.reopenCommandAdmission()
             householdFailure = HouseholdActionFailure(error, stage: "stopSharing")
             // A copy that saved is kept and the source stays hidden, so the
             // user never sees the same fridge twice while cleanup is retryable.
             applySuppression(of: transition)
+            if transition.phase == .copying {
+                // Nothing has been preserved yet, so the source is still the
+                // only copy of this inventory and a retry will copy whatever it
+                // holds at that point. Writing to it is safe.
+                inventory?.reopenCommandAdmission()
+            } else if let destination = transition.destinationHouseholdID {
+                // The copy is a snapshot taken when the phase advanced, and a
+                // retry does not take another — it finds the destination
+                // already there and goes straight to the purge. Anything
+                // written to the source between now and then would be destroyed
+                // with it, so the session moves onto the copy first.
+                activeHouseholds.save(destination, for: context.accountScope)
+                activeHouseholdID = destination
+                selectActiveHousehold(for: context, controller: persistence)
+                inventory?.reopenCommandAdmission()
+            }
             return false
         }
 

@@ -339,6 +339,43 @@ final class StopSharingTests: XCTestCase {
                        "the purge is the only step that ran again")
     }
 
+    /// A retry after a failed purge does not copy again — it finds the
+    /// destination already there and goes straight to the purge — so anything
+    /// written to the source in the meantime would be destroyed with it. The
+    /// session has to be on the copy before writes are allowed again.
+    func testWorkDoneAfterAFailedPurgeLandsInTheCopyAndSurvivesTheRetry() async throws {
+        let source = try await startWithSharedFridge(name: "Home")
+        try await addItems([("Milk", 2)])
+
+        sharing.purgeFailure = CKError(.networkFailure)
+        let stopped = await coordinator.stopSharing(source)
+        XCTAssertFalse(stopped)
+        XCTAssertEqual(coordinator.pendingLifecycleTransition?.phase, .purgePending)
+
+        // The copy exists and is what the user is now looking at.
+        XCTAssertNotEqual(coordinator.activeHouseholdID, source)
+        await waitUntil("the session is re-pointed at the copy") {
+            self.coordinator.inventory?.householdID != nil
+                && self.coordinator.inventory?.householdID == self.coordinator.activeHouseholdID
+        }
+
+        // Admission is open again, so the user keeps working — into the copy.
+        try await addItems([("Bread", 1)])
+
+        // The retry purges the source; nothing written since the copy is lost.
+        await coordinator.shutDown()
+        coordinator = makeCoordinator()
+        await coordinator.start()
+        await waitUntil("the transition finishes") {
+            self.coordinator.pendingLifecycleTransition == nil
+        }
+
+        let households = try await storedHouseholds()
+        XCTAssertEqual(households.count, 1)
+        XCTAssertEqual(households.first?.items.map(\.name).sorted(), ["Bread", "Milk"],
+                       "the post-copy purchase survives the purge")
+    }
+
     func testARelaunchNeverActivatesTheSourceItIsStillPurging() async throws {
         let source = try await startWithSharedFridge(name: "Home")
         try await addItems([("Milk", 2)])
@@ -347,8 +384,11 @@ final class StopSharingTests: XCTestCase {
         sharing.purgeFailure = CKError(.networkFailure)
         let stopped = await coordinator.stopSharing(source)
         XCTAssertFalse(stopped)
-        XCTAssertEqual(ActiveHouseholdStore(defaults: defaults).savedID(for: Self.scope()),
-                       source, "the saved selection is what a relaunch reads first")
+
+        // A termination between recording the transition and moving the
+        // selection leaves the saved id still naming the source — which is what
+        // a relaunch reads first, and what selection has to refuse.
+        ActiveHouseholdStore(defaults: defaults).save(source, for: Self.scope())
 
         // Fail the resumed purge too, so the transition stays recorded and the
         // source graph stays local — the state this has to be safe in.
