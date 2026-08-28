@@ -627,7 +627,9 @@ sprite.</p>
 
 <h2 id="rules"><span class="num">5</span>Merge rules — spec</h2>
 
-<pre><code>// Tridge/Core/MergePlanner.swift  (FridgeCore — Linux-testable)
+<pre><code>// The eligibility rule now lives in PurchasePlanner
+// (Tridge/Core/InventoryCommands.swift), stated once against the Household's
+// projected snapshots — see wiki/adr/0014. The behaviour below is unchanged.
 
 /// Value snapshot of an active inventory row (FridgeItem is not in
 /// the package, so the planner never touches the @Model type).
@@ -644,7 +646,7 @@ enum MergeDecision: Equatable, Sendable {
     case merge(into: UUID, resultingQuantity: Int)
 }
 
-enum MergePlanner {
+enum PurchasePlanner {
     /// Exact normalized-name match against active items; expired
     /// items never absorb a new purchase (a fresh buy is a new
     /// batch). Ties → most recent purchase.
@@ -666,7 +668,7 @@ enum MergePlanner {
   <li><strong>Candidates:</strong> active items only (<code>statusRaw == "active"</code>). Consumed history never absorbs new purchases.</li>
   <li><strong>Eligibility:</strong> expired items are skipped — a new purchase of something already past its date is a fresh batch and inserts as its own row. This is also what keeps "old expiry wins" from ever hiding fresh food behind a red sprite. The threshold is deliberately just <code>isExpired</code>, not "near expiry": near-expiry matches are exactly the double-scan case we <em>do</em> want to group.</li>
   <li><strong>On merge:</strong> <code>existing.quantity = resultingQuantity</code>; <code>expiryDate</code>/<code>expirySource</code> untouched (#26's settled decision — user-set dates are never overwritten); storage untouched (the item stays where it lives); <code>receiptText</code> refreshed to the newer line; notifications left as scheduled (expiry didn't change, and <code>NotificationService.schedule</code> is idempotent if re-run).</li>
-  <li><strong>Within one receipt:</strong> rows that match <em>each other</em> (the LLM emitted "Milk" twice) coalesce into one review row at parse time, quantities summed. Review-time renames can re-create a collision after that, so the multi-row save runs through <code>MergePlanner.plan</code>, which sequences the whole batch: a colliding row stacks onto the earlier row's insert (or onto the same existing item, quantities accumulating) — it can never be dropped or duplicated. This sequencing is pure and Linux-tested.</li>
+  <li><strong>Within one receipt:</strong> rows that match <em>each other</em> (the LLM emitted "Milk" twice) coalesce into one review row at parse time, quantities summed. Review-time renames can re-create a collision after that, so the multi-row save runs through <code>PurchasePlanner.plan</code>, which sequences the whole batch: a colliding row stacks onto the earlier row's insert (or onto the same existing item, quantities accumulating) — it can never be dropped or duplicated. This sequencing is pure and Linux-tested.</li>
   <li><strong>Both paths:</strong> <code>ScanFlowModel.confirm</code> runs the planner per row at save; <code>ManualAddSheet</code> runs it once when <strong>Add</strong> is tapped. One manual-add nuance: because the edit page shows an expiry field (prefilled from the existing item when a chip was used), a merge applies the expiry <em>only if the user changed it from the prefill</em> — then it's a deliberate edit and saves as <code>.userSet</code>. Untouched, the existing item's date and source stay exactly as they are. The invariant holds: only an explicit user action can overwrite a date, never a default or a guess.</li>
 </ol>
 
@@ -870,7 +872,7 @@ final class FridgeItem {
 <ul>
   <li><strong>Migration:</strong> lightweight (added property with a default — SwiftData migrates in place; adding <code>#Index</code> is also a lightweight change). One-time backfill at launch: fetch rows where <code>normalizedName == ""</code> and recompute from <code>name</code>. Idempotent, milliseconds, becomes a no-op.</li>
   <li><strong>No new entities.</strong> If the product/batch model is ever revisited, <code>normalizedName</code> is exactly the future product key — this schema is a strict subset of that one.</li>
-  <li><strong>New Core files</strong> (all Linux-testable): <code>NameKey.swift</code>, <code>ArtInference.swift</code>, <code>MergePlanner.swift</code>, <code>NameSearch.swift</code>.</li>
+  <li><strong>New Core files</strong> (all Linux-testable): <code>NameKey.swift</code>, <code>ArtInference.swift</code>, <code>InventoryCommands.swift</code> (<code>PurchasePlanner</code>), <code>NameSearch.swift</code>.</li>
 </ul>
 
 <h2 id="questions"><span class="num">8</span>Answers to #26's open questions</h2>
@@ -906,7 +908,7 @@ final class FridgeItem {
 <ul>
   <li><code>NameKeyTests</code> — folding ("Jalapeño"→"jalapeno"), trim/collapse, case rules beyond ASCII, empty/whitespace names.</li>
   <li><code>ArtInferenceTests</code> — exact hits, synonym hits, token fallback ("chocolate milk"→milk), multi-token head-noun choice, typo tolerance ("bannana"→banana; two edits ⇒ no match), unknown fallback, determinism (same input ⇒ same id). Tier-0 precedence (remembered art beats inference) is exercised where the history lookup lives, with a value-level test on the "latest row wins" grouping.</li>
-  <li><code>MergePlannerTests</code> — match hit/miss, expired-candidate skip, multi-candidate tie → most recent purchase, quantity clamp at 99, within-receipt row coalescing.</li>
+  <li><code>PurchasePlannerTests</code> (in <code>InventoryCommandsTests</code>) — match hit/miss, diacritic-blind matching, expired-candidate skip, multi-candidate tie → most recent purchase, within-receipt row coalescing, and unnamed rows never stacking. Quantity is any positive whole number the store can represent (wiki/adr/0004).</li>
   <li><code>NameSearchTests</code> — tier ordering (exact &gt; prefix &gt; word-prefix &gt; contains), diacritic-blind queries, recency/frequency tie-breaks, limit.</li>
 </ul>
 <p>UI behavior (silent merge outcome, +1 suggestion, auto art, searchable filter) lands on the
@@ -914,7 +916,7 @@ spec's acceptance-criteria checklist and is exercised in a local Simulator per t
 
 <ol>
   <li><strong>Foundation</strong> — <code>NameKey</code> + <code>normalizedName</code> property + <code>#Index</code> + backfill + <code>setName</code> write discipline. Invisible, independently shippable.</li>
-  <li><strong>Merge at confirm</strong> — <code>MergePlanner</code> wired into <code>ScanFlowModel.confirm</code> and <code>ManualAddSheet.add</code>. Closes #26.</li>
+  <li><strong>Merge at confirm</strong> — the eligibility rule wired into <code>ScanFlowModel.confirm</code> and <code>ManualAddSheet.add</code>. Closes #26.</li>
   <li><strong>Manual add, minimized</strong> — <code>ArtInference</code> replaces the ArtPicker; <code>NameSearch</code> drives the quick-fill chips row; merge-aware <strong>Add</strong> with the prefill-vs-edited expiry rule.</li>
   <li><strong>Inventory lookup</strong> — the capsule search field on the home grid (§6.2).</li>
 </ol>

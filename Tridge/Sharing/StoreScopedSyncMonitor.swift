@@ -34,6 +34,22 @@ protocol SyncStatusProviding: AnyObject {
     /// the account changes, or the caller is cancelled first.
     func waitForInitialImport(generation: AccountGeneration,
                               storeIdentifier: String) async -> Bool
+
+    /// Resolves true when a successful export completes for this store *after*
+    /// this call, or false if the session ends, the account changes, or the
+    /// caller is cancelled first.
+    ///
+    /// The verified-deletion path needs the next export after its own save; an
+    /// export that already happened proves nothing about it.
+    func waitForNextSuccessfulExport(generation: AccountGeneration,
+                                     storeIdentifier: String) async -> Bool
+
+    /// Called when this session's events show that a zone was deleted or the
+    /// account's encryption key was reset, with the store it happened to.
+    ///
+    /// A closure rather than a status: recovery is a decision the coordinator
+    /// takes once, not a state the screen polls.
+    var onRecoveryNeeded: (@MainActor (SyncRecoveryNeed, String) -> Void)? { get set }
 }
 
 /// Reduces `NSPersistentCloudKitContainer` events into sync state for the
@@ -53,6 +69,16 @@ final class StoreScopedSyncMonitor: SyncStatusProviding {
         let continuation: CheckedContinuation<Bool, Never>
     }
 
+    /// Waits for the export count of one store to move past what it was when
+    /// the wait started.
+    private struct ExportWaiter {
+        let id: UUID
+        let generation: AccountGeneration
+        let storeIdentifier: String
+        let baseline: Int
+        let continuation: CheckedContinuation<Bool, Never>
+    }
+
     private var generation: AccountGeneration?
     private var reducer = SyncSessionReducer()
     private var accountState: SyncAccountState = .validated
@@ -65,8 +91,13 @@ final class StoreScopedSyncMonitor: SyncStatusProviding {
     private let statusStreams = StatusStreamRegistry()
     private var pathMonitor: NWPathMonitor?
     private var importWaiters: [ImportWaiter] = []
+    private var exportWaiters: [ExportWaiter] = []
 
     private(set) var currentStatus: SyncStatus = .syncing
+    var onRecoveryNeeded: (@MainActor (SyncRecoveryNeed, String) -> Void)?
+    /// One report per store per session: the container retries a failing zone
+    /// repeatedly, and the user should be asked once.
+    private var reportedRecoveries: Set<String> = []
 
     init() {
         startPathMonitor()
@@ -100,6 +131,7 @@ final class StoreScopedSyncMonitor: SyncStatusProviding {
         resumeAllWaiters(with: false)
         self.generation = generation
         reducer = SyncSessionReducer()
+        reportedRecoveries = []
         installEventObserver()
         refreshStatus()
     }
@@ -108,6 +140,7 @@ final class StoreScopedSyncMonitor: SyncStatusProviding {
         guard generation == self.generation else { return }
         reducer.activate(storeIdentifiers: storeIdentifiers)
         resolveImportWaiters()
+        resolveExportWaiters()
         refreshStatus()
     }
 
@@ -115,6 +148,7 @@ final class StoreScopedSyncMonitor: SyncStatusProviding {
         guard generation == self.generation else { return }
         self.generation = nil
         reducer = SyncSessionReducer()
+        reportedRecoveries = []
         eventObserver.remove()
         resumeAllWaiters(with: false)
         refreshStatus()
@@ -128,7 +162,19 @@ final class StoreScopedSyncMonitor: SyncStatusProviding {
         guard generation != nil else { return }
         reducer.record(event)
         resolveImportWaiters()
+        resolveExportWaiters()
+        reportRecoveryIfNeeded(event)
         refreshStatus()
+    }
+
+    /// Reports a recovery need for a store this session actually opened.
+    private func reportRecoveryIfNeeded(_ event: SyncEvent) {
+        guard let recovery = event.recovery, event.isComplete, !event.succeeded,
+              reducer.isActiveStore(event.storeIdentifier)
+        else { return }
+        let key = "\(event.storeIdentifier).\(recovery.rawValue)"
+        guard reportedRecoveries.insert(key).inserted else { return }
+        onRecoveryNeeded?(recovery, event.storeIdentifier)
     }
 
     private func installEventObserver() {
@@ -202,6 +248,44 @@ final class StoreScopedSyncMonitor: SyncStatusProviding {
         }
     }
 
+    func waitForNextSuccessfulExport(generation: AccountGeneration,
+                                     storeIdentifier: String) async -> Bool {
+        guard generation == self.generation else { return false }
+        let baseline = reducer.successfulExportCount(storeIdentifier: storeIdentifier)
+        let id = UUID()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                guard !Task.isCancelled else {
+                    continuation.resume(returning: false)
+                    return
+                }
+                exportWaiters.append(ExportWaiter(id: id, generation: generation,
+                                                  storeIdentifier: storeIdentifier,
+                                                  baseline: baseline,
+                                                  continuation: continuation))
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in self?.resumeExportWaiter(id, with: false) }
+        }
+    }
+
+    private func resolveExportWaiters() {
+        guard let generation else { return }
+        let resolved = exportWaiters.filter {
+            $0.generation == generation
+                && reducer.successfulExportCount(storeIdentifier: $0.storeIdentifier) > $0.baseline
+        }
+        guard !resolved.isEmpty else { return }
+        let resolvedIDs = Set(resolved.map(\.id))
+        exportWaiters.removeAll { resolvedIDs.contains($0.id) }
+        for waiter in resolved { waiter.continuation.resume(returning: true) }
+    }
+
+    private func resumeExportWaiter(_ id: UUID, with value: Bool) {
+        guard let index = exportWaiters.firstIndex(where: { $0.id == id }) else { return }
+        exportWaiters.remove(at: index).continuation.resume(returning: value)
+    }
+
     private func resolveImportWaiters() {
         guard let generation else { return }
         let resolved = importWaiters.filter {
@@ -224,6 +308,10 @@ final class StoreScopedSyncMonitor: SyncStatusProviding {
         let waiters = importWaiters
         importWaiters = []
         for waiter in waiters { waiter.continuation.resume(returning: value) }
+
+        let exports = exportWaiters
+        exportWaiters = []
+        for waiter in exports { waiter.continuation.resume(returning: value) }
     }
 }
 
@@ -240,7 +328,25 @@ extension SyncEvent {
                   kind: kind,
                   isComplete: event.endDate != nil,
                   succeeded: event.succeeded,
-                  isTransientFailure: Self.isTransientFailure(event.error))
+                  isTransientFailure: Self.isTransientFailure(event.error),
+                  recovery: Self.recoveryNeed(event.error))
+    }
+
+    /// Distinguishes a deleted zone from an encrypted-data-key reset.
+    ///
+    /// Apple reports the reset as a zone-not-found error carrying
+    /// `CKErrorUserDidResetEncryptedDataKey` in its `userInfo`, so the flag is
+    /// checked first — otherwise a key rotation would be reported to the user
+    /// as somebody having deleted their data.
+    static func recoveryNeed(_ error: Error?) -> SyncRecoveryNeed? {
+        guard let error = error as? CKError else { return nil }
+        if error.userInfo[CKErrorUserDidResetEncryptedDataKey] != nil {
+            return .encryptionKeyReset
+        }
+        switch error.code {
+        case .userDeletedZone, .zoneNotFound: return .zoneDeleted
+        default: return nil
+        }
     }
 
     /// A failure the system retries by itself — lost connectivity, throttling,

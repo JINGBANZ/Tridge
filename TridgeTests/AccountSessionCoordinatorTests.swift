@@ -13,6 +13,7 @@ final class AccountSessionCoordinatorTests: XCTestCase {
     private var loader: StackLoader!
     private var identity: FakeAccountIdentity!
     private var monitor: StoreScopedSyncMonitor!
+    private var notifications: FakeNotificationCenter!
     private var coordinator: AccountSessionCoordinator!
 
     override func setUpWithError() throws {
@@ -27,8 +28,11 @@ final class AccountSessionCoordinatorTests: XCTestCase {
         loader = StackLoader(baseDirectory: baseDirectory)
         identity = FakeAccountIdentity(result: .success(Self.scope()))
         monitor = StoreScopedSyncMonitor()
+        notifications = FakeNotificationCenter()
         coordinator = AccountSessionCoordinator(
             identity: identity, syncMonitor: monitor,
+            reminders: ReminderReconciler(center: notifications, defaults: defaults),
+            defaults: defaults,
             barrier: BootstrapBarrierStore(defaults: defaults),
             activeHouseholds: ActiveHouseholdStore(defaults: defaults),
             // Every dependency is suite-scoped, including the upgrade: the
@@ -37,6 +41,9 @@ final class AccountSessionCoordinatorTests: XCTestCase {
             upgrade: LegacyInventoryUpgrade(archive: FakeLegacyArchive(rows: [], exists: false),
                                             markers: UpgradeMarkers(defaults: defaults),
                                             effects: RecordingLegacyEffects()),
+            // A router of this suite's own: the shared one is process-wide, and
+            // two suites binding it would accept into each other's stores.
+            invitations: ShareInvitationRouter(),
             makePersistence: loader.closure)
     }
 

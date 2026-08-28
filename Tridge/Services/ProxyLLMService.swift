@@ -67,7 +67,12 @@ struct ProxyLLMService: LLMService {
             if (200..<300).contains(http.statusCode) {
                 let text = String(decoding: data, as: UTF8.self)
                 guard let receipt = try? ReceiptResponseParser.parse(text) else {
-                    AppLog.llm.error("Scan API reply didn't parse (\(data.count) bytes: \"\(text.prefix(200))\")")
+                    // The size only. A malformed reply is still a *reply about a
+                    // receipt*, so even a truncated excerpt can carry item names
+                    // or receipt-line text into a log the user copies out of
+                    // Settings (wiki/household-sharing.md → "Privacy and
+                    // security").
+                    AppLog.llm.error("Scan API reply didn't parse (\(data.count) bytes)")
                     throw LLMError.unparseable
                 }
                 AppLog.llm.info("Parsed \(receipt.items.count) items")

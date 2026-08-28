@@ -44,9 +44,40 @@ public struct ItemMergeClaimRecord: Hashable, Sendable, Identifiable {
     }
 }
 
+/// One reduced logical item, whether or not Home shows it.
+///
+/// Delete resolves through these rather than through `items`: a retry has to
+/// find the component it already terminated, and a terminated component is by
+/// definition absent from the visible rows.
+public struct ItemGroupSnapshot: Hashable, Sendable, Identifiable {
+    /// The lowest member id by byte order — the logical identity every peer
+    /// computes independently.
+    public let id: UUID
+    /// Every physical member, sorted by byte order.
+    public let memberIDs: [UUID]
+    public let quantity: Int64
+    public let isDeleted: Bool
+    public let isCorrupt: Bool
+    /// Whether Home renders it: not deleted, not corrupt, quantity above zero.
+    public let isVisible: Bool
+
+    public init(id: UUID, memberIDs: [UUID], quantity: Int64, isDeleted: Bool,
+                isCorrupt: Bool, isVisible: Bool) {
+        self.id = id
+        self.memberIDs = memberIDs
+        self.quantity = quantity
+        self.isDeleted = isDeleted
+        self.isCorrupt = isCorrupt
+        self.isVisible = isVisible
+    }
+}
+
 public struct ItemGroupProjection: Hashable, Sendable {
     /// Visible logical items, most urgent first.
     public let items: [InventoryItemSnapshot]
+    /// Every component whose captured context is still current, visible or
+    /// not, sorted by logical id.
+    public let groups: [ItemGroupSnapshot]
     /// Exact-name links the projector applied in memory and the reconciler
     /// should now persist, so the UI never flashes duplicate rows.
     public let inferredClaims: [ItemMergeClaim]
@@ -149,6 +180,11 @@ public enum ItemGroupReducer {
 
     private static func projection(_ groups: [Group], inferredClaims: [ItemMergeClaim],
                                    issues: [RecordIntegrityIssue]) -> ItemGroupProjection {
+        let snapshots = groups.map { group in
+            ItemGroupSnapshot(id: group.canonical.id, memberIDs: group.members.map(\.id),
+                              quantity: group.stock.quantity, isDeleted: group.stock.isDeleted,
+                              isCorrupt: group.stock.isCorrupt, isVisible: group.stock.isVisible)
+        }
         let visible = groups.filter(\.stock.isVisible).map { group -> InventoryItemSnapshot in
             let canonical = group.canonical
             return InventoryItemSnapshot(id: canonical.id,
@@ -170,6 +206,7 @@ public enum ItemGroupReducer {
                 $0.expiryDay == $1.expiryDay ? UUIDOrder.isBefore($0.id, $1.id)
                                              : $0.expiryDay < $1.expiryDay
             },
+            groups: snapshots.sorted { UUIDOrder.isBefore($0.id, $1.id) },
             inferredClaims: inferredClaims,
             issues: issues.sorted { $0.diagnosticDescription < $1.diagnosticDescription },
             stockIssues: stockIssues)
