@@ -137,7 +137,7 @@ struct HouseholdScreen: View {
             coordinator.selectHousehold(household.id)
         } label: {
             HStack {
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: AppTheme.householdRowTitleGap) {
                     Text(household.name)
                         .foregroundStyle(AppTheme.ink)
                     Text(subtitle(for: household))

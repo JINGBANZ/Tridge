@@ -116,6 +116,47 @@ final class ShareInvitationTests: XCTestCase {
         await gate.open()
     }
 
+    /// A second invitation opened while the first is still being accepted must
+    /// not be swallowed by the first one's completion — the user would see
+    /// "you've joined" for a fridge they never joined, with nothing to retry.
+    func testASecondInvitationArrivingMidAcceptanceIsStillAccepted() async {
+        let gate = TestGate()
+        acceptor.gate = gate
+        bind()
+        router.receive(Invitation())
+        await waitUntil("the first acceptance starts") { self.router.status == .accepting }
+
+        router.receive(Invitation())
+        await gate.open()
+
+        await waitUntil("both invitations are accepted") { self.acceptor.count == 2 }
+        XCTAssertEqual(router.status, .accepted)
+    }
+
+    /// The mirror case: a failure describes the invitation it was for, and the
+    /// one now held gets its own attempt rather than inheriting that error.
+    func testAFailureDoesNotDescribeAnInvitationItWasNeverAbout() async {
+        let gate = TestGate()
+        acceptor.gate = gate
+        acceptor.failure = CKError(.networkUnavailable)
+        bind()
+        router.receive(Invitation())
+        await waitUntil("the first acceptance starts") { self.router.status == .accepting }
+
+        // The second invitation replaces the first, which then fails.
+        router.receive(Invitation())
+        await gate.open()
+
+        // The stand-in acceptor fails every call, so the second attempt fails
+        // too — what matters is that it was made at all. Before this fix the
+        // count stayed at 1: the second invitation was never tried, while the
+        // status and Retry described the first one's error.
+        await waitUntil("the second invitation gets its own attempt") {
+            self.acceptor.count == 2
+        }
+        XCTAssertTrue(router.canRetry, "Retry now targets the invitation still held")
+    }
+
     // MARK: - Retry
 
     func testARecoverableFailureOffersRetryWhileTheMetadataIsLive() async {

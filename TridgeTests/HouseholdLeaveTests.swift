@@ -207,12 +207,15 @@ final class HouseholdLeaveTests: XCTestCase {
     /// asserts is the end state a member is left in.
     func testLeavingRetiresOnlyThatFridgesReminders() async throws {
         let fridges = try await startWithBothFridges(seedItems: true)
-        await waitUntil("the active fridge's reminders are scheduled") {
-            !self.notifications.pending.isEmpty
+        // The settled state, not the first moment anything is scheduled: the
+        // owned fridge is active briefly before the switch, so its reminders
+        // exist and are then retired. Waiting on "non-empty" alone would catch
+        // that window.
+        await waitUntil("the active fridge's reminders are the only ones scheduled") {
+            !self.notifications.pending.isEmpty && self.notifications.pending.allSatisfy {
+                $0.identifier.contains(fridges.received.uuidString)
+            }
         }
-        XCTAssertTrue(notifications.pending.allSatisfy {
-            $0.identifier.contains(fridges.received.uuidString)
-        }, "only the Active Household is scheduled")
 
         _ = await coordinator.leaveHousehold(fridges.received)
 

@@ -56,7 +56,14 @@ final class ShareInvitationRouter {
     @ObservationIgnored private var pending: (any ShareInvitationMetadata)?
     /// Set while an account session's shared store is open.
     @ObservationIgnored private var accept: ((any ShareInvitationMetadata) async throws -> Void)?
-    @ObservationIgnored private var isAccepting = false
+    /// Bumped every time `pending` is replaced or dropped. An acceptance
+    /// carries the value it started under, so completion can tell whether the
+    /// invitation it was for is still the one being held — `CKShare.Metadata`
+    /// offers no id of its own to compare, and the protocol has value-type
+    /// conformers, so object identity would not do.
+    @ObservationIgnored private var pendingGeneration: UInt64 = 0
+    /// The generation of the acceptance in flight, or nil when none is.
+    @ObservationIgnored private var acceptingGeneration: UInt64?
 
     init(containerIdentifier: String = TridgeCloudKit.containerIdentifier) {
         self.containerIdentifier = containerIdentifier
@@ -66,7 +73,7 @@ final class ShareInvitationRouter {
     /// metadata this process received is still held.
     var canRetry: Bool {
         guard case .failed = status else { return false }
-        return pending != nil
+        return pending != nil && acceptingGeneration == nil
     }
 
     /// The single entry point for both scene routes.
@@ -80,16 +87,19 @@ final class ShareInvitationRouter {
         switch metadata.invitationParticipantStatus {
         case .pending:
             pending = metadata
+            pendingGeneration += 1
             acceptIfPossible()
         case .accepted:
             // Already accepted server-side. Acceptance is not invoked again;
             // normal import brings the Household in.
             pending = nil
+            pendingGeneration += 1
             status = .accepted
         default:
             // `.removed`, `.unknown`, and anything added later: reopening the
             // invitation is the only honest path.
             pending = nil
+            pendingGeneration += 1
             status = .needsReopen
         }
     }
@@ -117,33 +127,49 @@ final class ShareInvitationRouter {
     /// dropped with it, which is the same as never having received it.
     func dismiss() {
         pending = nil
+        // Bumped so an acceptance still in flight settles as stale rather than
+        // overwriting the idle state the user just asked for.
+        pendingGeneration += 1
         status = .idle
     }
 
     private func acceptIfPossible() {
-        guard let metadata = pending, !isAccepting else { return }
+        guard let metadata = pending, acceptingGeneration == nil else { return }
         guard let accept else {
             status = .waitingForStore
             return
         }
 
-        isAccepting = true
+        let generation = pendingGeneration
+        acceptingGeneration = generation
         status = .accepting
         Task { [weak self] in
             do {
                 try await accept(metadata)
-                self?.finish(.accepted, clearingPending: true)
+                self?.finish(.accepted, generation: generation, clearingPending: true)
             } catch {
                 // The metadata is still held, so Retry is real rather than a
                 // button that reopens nothing.
                 self?.finish(.failed(HouseholdActionFailure(error, stage: "invitation")),
-                             clearingPending: false)
+                             generation: generation, clearingPending: false)
             }
         }
     }
 
-    private func finish(_ status: Status, clearingPending: Bool) {
-        isAccepting = false
+    /// Settles the acceptance that just returned.
+    ///
+    /// A second invitation opened while the first was in flight has already
+    /// replaced `pending`, and it must not be cleared by the first one's
+    /// success or described by the first one's failure: that would report
+    /// somebody else's fridge as joined, or offer Try Again against an
+    /// invitation the error was never about. A stale result is dropped and the
+    /// invitation now held starts its own acceptance instead.
+    private func finish(_ status: Status, generation: UInt64, clearingPending: Bool) {
+        acceptingGeneration = nil
+        guard generation == pendingGeneration else {
+            acceptIfPossible()
+            return
+        }
         if clearingPending { pending = nil }
         self.status = status
     }

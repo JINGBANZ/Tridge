@@ -46,7 +46,7 @@ struct RootView: View {
             }
             .alert("Couldn't move your old fridge", isPresented: migrationFailureBinding) {
                 Button("Try Again") { coordinator.retryLegacyMigration() }
-                Button("Not Now", role: .cancel) {}
+                Button("Not Now", role: .cancel) { coordinator.acknowledgeMigrationFailure() }
             } message: {
                 Text("""
                 Your old inventory is still on this device and nothing was lost. \
@@ -97,8 +97,15 @@ struct RootView: View {
         Binding(get: { coordinator.pendingRecovery != nil }, set: { _ in })
     }
 
+    /// Read-only on dismissal, like the recovery alert above — but the failure
+    /// itself has to stay set, or the retry loop re-arms. Not Now records a
+    /// separate acknowledgement, without which SwiftUI's write of `false` would
+    /// be ignored and the alert would re-present on every view update for the
+    /// rest of the session.
     private var migrationFailureBinding: Binding<Bool> {
-        Binding(get: { coordinator.legacyMigrationFailure != nil }, set: { _ in })
+        Binding(get: { coordinator.legacyMigrationFailure != nil
+                       && !coordinator.isMigrationFailureAcknowledged },
+                set: { _ in })
     }
 }
 

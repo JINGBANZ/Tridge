@@ -38,6 +38,13 @@ final class AccountSessionCoordinator {
     /// The archive could not be migrated. Inventory is usable; the archive is
     /// intact; Retry is the only thing this asks for.
     private(set) var legacyMigrationFailure: LegacyMigrationFailure?
+    /// Whether the user has dismissed the migration-failure alert.
+    ///
+    /// Separate from the failure itself, which stays set: clearing the failure
+    /// to dismiss the alert would re-arm `startLegacyUpgradeIfNeeded`, and the
+    /// retry would run again — and fail again — on the next import. The archive
+    /// is intact either way; this only decides whether the alert is on screen.
+    private(set) var isMigrationFailureAcknowledged = false
     /// The Active Household's Inventory, as value snapshots. Exists only while
     /// a Household is selected for the current generation.
     private(set) var inventory: HouseholdSession?
@@ -283,6 +290,7 @@ final class AccountSessionCoordinator {
         households = []
         activeHouseholdID = nil
         legacyMigrationFailure = nil
+        isMigrationFailureAcknowledged = false
         // Inventory stops applying before anything else suspends, so account
         // A's rows cannot still be on screen while account B loads. The work it
         // registered is drained with the rest of the generation.
@@ -1546,6 +1554,17 @@ final class AccountSessionCoordinator {
         case .select(let id):
             activate(householdID: id, for: context, controller: controller)
         case .createDefaultHousehold:
+            guard pendingLifecycleTransition == nil else {
+                // Everything this account has is hidden by a transition that is
+                // about to be resumed — during a stop-sharing copy, the source
+                // is suppressed and its destination does not exist yet. There is
+                // nothing to select, but there is also nothing missing:
+                // creating `My Fridge` here would leave the user with a phantom
+                // second fridge beside the copy `resume` is about to finish.
+                activeHouseholdID = nil
+                launchState = .preparing
+                return
+            }
             createDefaultHousehold(for: context, controller: controller)
         case .waitForInitialImport:
             activeHouseholdID = nil
@@ -1630,11 +1649,19 @@ final class AccountSessionCoordinator {
         showsMigrationNotice = false
     }
 
+    /// Dismisses the migration-failure alert without touching the failure, so
+    /// the retry loop stays disarmed. Inventory is usable and the archive is
+    /// intact; Retry is still offered the next time the failure is raised.
+    func acknowledgeMigrationFailure() {
+        isMigrationFailureAcknowledged = true
+    }
+
     /// Retries a migration that failed. The archive is untouched, so this is
     /// simply the same attempt again.
     func retryLegacyMigration() {
         guard let session else { return }
         legacyMigrationFailure = nil
+        isMigrationFailureAcknowledged = false
         startLegacyUpgradeIfNeeded(for: session.context, controller: session.persistence)
     }
 
@@ -1680,6 +1707,7 @@ final class AccountSessionCoordinator {
             return created.id
         } catch {
             legacyMigrationFailure = LegacyMigrationFailure(diagnosticID: "legacy.household")
+            isMigrationFailureAcknowledged = false
             return nil
         }
     }
@@ -1732,6 +1760,7 @@ final class AccountSessionCoordinator {
             // retryable notice rather than a launch state.
             AppLog.household.error("Legacy migration failed: \(failure.diagnosticID)")
             legacyMigrationFailure = failure
+            isMigrationFailureAcknowledged = false
         }
     }
 
