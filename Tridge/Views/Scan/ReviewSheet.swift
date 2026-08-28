@@ -5,6 +5,11 @@ struct ReviewSheet: View {
     @Bindable var model: ScanFlowModel
     let session: HouseholdSession
 
+    /// The fridge this receipt was reviewed against, captured when the sheet
+    /// opened. A revoked share can re-point the shared session while the sheet
+    /// is up, and these rows belong to the fridge the user was looking at.
+    @State private var reviewHouseholdID = UUID()
+
     var body: some View {
         NavigationStack {
             List {
@@ -25,6 +30,7 @@ struct ReviewSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .safeAreaInset(edge: .bottom) {
                 Button {
+                    guard session.stillProjects(reviewHouseholdID) else { return }
                     model.confirm(into: session)
                 } label: {
                     Text("Add \(model.reviewItems.count) item\(model.reviewItems.count == 1 ? "" : "s") to Fridge")
@@ -41,6 +47,7 @@ struct ReviewSheet: View {
                 .padding(.bottom, 6)
             }
         }
+        .onAppear { reviewHouseholdID = session.householdID }
         .presentationDragIndicator(.visible)
         // The draft stays open behind the alert, so a refused save can be
         // corrected or retried with the same preallocated ids.

@@ -14,11 +14,17 @@ struct HouseholdScreen: View {
     let coordinator: AccountSessionCoordinator
 
     @State private var renameDraft: String?
-    @State private var showLeaveConfirmation = false
-    @State private var showStopWarning = false
-    @State private var showStopConfirmation = false
     @State private var showEraseConfirmation = false
-    @State private var showDeleteConfirmation = false
+    /// The fridge each destructive confirmation was opened for.
+    ///
+    /// Captured when the dialog is presented rather than read when its button
+    /// is tapped: selection can fall back while the confirmation is on screen —
+    /// a remote deletion or a revoked share does exactly that — and the user
+    /// would then confirm text about one fridge and destroy another.
+    @State private var leaveTarget: UUID?
+    @State private var stopWarningTarget: UUID?
+    @State private var stopConfirmTarget: UUID?
+    @State private var deleteTarget: UUID?
 
     var body: some View {
         List {
@@ -63,9 +69,9 @@ struct HouseholdScreen: View {
         } message: {
             Text("Everyone in this fridge sees the new name.")
         }
-        .confirmationDialog(deleteTitle, isPresented: $showDeleteConfirmation,
+        .confirmationDialog(deleteTitle, isPresented: presenting($deleteTarget),
                             titleVisibility: .visible) {
-            Button("Delete", role: .destructive) { deleteHousehold() }
+            Button("Delete", role: .destructive) { deleteTarget.map(deleteHousehold) }
             Button("Cancel", role: .cancel) {}
         } message: {
             Text(deleteMessage)
@@ -94,8 +100,8 @@ struct HouseholdScreen: View {
         // Two steps on purpose: the first states the limitation, the second is
         // the destructive button. Neither ever claims that a member's device
         // has finished uploading.
-        .alert("Stop sharing this fridge?", isPresented: $showStopWarning) {
-            Button("Continue") { showStopConfirmation = true }
+        .alert("Stop sharing this fridge?", isPresented: presenting($stopWarningTarget)) {
+            Button("Continue") { stopConfirmTarget = stopWarningTarget }
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("""
@@ -103,8 +109,8 @@ struct HouseholdScreen: View {
             shared with loses access.
             """)
         }
-        .alert("Keep only what's here?", isPresented: $showStopConfirmation) {
-            Button("Stop Anyway", role: .destructive) { stopSharing() }
+        .alert("Keep only what's here?", isPresented: presenting($stopConfirmTarget)) {
+            Button("Stop Anyway", role: .destructive) { stopConfirmTarget.map(stopSharing) }
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("""
@@ -113,9 +119,9 @@ struct HouseholdScreen: View {
             open Tridge online before you stop sharing.
             """)
         }
-        .confirmationDialog("Leave this fridge?", isPresented: $showLeaveConfirmation,
+        .confirmationDialog("Leave this fridge?", isPresented: presenting($leaveTarget),
                             titleVisibility: .visible) {
-            Button("Leave", role: .destructive) { leave() }
+            Button("Leave", role: .destructive) { leaveTarget.map(leave) }
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("""
@@ -187,20 +193,20 @@ struct HouseholdScreen: View {
 
             if household.isShared {
                 Button("Stop Sharing & Keep My Fridge…", role: .destructive) {
-                    showStopWarning = true
+                    stopWarningTarget = household.id
                 }
                 .disabled(!coordinator.canRunDestructiveShareAction)
                 .accessibilityIdentifier("household.stopSharing")
 
                 Button("Delete Shared Fridge for Everyone…", role: .destructive) {
-                    showDeleteConfirmation = true
+                    deleteTarget = household.id
                 }
                 .disabled(!coordinator.canRunDestructiveShareAction)
                 .accessibilityIdentifier("household.deleteShared")
             } else {
                 // Never an implicit Stop Sharing: this appears only while there
                 // is no share at all.
-                Button("Delete Fridge…", role: .destructive) { showDeleteConfirmation = true }
+                Button("Delete Fridge…", role: .destructive) { deleteTarget = household.id }
                     .disabled(!coordinator.canRunDestructiveShareAction)
                     .accessibilityIdentifier("household.delete")
             }
@@ -233,7 +239,9 @@ struct HouseholdScreen: View {
     @ViewBuilder
     private var memberSection: some View {
         Section {
-            Button("Leave Household…", role: .destructive) { showLeaveConfirmation = true }
+            Button("Leave Household…", role: .destructive) {
+                leaveTarget = coordinator.activeHouseholdID
+            }
                 .accessibilityIdentifier("household.leave")
         } header: {
             Text("This fridge")
@@ -301,6 +309,12 @@ struct HouseholdScreen: View {
 
     // MARK: - Bindings
 
+    /// Presents while a target is held, and drops it on dismissal.
+    private func presenting(_ target: Binding<UUID?>) -> Binding<Bool> {
+        Binding(get: { target.wrappedValue != nil },
+                set: { if !$0 { target.wrappedValue = nil } })
+    }
+
     private var renameBinding: Binding<Bool> {
         Binding(get: { renameDraft != nil }, set: { if !$0 { renameDraft = nil } })
     }
@@ -339,8 +353,7 @@ struct HouseholdScreen: View {
         return base + " The old local inventory file stays until you erase it below."
     }
 
-    private func deleteHousehold() {
-        guard let householdID = coordinator.activeHouseholdID else { return }
+    private func deleteHousehold(_ householdID: UUID) {
         Haptics.warning()
         Task { await coordinator.deleteHousehold(householdID) }
     }
@@ -350,14 +363,12 @@ struct HouseholdScreen: View {
         Task { await coordinator.eraseLegacyArchive() }
     }
 
-    private func stopSharing() {
-        guard let householdID = coordinator.activeHouseholdID else { return }
+    private func stopSharing(_ householdID: UUID) {
         Haptics.warning()
         Task { await coordinator.stopSharing(householdID) }
     }
 
-    private func leave() {
-        guard let householdID = coordinator.activeHouseholdID else { return }
+    private func leave(_ householdID: UUID) {
         Haptics.warning()
         Task { await coordinator.leaveHousehold(householdID) }
     }

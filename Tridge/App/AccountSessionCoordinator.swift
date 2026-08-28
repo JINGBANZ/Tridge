@@ -152,6 +152,11 @@ final class AccountSessionCoordinator {
 
     private static let lastReminderScopeKey = "lastReminderAccountScope"
     @ObservationIgnored private var syncStatusTask: Task<Void, Never>?
+    /// Bumped by every account change. `validateAndLoad` carries the value it
+    /// started under across its awaits, because until `currentGeneration` is
+    /// assigned there is no generation for an invalidation to catch — and a
+    /// stale validation resuming would open the previous account's stores.
+    @ObservationIgnored private var accountTransition: UInt64 = 0
     /// This generation's share operations. Released with the generation, so a
     /// late invitation cannot reach a removed store.
     @ObservationIgnored private var sharing: (any HouseholdSharing)?
@@ -252,6 +257,7 @@ final class AccountSessionCoordinator {
     /// queued behind any transition already running, so two notifications
     /// cannot tear down the same stack twice.
     func accountDidChange() {
+        accountTransition += 1
         invalidateVisibleState()
         Task { await self.enqueueTransition { await self.restart() } }
     }
@@ -350,6 +356,7 @@ final class AccountSessionCoordinator {
     }
 
     private func validateAndLoad() async {
+        let transition = accountTransition
         // Before the account is consulted and before any store is opened: an
         // installation that is signed out or restricted must still stop the
         // previous build's reminders for an inventory that is moving.
@@ -382,6 +389,11 @@ final class AccountSessionCoordinator {
         // Before this account's own reminders are built, and using the exact
         // prefix the previous one scheduled under.
         await retireRemindersOfPreviousAccount(replacedBy: accountScope)
+        // The retirement above suspends, and the account can change while it
+        // does. The restart that notification queued is behind this call, so
+        // without this the superseded validation would open and activate the
+        // old account's stores first.
+        guard transition == accountTransition else { return }
         lastValidatedScope = accountScope
         let generationContext = AccountGenerationContext(accountScope: accountScope)
         currentGeneration = generationContext.generation
@@ -692,6 +704,12 @@ final class AccountSessionCoordinator {
             // limit or a failed title write changes nothing local.
             householdFailure = HouseholdActionFailure(error, stage: "share")
             recordStaleShareTitle(householdID)
+            // The share itself may already exist — `share(_:to:)` can succeed
+            // and the title write that follows it fail — and nothing in
+            // persistent history would say so. Left unasked, the screen would
+            // keep calling this fridge unshared and send Delete down the
+            // private path while members already have access.
+            refreshShareState(for: context)
             return false
         }
     }

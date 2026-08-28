@@ -45,6 +45,8 @@ struct ManualAddSheet: View {
     /// ever saved on each keystroke would hitch the keyboard once the household
     /// has a year of receipts.
     @State private var history = History()
+    /// The fridge this form was filled in against, captured when it opened.
+    @State private var draftHouseholdID = UUID()
 
     var body: some View {
         NavigationStack {
@@ -91,6 +93,7 @@ struct ManualAddSheet: View {
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
         .onAppear {
+            draftHouseholdID = session.householdID
             history = History(purchases: session.purchaseHistory, active: session.items,
                               today: InventoryDay.today())
             applyPrefill()
@@ -296,6 +299,11 @@ struct ManualAddSheet: View {
     /// eligible same-name item is already in the fridge, the projector groups
     /// the two immediately and the reconciler makes that link permanent.
     private func add() {
+        // The form's chips, art, and prefills all came from the fridge this
+        // sheet opened against. If a revoked share has moved the session since,
+        // confirming would file the groceries somewhere the user was never
+        // looking; the draft stays open and the alert says so.
+        guard session.stillProjects(draftHouseholdID) else { return }
         let today = InventoryDay.today()
         let draft = PurchaseDraft(itemID: UUID(), stockChangeID: UUID(), name: trimmedName,
                                   quantity: quantity, artKey: artKey, storage: storage,

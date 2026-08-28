@@ -234,6 +234,23 @@ final class HouseholdSession {
         return saved
     }
 
+    /// Whether this session still projects the Household a draft was filled in
+    /// against, recording a failure if it does not.
+    ///
+    /// A form is filled in for one fridge — its quick-fill chips and its
+    /// remembered art come from that fridge's history — but the session is
+    /// shared and can be re-pointed while the sheet is open, by a revoked share
+    /// or a fridge switch. Confirming would then put the groceries somewhere
+    /// the user was never looking at. Called by the confirming sheet
+    /// immediately before it commits, which is close enough: `commit` captures
+    /// the Household before its first suspension, so nothing can move in
+    /// between.
+    func stillProjects(_ expected: UUID) -> Bool {
+        guard expected != householdID else { return true }
+        lastFailure = InventoryCommandFailure(InventoryRepositoryError.householdUnavailable)
+        return false
+    }
+
     // MARK: - Inventory commands
 
     /// Commits an Item Detail draft. Only the fields that actually moved are
