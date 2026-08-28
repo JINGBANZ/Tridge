@@ -91,7 +91,8 @@ struct ManualAddSheet: View {
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
         .onAppear {
-            history = History(purchases: session.purchaseHistory, active: session.items)
+            history = History(purchases: session.purchaseHistory, active: session.items,
+                              today: InventoryDay.today())
             applyPrefill()
         }
         .onChange(of: name) { resolveArt() }
@@ -161,8 +162,16 @@ struct ManualAddSheet: View {
         /// Built from every physical root the Household ever saved — including
         /// zero, deleted, and superseded ones — because purchase history is
         /// what the chips rank, not current stock.
-        init(purchases: [PhysicalItemSnapshot], active: [InventoryItemSnapshot]) {
-            let activeByKey = Dictionary(active.map { ($0.normalizedName, $0) },
+        init(purchases: [PhysicalItemSnapshot], active: [InventoryItemSnapshot],
+             today: InventoryDay) {
+            // Expired batches are excluded: a chip that prefilled one would
+            // date a brand-new purchase in the past, and it could never be the
+            // batch an untouched Add preserves either — `PurchasePlanner` will
+            // not group onto an expired same-name item (ADR 0014). Those names
+            // fall through to today + their typical shelf life, which is what
+            // the chip means for anything not currently in the fridge.
+            let current = active.filter { !$0.isExpired(on: today) }
+            let activeByKey = Dictionary(current.map { ($0.normalizedName, $0) },
                                          uniquingKeysWith: { first, _ in first })
             let groups = Dictionary(grouping: purchases.filter { !$0.normalizedName.isEmpty },
                                     by: \.normalizedName)
@@ -291,8 +300,13 @@ struct ManualAddSheet: View {
         let draft = PurchaseDraft(itemID: UUID(), stockChangeID: UUID(), name: trimmedName,
                                   quantity: quantity, artKey: artKey, storage: storage,
                                   purchaseDay: today, expiryDay: expiryDay,
-                                  expirySource: explicitFields.contains(.expiryDay)
-                                      ? .userSet : .llmEstimate,
+                                  // A hand-typed item's date is the user's,
+                                  // whether they changed the prefill or
+                                  // accepted it — no model produced it. Whether
+                                  // it may overwrite an existing same-name
+                                  // item's date is a separate question, and
+                                  // `explicitMetadataFields` still answers it.
+                                  expirySource: .userSet,
                                   explicitMetadataFields: explicitFields)
         isSaving = true
         Task {

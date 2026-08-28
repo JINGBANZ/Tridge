@@ -88,9 +88,13 @@ struct RootView: View {
                 set: { if !$0 { coordinator.acknowledgeMigrationNotice() } })
     }
 
+    /// Read-only on dismissal. SwiftUI writes `false` as soon as any alert
+    /// button is tapped, and the confirming button's work is a `Task` that runs
+    /// after that write — so clearing the request here would leave
+    /// `confirmRecovery()` with nothing to act on and the Household suppressed
+    /// even though the user agreed. Both branches dismiss explicitly instead.
     private var recoveryBinding: Binding<Bool> {
-        Binding(get: { coordinator.pendingRecovery != nil },
-                set: { if !$0 { coordinator.dismissRecovery() } })
+        Binding(get: { coordinator.pendingRecovery != nil }, set: { _ in })
     }
 
     private var migrationFailureBinding: Binding<Bool> {

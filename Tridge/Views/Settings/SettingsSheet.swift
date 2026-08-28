@@ -20,6 +20,9 @@ struct SettingsSheet: View {
     @State private var collectingDiagnostics = false
     @State private var showingClearConfirmation = false
     @State private var isClearing = false
+    /// The failure of a Clear All this sheet started, taken from the session so
+    /// the alert below cannot pick up a failure some other screen caused.
+    @State private var clearFailure: InventoryCommandFailure?
 
     private var items: [InventoryItemSnapshot] { session.items }
 
@@ -95,17 +98,22 @@ struct SettingsSheet: View {
             // Clear All is the one command whose only entry point is this
             // sheet, so the failure has to be reported here: Home's alert is
             // behind a presented sheet and would never be seen.
-            .alert("Couldn't clear this fridge", isPresented: failureBinding) {
-                Button("OK", role: .cancel) { session.clearFailure() }
+            //
+            // Bound to this sheet's own captured failure rather than to
+            // `session.lastFailure`, because the Household screen is pushed
+            // into this same stack: a failed rename also sets `lastFailure`,
+            // and reading it here would title that error "Couldn't clear this
+            // fridge" — an alert about a destructive command the user never ran.
+            .alert("Couldn't clear this fridge", isPresented: clearFailureBinding) {
+                Button("OK", role: .cancel) { clearFailure = nil }
             } message: {
-                Text(session.lastFailure?.message ?? "")
+                Text(clearFailure?.message ?? "")
             }
         }
     }
 
-    private var failureBinding: Binding<Bool> {
-        Binding(get: { session.lastFailure != nil },
-                set: { if !$0 { session.clearFailure() } })
+    private var clearFailureBinding: Binding<Bool> {
+        Binding(get: { clearFailure != nil }, set: { if !$0 { clearFailure = nil } })
     }
 
     /// Clear All is an inventory action, not a privacy erasure: the causal
@@ -125,8 +133,14 @@ struct SettingsSheet: View {
         Haptics.warning()
         isClearing = true
         Task {
-            await session.clearAll()
+            let cleared = await session.clearAll()
             isClearing = false
+            guard !cleared else { return }
+            // Taken and then cleared on the session: this sheet owns reporting
+            // it, and leaving it set would raise a second alert on whatever
+            // screen the user goes to next.
+            clearFailure = session.lastFailure
+            session.clearFailure()
         }
     }
 

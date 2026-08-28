@@ -200,7 +200,7 @@ final class HouseholdSession {
         let request = nextRequest()
         guard let projection = await run({
             try await repository.projection(of: householdID, today: day)
-        }) else { return }
+        }, for: householdID) else { return }
         apply(projection, request: request)
     }
 
@@ -401,7 +401,7 @@ final class HouseholdSession {
         // Cleared once this purchase is the one actually writing, so a purchase
         // waiting its turn cannot wipe the failure of the one still running.
         lastFailure = nil
-        guard let projection = await run(operation) else { return false }
+        guard let projection = await run(operation, for: householdID) else { return false }
         // Taken only once the write has returned: a command's projection
         // already contains its own save, so it is newer than every read that
         // was in flight while it ran, whenever those reads resume — and, with
@@ -442,8 +442,15 @@ final class HouseholdSession {
         }
     }
 
+    /// `householdID` is the fridge the operation was *issued for*, captured
+    /// before it suspended. A refused write has to be attributed to that one
+    /// rather than to whatever the session projects by the time it returns: a
+    /// switch made while the command was in flight would otherwise report the
+    /// newly selected Household as revoked, and the coordinator would purge its
+    /// shared-store graph.
     private func run(
-        _ operation: @escaping @Sendable () async throws -> HouseholdProjection
+        _ operation: @escaping @Sendable () async throws -> HouseholdProjection,
+        for householdID: UUID
     ) async -> HouseholdProjection? {
         guard !isInvalidated else { return nil }
         do {
