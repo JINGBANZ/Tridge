@@ -162,20 +162,16 @@ actor PersistentHistoryProcessor {
         var ids: Set<UUID> = []
         for objectID in objectIDs {
             guard let object = try? context.existingObject(with: objectID) else { continue }
+            let householdID: UUID?
             switch object {
-            case let household as HouseholdRecord:
-                household.id.map { ids.insert($0) }
-            case let item as FridgeItemRecord:
-                item.household?.id.map { ids.insert($0) }
-            case let change as StockChangeRecord:
-                change.item?.household?.id.map { ids.insert($0) }
-            case let merge as ItemMergeRecord:
-                merge.household?.id.map { ids.insert($0) }
-            case let clear as HouseholdClearRecord:
-                clear.household?.id.map { ids.insert($0) }
-            default:
-                continue
+            case let household as HouseholdRecord: householdID = household.id
+            case let item as FridgeItemRecord: householdID = item.household?.id
+            case let change as StockChangeRecord: householdID = change.item?.household?.id
+            case let merge as ItemMergeRecord: householdID = merge.household?.id
+            case let clear as HouseholdClearRecord: householdID = clear.household?.id
+            default: continue
             }
+            if let householdID { ids.insert(householdID) }
         }
         return ids
     }

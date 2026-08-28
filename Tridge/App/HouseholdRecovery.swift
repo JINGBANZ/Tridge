@@ -52,7 +52,7 @@ struct HouseholdRecoveryRequest: Equatable, Identifiable {
             """
             Tridge's data was removed from your iCloud account, so it can't sync \
             any more. Tridge can keep what's on this iPhone and start fresh in \
-            iCloud. Export first if you want a copy.
+            iCloud.
             """
         case (.zoneDeleted, .member):
             """

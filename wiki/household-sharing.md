@@ -387,9 +387,11 @@ Inputs from a scan, manual add, or an individual quantity edit are positive whol
 representable as `Int64`; there is no smaller product cap. Reject zero, negative, nonnumeric, and
 out-of-representation inputs instead of silently clamping them. Display the real synchronized count.
 
-The quantity field commits one `adjusted` operation with `target - currentLocalProjection`. Remote
-operations that were not yet visible still compose later, so the final synchronized value may differ
-from the target. Two peers consuming the last visible unit can produce a negative raw sum, but the UI
+The quantity field commits one `adjusted` operation with `target - the quantity the editor was
+showing`. That baseline travels with the command rather than being re-read when the operation is
+written, so an operation that arrives between the sheet opening and Done composes with the edit
+instead of being cancelled by an absolute target. Remote operations that were not yet visible still
+compose later, so the final synchronized value may differ from the target. Two peers consuming the last visible unit can produce a negative raw sum, but the UI
 shows zero. Zero is a projection, not a terminal event: a delayed valid operation may make the total
 positive and visible again. A manual/receipt purchase made while the prior group is locally zero
 creates a fresh purchase root rather than paying down the old operation history. A stale detail save

@@ -22,6 +22,11 @@ struct ItemDetailSheet: View {
 
     @State private var artKey: String
     @State private var quantity: Int64
+    /// The quantity this sheet last knew to be committed — what the field is
+    /// diffed against, and what the saved adjustment is measured from. It moves
+    /// with an Ate it / Tossed it taken here, because that unit has already
+    /// been written and must not be counted a second time by Done.
+    @State private var baselineQuantity: Int64
     @State private var storage: StorageLocation
     @State private var expiryDay: InventoryDay
     @State private var showArtPicker = false
@@ -36,6 +41,7 @@ struct ItemDetailSheet: View {
         self.onAddAsNew = onAddAsNew
         _artKey = State(initialValue: item.artKey)
         _quantity = State(initialValue: item.quantity)
+        _baselineQuantity = State(initialValue: item.quantity)
         _storage = State(initialValue: item.storage)
         _expiryDay = State(initialValue: item.expiryDay)
     }
@@ -131,7 +137,7 @@ struct ItemDetailSheet: View {
     /// difference from what this sheet could see, so a member's operation that
     /// arrived meanwhile still composes rather than being overwritten.
     private func save() {
-        let targetQuantity = quantity == item.quantity ? nil : quantity
+        let targetQuantity = quantity == baselineQuantity ? nil : quantity
         let art = artKey == item.artKey ? nil : artKey
         let location = storage == item.storage ? nil : storage
         let expiry = expiryDay == item.expiryDay ? nil : expiryDay
@@ -143,6 +149,7 @@ struct ItemDetailSheet: View {
         isSaving = true
         Task {
             let saved = await session.updateItem(item.id, targetQuantity: targetQuantity,
+                                                 baselineQuantity: baselineQuantity,
                                                  artKey: art, storage: location,
                                                  expiryDay: expiry)
             isSaving = false
@@ -160,9 +167,11 @@ struct ItemDetailSheet: View {
             isSaving = false
             guard saved else { return }
             // The last unit leaving takes the row off Home, so there is nothing
-            // left for this sheet to edit.
+            // left for this sheet to edit. The baseline follows the field: this
+            // unit is already committed, and Done must not subtract it again.
             if let refreshed = current {
                 quantity = refreshed.quantity
+                baselineQuantity = refreshed.quantity
             } else {
                 dismiss()
             }

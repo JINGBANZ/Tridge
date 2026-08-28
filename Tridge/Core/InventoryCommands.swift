@@ -151,19 +151,29 @@ public struct UpdateItemCommand: Hashable, Sendable {
     /// Used only when the quantity field actually moves the projection.
     public let stockChangeID: UUID
     public let targetQuantity: Int64?
+    /// The quantity the editor was showing when the draft opened.
+    ///
+    /// It travels with the command because the committed operation is
+    /// `target - baseline`: recomputing the delta against whatever the store
+    /// projects at write time would silently absorb an operation that arrived
+    /// while the sheet was open, turning a peer's `+2` into no change at all.
+    /// Nil only for a command that does not touch quantity.
+    public let baselineQuantity: Int64?
     public let artKey: String?
     public let storage: StorageLocation?
     public let expiryDay: InventoryDay?
     public let occurredAt: Date
 
     public init(householdID: UUID, commandID: UUID, itemID: UUID, stockChangeID: UUID,
-                targetQuantity: Int64?, artKey: String?, storage: StorageLocation?,
-                expiryDay: InventoryDay?, occurredAt: Date = Date()) {
+                targetQuantity: Int64?, baselineQuantity: Int64?, artKey: String?,
+                storage: StorageLocation?, expiryDay: InventoryDay?,
+                occurredAt: Date = Date()) {
         self.householdID = householdID
         self.commandID = commandID
         self.itemID = itemID
         self.stockChangeID = stockChangeID
         self.targetQuantity = targetQuantity
+        self.baselineQuantity = baselineQuantity
         self.artKey = artKey
         self.storage = storage
         self.expiryDay = expiryDay
@@ -176,9 +186,14 @@ public struct UpdateItemCommand: Hashable, Sendable {
 
     /// The quantity field commits the difference from what the editor could
     /// see, not the target, so remote operations it never saw still compose.
-    public func adjustment(fromLocalProjection projection: Int64) -> StockEvent? {
-        guard let targetQuantity, targetQuantity != projection else { return nil }
-        return StockEvent(id: stockChangeID, delta: targetQuantity - projection,
+    ///
+    /// Fixed at the moment the command is built, which is what makes a retry
+    /// replay the same operation rather than a new one measured against a
+    /// frontier that has since moved.
+    public var adjustment: StockEvent? {
+        guard let targetQuantity, let baselineQuantity, targetQuantity != baselineQuantity
+        else { return nil }
+        return StockEvent(id: stockChangeID, delta: targetQuantity - baselineQuantity,
                           reason: .adjusted, occurredAt: occurredAt)
     }
 

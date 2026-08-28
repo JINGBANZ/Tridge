@@ -528,11 +528,15 @@ struct HomeView: View {
         }, set: { if !$0, case .failed = scanFlow.phase { scanFlow.reset() } })
     }
 
-    /// Only failures with no sheet of their own reach Home's alert: a detail or
-    /// add sheet keeps its own draft open and reports there.
+    /// Only failures with no sheet of their own reach Home's alert: the detail,
+    /// add, review, and settings sheets each keep their draft open and report
+    /// there. An alert raised here while one of them is up would not be
+    /// presented at all, so the list has to name every sheet that reports.
     private var homeFailureBinding: Binding<Bool> {
-        Binding(get: { session.lastFailure != nil && selectedItem == nil && manualAdd == nil },
-                set: { if !$0 { session.clearFailure() } })
+        Binding(get: {
+            session.lastFailure != nil && selectedItem == nil && manualAdd == nil
+                && !showSettings && scanFlow.phase != .review
+        }, set: { if !$0 { session.clearFailure() } })
     }
 
     private var failureMessage: String {

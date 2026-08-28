@@ -27,7 +27,7 @@ struct TridgeApp: App {
         // CloudKit container at all, so this is the only way to see the app
         // before `iCloud.com.tridge.app` exists.
         if LocalOnlyLaunch.isRequested {
-            return LocalOnlyLaunch.coordinator(syncMonitor: syncMonitor)
+            return LocalOnlyLaunch.coordinator()
         }
 #endif
         return AccountSessionCoordinator(syncMonitor: syncMonitor)

@@ -128,8 +128,17 @@ private struct QuantityRow: View {
                 .focused($isFocused)
         }
         .onChange(of: text) {
-            if let typed = try? InventoryQuantity.parse(text) {
-                quantity = typed
+            do {
+                quantity = try InventoryQuantity.parse(text)
+            } catch InventoryCommandError.quantityOutOfRange {
+                // Past what the store can hold. The digits are refused rather
+                // than left on screen: the binding would keep the last
+                // representable value, and Done would save a number the user
+                // never saw.
+                text = String(quantity)
+            } catch {
+                // Empty, or not a number yet — the field is mid-edit and the
+                // last committed value still stands.
             }
         }
         .onChange(of: isFocused) {

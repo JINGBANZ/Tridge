@@ -290,7 +290,7 @@ final class StopSharingTests: XCTestCase {
 
         XCTAssertEqual(sharing.purgedHouseholds, [source])
         let controller = try XCTUnwrap(coordinator.session?.persistence)
-        let stillThere = await controller.containsHousehold(source)
+        let stillThere = try await controller.containsHousehold(source)
         XCTAssertFalse(stillThere)
     }
 
@@ -339,6 +339,35 @@ final class StopSharingTests: XCTestCase {
                        "the purge is the only step that ran again")
     }
 
+    func testARelaunchNeverActivatesTheSourceItIsStillPurging() async throws {
+        let source = try await startWithSharedFridge(name: "Home")
+        try await addItems([("Milk", 2)])
+        // Left recorded at purgePending, with the saved selection still naming
+        // the source and its graph still local.
+        sharing.purgeFailure = CKError(.networkFailure)
+        let stopped = await coordinator.stopSharing(source)
+        XCTAssertFalse(stopped)
+        XCTAssertEqual(ActiveHouseholdStore(defaults: defaults).savedID(for: Self.scope()),
+                       source, "the saved selection is what a relaunch reads first")
+
+        // Fail the resumed purge too, so the transition stays recorded and the
+        // source graph stays local — the state this has to be safe in.
+        sharing.purgeFailure = CKError(.networkFailure)
+        await coordinator.shutDown()
+        coordinator = makeCoordinator()
+        await coordinator.start()
+        await waitUntil("the resumed purge has failed too") {
+            self.coordinator.householdFailure != nil
+        }
+        XCTAssertEqual(coordinator.pendingLifecycleTransition?.phase, .purgePending)
+
+        // A purge-only resume never closes command admission, so activating the
+        // source would let the user write to a graph that is being deleted.
+        XCTAssertNotEqual(coordinator.activeHouseholdID, source)
+        XCTAssertNotEqual(coordinator.inventory?.householdID, source)
+        XCTAssertFalse(coordinator.households.contains { $0.id == source })
+    }
+
     func testAnAlreadyMissingZoneStillCompletesThroughLocalCleanup() async throws {
         let source = try await startWithSharedFridge()
         try await addItems([("Milk", 1)])
@@ -348,7 +377,7 @@ final class StopSharingTests: XCTestCase {
 
         XCTAssertTrue(stopped)
         let controller = try XCTUnwrap(coordinator.session?.persistence)
-        let stillThere = await controller.containsHousehold(source)
+        let stillThere = try await controller.containsHousehold(source)
         XCTAssertFalse(stillThere, "a missing remote zone is not the same as a clean device")
     }
 

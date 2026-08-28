@@ -92,7 +92,20 @@ struct SettingsSheet: View {
             } message: {
                 Text(clearWarning)
             }
+            // Clear All is the one command whose only entry point is this
+            // sheet, so the failure has to be reported here: Home's alert is
+            // behind a presented sheet and would never be seen.
+            .alert("Couldn't clear this fridge", isPresented: failureBinding) {
+                Button("OK", role: .cancel) { session.clearFailure() }
+            } message: {
+                Text(session.lastFailure?.message ?? "")
+            }
         }
+    }
+
+    private var failureBinding: Binding<Bool> {
+        Binding(get: { session.lastFailure != nil },
+                set: { if !$0 { session.clearFailure() } })
     }
 
     /// Clear All is an inventory action, not a privacy erasure: the causal

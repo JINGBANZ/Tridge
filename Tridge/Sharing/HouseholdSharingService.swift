@@ -110,12 +110,18 @@ struct HouseholdActionFailure: Error, Equatable, Identifiable {
 /// context.
 @MainActor
 protocol HouseholdSharing: AnyObject {
-    /// Which of these Households currently have a `CKShare`.
+    /// Which of these Households currently have a `CKShare`, or nil when the
+    /// container could not be asked.
     ///
     /// Share metadata never appears in persistent history, so share status is
     /// refreshed deliberately — after container events, invitation activity,
     /// account changes, and foreground activation — rather than observed.
-    func sharedHouseholdIDs(among householdIDs: [UUID]) async -> Set<UUID>
+    ///
+    /// The nil case is load-bearing: an empty set is the claim that nothing is
+    /// shared, and acting on it would hide Stop Sharing and send Delete down
+    /// the private path — deleting a shared fridge under the confirmation for
+    /// deleting an unshared one.
+    func sharedHouseholdIDs(among householdIDs: [UUID]) async -> Set<UUID>?
 
     /// Creates the Household's share if it has none, then makes sure the saved
     /// share title matches `title` before returning it.
@@ -167,7 +173,7 @@ final class CloudKitHouseholdSharing: HouseholdSharing {
         self.persistence = persistence
     }
 
-    func sharedHouseholdIDs(among householdIDs: [UUID]) async -> Set<UUID> {
+    func sharedHouseholdIDs(among householdIDs: [UUID]) async -> Set<UUID>? {
         var byObjectID: [NSManagedObjectID: UUID] = [:]
         for store in [persistence.privateStore, persistence.sharedStore] {
             let request = HouseholdRecord.fetchRequest()
@@ -177,9 +183,10 @@ final class CloudKitHouseholdSharing: HouseholdSharing {
                 if let id = record.id { byObjectID[record.objectID] = id }
             }
         }
-        guard !byObjectID.isEmpty,
-              let shares = try? persistence.container.fetchShares(matching: Array(byObjectID.keys))
-        else { return [] }
+        guard !byObjectID.isEmpty else { return [] }
+        // A failed lookup is unknown, never "none".
+        guard let shares = try? persistence.container
+            .fetchShares(matching: Array(byObjectID.keys)) else { return nil }
         return Set(shares.keys.compactMap { byObjectID[$0] })
     }
 

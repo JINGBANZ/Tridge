@@ -241,13 +241,20 @@ final class HouseholdSession {
     ///
     /// There is no name parameter: a saved Item Name is immutable, which is
     /// what keeps every exact-name merge permanent (ADR 0005).
+    ///
+    /// `baselineQuantity` is the quantity the sheet was showing, and it is what
+    /// the committed adjustment is measured against — so a member's operation
+    /// that arrived while the sheet was open composes rather than being
+    /// overwritten.
     @discardableResult
-    func updateItem(_ itemID: UUID, targetQuantity: Int64? = nil, artKey: String? = nil,
+    func updateItem(_ itemID: UUID, targetQuantity: Int64? = nil,
+                    baselineQuantity: Int64? = nil, artKey: String? = nil,
                     storage: StorageLocation? = nil,
                     expiryDay: InventoryDay? = nil) async -> Bool {
         let command = UpdateItemCommand(householdID: householdID, commandID: UUID(),
                                         itemID: itemID, stockChangeID: UUID(),
-                                        targetQuantity: targetQuantity, artKey: artKey,
+                                        targetQuantity: targetQuantity,
+                                        baselineQuantity: baselineQuantity, artKey: artKey,
                                         storage: storage, expiryDay: expiryDay)
         let repository = self.repository
         let day = today()

@@ -13,13 +13,22 @@ extension PersistenceController {
     /// graph, but "the server zone is gone" is not the same claim as "nothing
     /// of it is left on this device" — so every lifecycle path asks this before
     /// it calls itself finished.
-    func containsHousehold(_ householdID: UUID) async -> Bool {
+    /// Throws rather than answering `false` when the store cannot be read: an
+    /// unanswerable question is not proof of absence, and every caller treats a
+    /// `false` here as licence to finish a destructive transition.
+    func containsHousehold(_ householdID: UUID) async throws -> Bool {
         let context = newReaderContext()
-        return await context.perform {
+        return try await context.perform {
             let request = HouseholdRecord.fetchRequest()
             request.predicate = NSPredicate(format: "id == %@", householdID as NSUUID)
             request.fetchLimit = 1
-            return ((try? context.count(for: request)) ?? 0) > 0
+            do {
+                return try context.count(for: request) > 0
+            } catch {
+                let details = error as NSError
+                throw GraphRemovalError(
+                    diagnosticID: "graph.count.\(details.domain).\(details.code)")
+            }
         }
     }
 
@@ -51,7 +60,7 @@ extension PersistenceController {
             }
         }
 
-        guard await !containsHousehold(householdID) else {
+        guard try await !containsHousehold(householdID) else {
             throw GraphRemovalError(diagnosticID: "graph.verify")
         }
     }
@@ -60,7 +69,7 @@ extension PersistenceController {
     /// Absent already is success, which is what makes the cleanup idempotent
     /// across a crash between the purge and the check.
     func ensureLocalGraphAbsent(of householdID: UUID) async throws {
-        guard await containsHousehold(householdID) else { return }
+        guard try await containsHousehold(householdID) else { return }
         try await removeLocalGraph(of: householdID)
     }
 }

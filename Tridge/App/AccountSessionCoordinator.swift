@@ -122,7 +122,28 @@ final class AccountSessionCoordinator {
     /// The last account scope whose reminders this installation scheduled.
     /// Kept so an account change can retire that exact prefix — including the
     /// alerts already delivered — without touching another scope.
-    @ObservationIgnored private var lastValidatedScope: AccountScopeHash?
+    ///
+    /// Persisted rather than held in memory: pending requests and delivered
+    /// alerts outlive the process, so a sign-out or account switch made while
+    /// the app was closed still has to be able to name the exact prefix it owes
+    /// a retirement. Without it those alerts keep naming the previous account's
+    /// items to whoever is signed in now. Deliberately not account-scoped — it
+    /// is the record of which account came before.
+    @ObservationIgnored private var lastValidatedScope: AccountScopeHash? {
+        get {
+            defaults.string(forKey: Self.lastReminderScopeKey)
+                .flatMap(AccountScopeHash.init(digest:))
+        }
+        set {
+            guard let newValue else {
+                defaults.removeObject(forKey: Self.lastReminderScopeKey)
+                return
+            }
+            defaults.set(newValue.value, forKey: Self.lastReminderScopeKey)
+        }
+    }
+
+    private static let lastReminderScopeKey = "lastReminderAccountScope"
     @ObservationIgnored private var syncStatusTask: Task<Void, Never>?
     /// This generation's share operations. Released with the generation, so a
     /// late invitation cannot reach a removed store.
@@ -594,8 +615,14 @@ final class AccountSessionCoordinator {
 
     /// The main-actor apply boundary: share status read for the previous
     /// account never reaches this one's list.
-    private func applyShareState(_ shared: Set<UUID>, for context: AccountSessionContext) {
-        guard currentGeneration == context.generation, sharedHouseholdIDs != shared else { return }
+    ///
+    /// A nil answer means the container could not be asked, and the last known
+    /// state stands. Treating it as "nothing is shared" would hide Stop Sharing
+    /// and route Delete through the private path, destroying a shared fridge
+    /// under the confirmation written for an unshared one.
+    private func applyShareState(_ shared: Set<UUID>?, for context: AccountSessionContext) {
+        guard currentGeneration == context.generation, let shared,
+              sharedHouseholdIDs != shared else { return }
         sharedHouseholdIDs = shared
         households = households.map { $0.withShareState(isShared: shared.contains($0.id)) }
     }
@@ -966,6 +993,10 @@ final class AccountSessionCoordinator {
         suppressedHouseholdIDs.remove(destination)
         await reminders.retire(scope: .household(accountScope: context.accountScope.value,
                                                  householdID: source))
+        // Rechecked after the await, for the same reason as in
+        // `finishHouseholdRemoval`: the generation can have been retired while
+        // retirement was suspended.
+        guard currentGeneration == context.generation else { return }
         // The verified copy is what the user should be looking at next.
         activeHouseholds.save(destination, for: context.accountScope)
         activeHouseholdID = destination
@@ -989,7 +1020,12 @@ final class AccountSessionCoordinator {
             confirmCloudDeletionInBackground(transition, sharing: sharing, for: context)
             return
         }
+        // Read back from the store when the list cannot supply it: bootstrap
+        // suppresses the source before this runs, so it is never in `households`
+        // on a relaunch — and falling straight through to the default would
+        // permanently rename the preserved fridge to `My Fridge`.
         let name = households.first { $0.id == transition.sourceHouseholdID }?.name
+            ?? recoveredHouseholdName(transition.sourceHouseholdID, in: session)
             ?? HouseholdSelection.defaultHouseholdName
         lifecycleTask = Task { [weak self] in
             guard let self else { return }
@@ -1213,6 +1249,17 @@ final class AccountSessionCoordinator {
         // deletion.
         guard !captured.isEmpty else { return true }
 
+        // Asked before waiting, because the export that carried this deletion
+        // may already have completed — it certainly has on a relaunch that
+        // resumes the check, and it can have on the first pass too. Waiting for
+        // a *next* export that nothing is going to produce would leave the
+        // deletion pending forever, and with it every destructive action.
+        if try await tasks.run(context: context, operation: {
+            try await sharing.confirmRecordsAbsent(captured)
+        }) {
+            return true
+        }
+
         let exported = await syncMonitor.waitForNextSuccessfulExport(
             generation: context.generation, storeIdentifier: context.privateStoreIdentifier)
         guard exported else { return false }
@@ -1294,10 +1341,15 @@ final class AccountSessionCoordinator {
         } catch is AccountTaskRegistry.Rejection {
             return false
         } catch {
-            // The Household stays hidden and the failure stays retryable; no
-            // stale inventory is exposed in the meantime.
-            inventory?.reopenCommandAdmission()
             householdFailure = HouseholdActionFailure(error, stage: stage)
+            // The Household stays hidden and the failure stays retryable — but
+            // the session has to move off it first. Access is already gone;
+            // reopening admission while it is still the projected fridge would
+            // leave Home showing rows the user cannot reach any more and taking
+            // commands a retry is going to delete. Selection skips it because
+            // it is suppressed.
+            selectActiveHousehold(for: context, controller: persistence)
+            inventory?.reopenCommandAdmission()
             return false
         }
 
@@ -1312,6 +1364,11 @@ final class AccountSessionCoordinator {
         guard currentGeneration == context.generation else { return }
         await reminders.retire(scope: .household(accountScope: context.accountScope.value,
                                                  householdID: householdID))
+        // Rechecked after the await: retirement is not registered work, so an
+        // account change can have invalidated this generation and released its
+        // stores while it was suspended. Selecting against a removed store from
+        // here would fault.
+        guard currentGeneration == context.generation else { return }
         if activeHouseholdID == householdID { activeHouseholdID = nil }
         inventory?.reopenCommandAdmission()
         selectActiveHousehold(for: context, controller: controller)
@@ -1448,8 +1505,14 @@ final class AccountSessionCoordinator {
         // A suppression lasts exactly as long as the record it hides: once the
         // graph is really gone, a later re-invitation is free to bring it back.
         suppressedHouseholdIDs.formIntersection(Set(available.map(\.id)))
-        households = available
-            .filter { !suppressedHouseholdIDs.contains($0.id) }
+        // Selection reads the same filtered set the picker does. A suppressed
+        // Household is one a transition is part-way through removing, and its
+        // graph is still local until the purge lands — activating it would open
+        // Home on inventory that is about to be deleted, and a purge-only
+        // resume never closes command admission, so anything added meanwhile
+        // would go with it.
+        let selectable = available.filter { !suppressedHouseholdIDs.contains($0.id) }
+        households = selectable
             .map { $0.withShareState(isShared: sharedHouseholdIDs.contains($0.id)) }
         refreshShareState(for: context)
         // A share title that could not be written survives termination, so the
@@ -1462,7 +1525,7 @@ final class AccountSessionCoordinator {
 
         switch HouseholdSelection.choose(
             saved: activeHouseholds.savedID(for: context.accountScope),
-            available: available,
+            available: selectable,
             hasCompletedInitialImport: hasCompletedInitialPrivateImport
         ) {
         case .select(let id):

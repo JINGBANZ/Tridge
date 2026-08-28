@@ -178,7 +178,7 @@ final class HouseholdRecoveryTests: XCTestCase {
             }
         }
         let controller = try XCTUnwrap(coordinator.session?.persistence)
-        let stillThere = await controller.containsHousehold(fridges.owned)
+        let stillThere = try await controller.containsHousehold(fridges.owned)
         XCTAssertTrue(stillThere, "nothing local is purged before the owner agrees")
         XCTAssertEqual(sharing.purgedHouseholds, [])
     }
@@ -194,7 +194,7 @@ final class HouseholdRecoveryTests: XCTestCase {
         XCTAssertNil(coordinator.pendingRecovery)
         XCTAssertFalse(coordinator.households.contains { $0.id == fridges.owned })
         let controller = try XCTUnwrap(coordinator.session?.persistence)
-        let stillThere = await controller.containsHousehold(fridges.owned)
+        let stillThere = try await controller.containsHousehold(fridges.owned)
         XCTAssertTrue(stillThere)
     }
 
@@ -210,7 +210,7 @@ final class HouseholdRecoveryTests: XCTestCase {
         XCTAssertNil(coordinator.pendingRecovery)
         XCTAssertEqual(sharing.purgedHouseholds, [fridges.owned])
         let controller = try XCTUnwrap(coordinator.session?.persistence)
-        let oldStillThere = await controller.containsHousehold(fridges.owned)
+        let oldStillThere = try await controller.containsHousehold(fridges.owned)
         XCTAssertFalse(oldStillThere)
 
         let replacement = try XCTUnwrap(coordinator.households.first { $0.ownership == .owned })
@@ -248,7 +248,9 @@ final class HouseholdRecoveryTests: XCTestCase {
             // operator is an autoclosure, which cannot await.
             guard !self.coordinator.households.contains(where: { $0.id == fridges.received })
             else { return false }
-            let stillStored = await controller.containsHousehold(fridges.received)
+            // An unreadable store is not proof of absence, so it keeps waiting.
+            guard let stillStored = try? await controller.containsHousehold(fridges.received)
+            else { return false }
             return !stillStored
         }
         let request = try XCTUnwrap(coordinator.pendingRecovery)

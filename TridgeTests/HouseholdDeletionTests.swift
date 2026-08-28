@@ -215,7 +215,7 @@ final class HouseholdDeletionTests: XCTestCase {
         XCTAssertEqual(sharing.confirmCount, 0, "there is nothing to read back")
         XCTAssertEqual(coordinator.activeHouseholdID, fridges.keep)
         let controller = try XCTUnwrap(coordinator.session?.persistence)
-        let stillThere = await controller.containsHousehold(fridges.target)
+        let stillThere = try await controller.containsHousehold(fridges.target)
         XCTAssertFalse(stillThere)
     }
 
@@ -313,7 +313,7 @@ final class HouseholdDeletionTests: XCTestCase {
         XCTAssertEqual(coordinator.households.count, before - 1,
                        "no copy is made for the owner")
         let controller = try XCTUnwrap(coordinator.session?.persistence)
-        let stillThere = await controller.containsHousehold(fridges.target)
+        let stillThere = try await controller.containsHousehold(fridges.target)
         XCTAssertFalse(stillThere)
     }
 
@@ -330,7 +330,7 @@ final class HouseholdDeletionTests: XCTestCase {
 
         XCTAssertTrue(deleted)
         let controller = try XCTUnwrap(coordinator.session?.persistence)
-        let stillThere = await controller.containsHousehold(fridges.target)
+        let stillThere = try await controller.containsHousehold(fridges.target)
         XCTAssertFalse(stillThere)
     }
 
@@ -349,7 +349,7 @@ final class HouseholdDeletionTests: XCTestCase {
         XCTAssertNotNil(coordinator.householdFailure)
         XCTAssertFalse(coordinator.households.contains { $0.id == fridges.target })
         let controller = try XCTUnwrap(coordinator.session?.persistence)
-        let stillThere = await controller.containsHousehold(fridges.target)
+        let stillThere = try await controller.containsHousehold(fridges.target)
         XCTAssertTrue(stillThere, "nothing was destroyed by the failed attempt")
     }
 

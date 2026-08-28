@@ -27,10 +27,10 @@ enum LocalOnlyLaunch {
     private static let scope = AccountScopeHash(digest: String(repeating: "0", count: 64))!
 
     @MainActor
-    static func coordinator(syncMonitor: any SyncStatusProviding) -> AccountSessionCoordinator {
+    static func coordinator() -> AccountSessionCoordinator {
         AccountSessionCoordinator(
             identity: FixedAccountIdentity(scope: scope),
-            syncMonitor: syncMonitor,
+            syncMonitor: LocalOnlySyncMonitor(),
             makePersistence: { scope in
                 let base = try FileManager.default.url(for: .applicationSupportDirectory,
                                                        in: .userDomainMask,
@@ -40,6 +40,44 @@ enum LocalOnlyLaunch {
             },
             makeSharing: { _ in UnavailableHouseholdSharing() })
     }
+}
+
+/// Reports the local truth for a stack with no mirroring.
+///
+/// `.localOnly` leaves `cloudKitContainerOptions` nil, so the container emits no
+/// setup or import event ever. The real monitor would therefore hold the
+/// bootstrap barrier closed forever and the launch would sit on "Finishing
+/// iCloud setup…" — and `canRunDestructiveShareAction` would refuse Stop
+/// Sharing and Delete for the same reason. There is nothing to import and
+/// nothing pending to export here, so the honest answers are "already imported"
+/// and "up to date".
+@MainActor
+private final class LocalOnlySyncMonitor: SyncStatusProviding {
+    var currentStatus: SyncStatus { .upToDate }
+
+    /// One value, then finished: the status cannot change without a container.
+    var statusUpdates: AsyncStream<SyncStatus> {
+        AsyncStream { continuation in
+            continuation.yield(.upToDate)
+            continuation.finish()
+        }
+    }
+
+    var onRecoveryNeeded: (@MainActor (SyncRecoveryNeed, String) -> Void)?
+
+    func updateAccountState(_ state: SyncAccountState) {}
+    func prepareSession(generation: AccountGeneration) {}
+    func activateSession(generation: AccountGeneration, storeIdentifiers: Set<String>) {}
+    func endSession(generation: AccountGeneration) {}
+
+    func hasCompletedInitialImport(generation: AccountGeneration,
+                                   storeIdentifier: String) -> Bool { true }
+
+    func waitForInitialImport(generation: AccountGeneration,
+                              storeIdentifier: String) async -> Bool { true }
+
+    func waitForNextSuccessfulExport(generation: AccountGeneration,
+                                     storeIdentifier: String) async -> Bool { true }
 }
 
 /// Answers with one scope, without asking CloudKit who is signed in.
@@ -62,7 +100,9 @@ private final class UnavailableHouseholdSharing: HouseholdSharing {
                                diagnosticID: "sharing.localOnly")
     }
 
-    func sharedHouseholdIDs(among householdIDs: [UUID]) async -> Set<UUID> { [] }
+    /// Known-empty rather than unknown: there is no container, so nothing is
+    /// shared and that is a certain answer.
+    func sharedHouseholdIDs(among householdIDs: [UUID]) async -> Set<UUID>? { [] }
 
     func prepareShare(for householdID: UUID, title: String) async throws -> HouseholdShareItem {
         throw failure

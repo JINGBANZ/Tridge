@@ -351,11 +351,14 @@ final class FakeHouseholdSharing: HouseholdSharing {
     /// Thrown by the next `prepareShare`, then cleared.
     var prepareFailure: Error?
     var acceptFailure: Error?
+    /// The container cannot be asked which Households are shared — the answer
+    /// is unknown rather than empty.
+    var shareLookupUnavailable = false
     private(set) var prepareCount = 0
     private(set) var acceptCount = 0
 
-    func sharedHouseholdIDs(among householdIDs: [UUID]) async -> Set<UUID> {
-        sharedHouseholds.intersection(householdIDs)
+    func sharedHouseholdIDs(among householdIDs: [UUID]) async -> Set<UUID>? {
+        shareLookupUnavailable ? nil : sharedHouseholds.intersection(householdIDs)
     }
 
     func prepareShare(for householdID: UUID, title: String) async throws -> HouseholdShareItem {

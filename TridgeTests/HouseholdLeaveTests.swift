@@ -93,14 +93,67 @@ final class HouseholdLeaveTests: XCTestCase {
         return try result.get()
     }
 
+    /// One purchase root with stock, written straight into the store.
+    ///
+    /// Reminders exist for the Active Household's *items*, so a fridge that is
+    /// meant to still have reminders after a transition has to have something
+    /// in it — otherwise the reconciliation that follows the switch correctly
+    /// empties its schedule.
+    private func insertItem(into controller: PersistenceController, householdID: UUID,
+                            ownership: HouseholdOwnership, name: String = "Milk") throws {
+        let context = controller.newWriterContext()
+        let store = ownership == .owned ? controller.privateStore : controller.sharedStore
+        var result: Result<Void, Error>!
+        context.performAndWait {
+            result = Result {
+                let request = HouseholdRecord.fetchRequest()
+                request.predicate = NSPredicate(format: "id == %@", householdID as NSUUID)
+                request.affectedStores = [store]
+                guard let household = try context.fetch(request).first else { return }
+                let today = InventoryDay.today()
+                let root = FridgeItemRecord(context: context)
+                root.id = UUID()
+                root.name = name
+                root.normalizedName = NameKey.normalize(name)
+                root.inventoryEpochContextRaw =
+                    InventoryEpochCodec.encode(try household.inventoryFrontier())
+                root.artKey = ItemID.milk.rawValue
+                root.storageRaw = StorageLocation.fridge.rawValue
+                root.purchaseDay = today.ordinal
+                root.expiryDay = today.adding(days: 6)!.ordinal
+                root.expirySourceRaw = ExpirySource.llmEstimate.rawValue
+                root.createdAt = Date()
+                root.modifiedAt = root.createdAt
+                root.household = household
+
+                let event = StockChangeRecord(context: context)
+                event.id = UUID()
+                event.delta = 1
+                event.reasonRaw = StockReason.acquired.rawValue
+                event.occurredAt = Date()
+                event.item = root
+
+                try StoreRouting.assign([root, event], to: store, in: context)
+                try context.save()
+            }
+        }
+        try result.get()
+    }
+
     /// An owned fridge plus a received one, with the received one active — the
     /// state a member is in when Leave is the interesting action.
-    private func startWithBothFridges() async throws -> (owned: UUID, received: UUID) {
+    private func startWithBothFridges(
+        seedItems: Bool = false
+    ) async throws -> (owned: UUID, received: UUID) {
         let controller = try await PersistenceController.load(
             configuration: .localOnly(accountScope: Self.scope(), baseDirectory: baseDirectory))
         let owned = try insertHousehold(into: controller, name: "Home", ownership: .owned)
         let received = try insertHousehold(into: controller, name: "Their Fridge",
                                            ownership: .received)
+        if seedItems {
+            try insertItem(into: controller, householdID: owned, ownership: .owned)
+            try insertItem(into: controller, householdID: received, ownership: .received)
+        }
         controller.tearDown()
         await coordinator.start()
         await waitUntil("both fridges are listed") { self.coordinator.households.count == 2 }
@@ -133,7 +186,7 @@ final class HouseholdLeaveTests: XCTestCase {
         XCTAssertEqual(coordinator.households.map(\.id), [fridges.owned])
         XCTAssertEqual(coordinator.activeHouseholdID, fridges.owned)
         let controller = try XCTUnwrap(coordinator.session?.persistence)
-        let stillThere = await controller.containsHousehold(fridges.received)
+        let stillThere = try await controller.containsHousehold(fridges.received)
         XCTAssertFalse(stillThere, "local absence is verified, not assumed")
     }
 
@@ -147,26 +200,30 @@ final class HouseholdLeaveTests: XCTestCase {
         XCTAssertEqual(after, before, "leaving copies nothing into the member's own store")
     }
 
+    /// Both fridges hold stock, so both have a real schedule to reconcile
+    /// against — reminders injected out of band would simply be reconciled away
+    /// by the switch that follows the leave, whatever `retire` did.
+    /// `ReminderReconcilerTests` covers the scope matching itself; what this
+    /// asserts is the end state a member is left in.
     func testLeavingRetiresOnlyThatFridgesReminders() async throws {
-        let fridges = try await startWithBothFridges()
-        let item = InventoryItemSnapshot(
-            id: UUID(), memberIDs: [UUID()], name: "Milk", normalizedName: "milk", quantity: 1,
-            artKey: ItemID.milk.rawValue, storage: .fridge, purchaseDay: InventoryDay.today(),
-            expiryDay: InventoryDay.today().adding(days: 6)!, expirySource: .llmEstimate)
-        await coordinator.reminders.reconcile(items: [item], accountScope: Self.scope(),
-                                              householdID: fridges.received)
-        await coordinator.reminders.reconcile(items: [item], accountScope: Self.scope(),
-                                              householdID: fridges.owned)
-        XCTAssertEqual(notifications.pending.count, 4)
+        let fridges = try await startWithBothFridges(seedItems: true)
+        await waitUntil("the active fridge's reminders are scheduled") {
+            !self.notifications.pending.isEmpty
+        }
+        XCTAssertTrue(notifications.pending.allSatisfy {
+            $0.identifier.contains(fridges.received.uuidString)
+        }, "only the Active Household is scheduled")
 
         _ = await coordinator.leaveHousehold(fridges.received)
 
-        await waitUntil("only the remaining fridge's reminders are left") {
-            self.notifications.pending.allSatisfy {
+        await waitUntil("the remaining fridge's reminders are the ones left") {
+            !self.notifications.pending.isEmpty && self.notifications.pending.allSatisfy {
                 $0.identifier.contains(fridges.owned.uuidString)
             }
         }
-        XCTAssertEqual(notifications.pending.count, 2)
+        XCTAssertFalse(notifications.pending.contains {
+            $0.identifier.contains(fridges.received.uuidString)
+        }, "the fridge that was left keeps nothing scheduled")
     }
 
     /// A server zone that is already gone is a cleanup path, not completion:
@@ -179,7 +236,7 @@ final class HouseholdLeaveTests: XCTestCase {
 
         XCTAssertTrue(left)
         let controller = try XCTUnwrap(coordinator.session?.persistence)
-        let stillThere = await controller.containsHousehold(fridges.received)
+        let stillThere = try await controller.containsHousehold(fridges.received)
         XCTAssertFalse(stillThere)
         XCTAssertEqual(coordinator.activeHouseholdID, fridges.owned)
     }
@@ -195,7 +252,7 @@ final class HouseholdLeaveTests: XCTestCase {
         XCTAssertFalse(coordinator.households.contains { $0.id == fridges.received },
                        "no stale inventory is exposed while the failure stands")
         let controller = try XCTUnwrap(coordinator.session?.persistence)
-        let stillThere = await controller.containsHousehold(fridges.received)
+        let stillThere = try await controller.containsHousehold(fridges.received)
         XCTAssertTrue(stillThere, "nothing was destroyed by the failed attempt")
 
         let retried = await coordinator.leaveHousehold(fridges.received)
@@ -225,7 +282,7 @@ final class HouseholdLeaveTests: XCTestCase {
             self.coordinator.activeHouseholdID == fridges.owned
         }
         let controller = try XCTUnwrap(coordinator.session?.persistence)
-        let stillThere = await controller.containsHousehold(fridges.received)
+        let stillThere = try await controller.containsHousehold(fridges.received)
         XCTAssertFalse(stillThere)
     }
 

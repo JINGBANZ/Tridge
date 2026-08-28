@@ -125,6 +125,27 @@ final class HouseholdSharingTests: XCTestCase {
         XCTAssertEqual(coordinator.activeHouseholdID, owned, "selection is untouched")
     }
 
+    /// A share lookup that fails is unknown, never "nothing is shared".
+    /// Believing an empty answer would hide Stop Sharing and send Delete down
+    /// the private path, destroying a shared fridge under the confirmation
+    /// written for an unshared one.
+    func testATransientShareLookupFailureLeavesTheKnownShareStateAlone() async throws {
+        let owned = try await startWithOwnedHousehold()
+        // Hoisted out of the assertion: XCTAssert's argument is an autoclosure,
+        // which cannot await.
+        let prepared = await coordinator.prepareShare(for: owned)
+        XCTAssertTrue(prepared)
+        await waitUntil("the fridge is known to be shared") {
+            self.coordinator.activeHousehold?.isShared == true
+        }
+
+        sharing.shareLookupUnavailable = true
+        coordinator.refreshOnForeground()
+        await neverHappens("a failed lookup relabels the fridge as unshared") {
+            self.coordinator.activeHousehold?.isShared == false
+        }
+    }
+
     // MARK: - Preparing an invitation
 
     func testPreparingAShareSavesTheCurrentFridgeName() async throws {

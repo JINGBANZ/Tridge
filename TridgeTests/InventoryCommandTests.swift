@@ -216,7 +216,8 @@ final class InventoryCommandTests: XCTestCase {
 
         let command = UpdateItemCommand(householdID: householdID, commandID: UUID(),
                                         itemID: pair.high, stockChangeID: UUID(),
-                                        targetQuantity: nil, artKey: ItemID.cheese.rawValue,
+                                        targetQuantity: nil, baselineQuantity: nil,
+                                        artKey: ItemID.cheese.rawValue,
                                         storage: .freezer,
                                         expiryDay: Self.today.adding(days: 40),
                                         occurredAt: Self.occurredAt)
@@ -254,7 +255,8 @@ final class InventoryCommandTests: XCTestCase {
 
         let command = UpdateItemCommand(householdID: householdID, commandID: UUID(),
                                         itemID: pair.low, stockChangeID: UUID(),
-                                        targetQuantity: 2, artKey: ItemID.milk.rawValue,
+                                        targetQuantity: 2, baselineQuantity: 2,
+                                        artKey: ItemID.milk.rawValue,
                                         storage: .fridge,
                                         expiryDay: Self.today.adding(days: 5),
                                         occurredAt: Self.occurredAt)
@@ -272,7 +274,8 @@ final class InventoryCommandTests: XCTestCase {
         let stockChangeID = UUID()
         let command = UpdateItemCommand(householdID: householdID, commandID: UUID(),
                                         itemID: pair.low, stockChangeID: stockChangeID,
-                                        targetQuantity: 5, artKey: nil, storage: nil,
+                                        targetQuantity: 5, baselineQuantity: 2,
+                                        artKey: nil, storage: nil,
                                         expiryDay: nil, occurredAt: Self.occurredAt)
         let projection = try await repository.updateItem(command, today: Self.today)
 
@@ -283,11 +286,42 @@ final class InventoryCommandTests: XCTestCase {
         XCTAssertEqual(projection.items.first?.quantity, 5)
     }
 
+    /// The multi-writer promise: a quantity edit is a delta from what the
+    /// editor saw, so an operation that landed while the sheet was open still
+    /// counts. Differencing against the store's current projection instead
+    /// would silently cancel the peer's change.
+    func testAQuantityEditComposesWithAnOperationThatArrivedWhileTheSheetWasOpen() async throws {
+        let pair = try await addLinkedPair()   // two units, which the sheet sees
+
+        // The sheet is open at 2 and the user sets it to 3 — built before the
+        // peer's change lands, exactly as Item Detail builds it.
+        let edit = UpdateItemCommand(householdID: householdID, commandID: UUID(),
+                                     itemID: pair.low, stockChangeID: UUID(),
+                                     targetQuantity: 3, baselineQuantity: 2,
+                                     artKey: nil, storage: nil, expiryDay: nil,
+                                     occurredAt: Self.occurredAt)
+
+        // Someone else adds two before Done is tapped.
+        _ = try await repository.updateItem(
+            UpdateItemCommand(householdID: householdID, commandID: UUID(),
+                              itemID: pair.low, stockChangeID: UUID(),
+                              targetQuantity: 4, baselineQuantity: 2,
+                              artKey: nil, storage: nil, expiryDay: nil,
+                              occurredAt: Self.occurredAt),
+            today: Self.today)
+
+        let projection = try await repository.updateItem(edit, today: Self.today)
+
+        XCTAssertEqual(projection.items.first?.quantity, 5,
+                       "the peer's +2 and the editor's +1 both count")
+    }
+
     func testAnIdenticalQuantityRetryAppliesOnce() async throws {
         let pair = try await addLinkedPair()
         let command = UpdateItemCommand(householdID: householdID, commandID: UUID(),
                                         itemID: pair.low, stockChangeID: UUID(),
-                                        targetQuantity: 5, artKey: nil, storage: nil,
+                                        targetQuantity: 5, baselineQuantity: 2,
+                                        artKey: nil, storage: nil,
                                         expiryDay: nil, occurredAt: Self.occurredAt)
 
         _ = try await repository.updateItem(command, today: Self.today)
@@ -418,7 +452,8 @@ final class InventoryCommandTests: XCTestCase {
             _ = try await self.repository.updateItem(
                 UpdateItemCommand(householdID: self.householdID, commandID: UUID(),
                                   itemID: pair.low, stockChangeID: UUID(), targetQuantity: 4,
-                                  artKey: nil, storage: nil, expiryDay: nil,
+                                  baselineQuantity: 2, artKey: nil, storage: nil,
+                                  expiryDay: nil,
                                   occurredAt: Self.occurredAt),
                 today: Self.today)
         }
@@ -508,7 +543,8 @@ final class InventoryCommandTests: XCTestCase {
             { try await denied.updateItem(
                 UpdateItemCommand(householdID: self.householdID, commandID: UUID(),
                                   itemID: pair.low, stockChangeID: UUID(), targetQuantity: 9,
-                                  artKey: ItemID.cheese.rawValue, storage: nil, expiryDay: nil,
+                                  baselineQuantity: 2, artKey: ItemID.cheese.rawValue,
+                                  storage: nil, expiryDay: nil,
                                   occurredAt: Self.occurredAt),
                 today: Self.today) },
             { try await denied.deleteItem(

@@ -36,17 +36,18 @@ extension CoreDataInventoryRepository {
             }
 
             var inserted: [NSManagedObject] = []
-            if command.needsStockEvent {
-                // The retry check comes first: on a replay the earlier
-                // adjustment is already in the projection, so recomputing the
-                // delta would produce a second, different operation under one
-                // command id.
+            // Measured against the quantity the sheet was showing, which the
+            // command carries — never against the projection read here. A
+            // peer's operation that landed while the sheet was open has already
+            // moved that projection, and differencing against it would cancel
+            // the peer's change instead of composing with it.
+            if let event = command.adjustment {
                 let state = try HouseholdFetch.retryState(command.stockChangeID,
-                                                          expecting: .adjusted, delta: nil,
-                                                          occurredAt: command.occurredAt,
+                                                          expecting: event.reason,
+                                                          delta: event.delta,
+                                                          occurredAt: event.occurredAt,
                                                           in: scope)
-                if state == .absent,
-                   let event = command.adjustment(fromLocalProjection: item.quantity) {
+                if state == .absent {
                     inserted.append(InventoryCommandWriter.insert(event, on: canonical,
                                                                   in: scope.context))
                 }
@@ -284,9 +285,9 @@ enum HouseholdFetch {
 
     /// Whether a singular command still has to write its operation.
     ///
-    /// `delta` is nil for a quantity adjustment, whose value depends on the
-    /// projection the editor saw and therefore cannot be recomputed on a
-    /// replay; the command id, reason, and instant identify it instead.
+    /// `delta` may be nil for a caller that cannot restate its own payload; a
+    /// replay that can — every command here — passes it, so a repeated id
+    /// carrying a different operation is caught rather than accepted.
     static func retryState(_ commandID: UUID, expecting reason: StockReason, delta: Int64?,
                            occurredAt: Date,
                            in scope: CoreDataInventoryRepository.CommandContext) throws
