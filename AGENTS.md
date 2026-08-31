@@ -7,9 +7,27 @@
 - **Think before coding.** State assumptions explicitly. If a request has multiple reasonable
   interpretations, surface them and ask — don't silently pick one. Push back when something
   looks wrong instead of running with it.
-- **Simplicity first.** Write the minimum code that solves the problem. No speculative features,
-  no abstractions for single-use code, no error handling for cases that can't occur. Ask whether
-  a senior engineer would find the solution overcomplicated.
+- **Define the scope contract.** Before non-trivial work, agree on the expected user behavior,
+  failure behavior, acceptable degradation or data loss, explicit non-goals, and completion
+  criteria. Treat this contract as the PR scope.
+- **Review against the contract.** A confirmed contract, security, or privacy violation is
+  actionable. Feedback that expands the contract or adds lifecycle state, retries, timers, or
+  cross-component coordination requires owner approval before editing. Do not optimize for zero
+  comments; stop when the contract is satisfied and the Gate passes.
+- **Simplicity first.** Choose the smallest implementation that fully meets the current
+  requirements. Avoid speculative features, abstractions, configuration, and indirection; do not
+  add error handling for cases that can't occur. Ask whether a senior engineer would find the
+  solution overcomplicated.
+- **Avoid legacy baggage.** Preserve backward compatibility only when current project requirements
+  demand it—for example, for a public API contract, persisted data, or a rolling deployment. When
+  project context confirms compatibility is no longer required, remove obsolete paths instead of
+  adding compatibility layers, fallbacks, or migrations.
+- **Build in working layers.** Start with the smallest version that works end to end, then add each
+  capability on top of a product that already works. Never trade a working product for unfinished
+  complexity.
+- **Keep boundaries clear.** Keep components modular and concerns separated.
+- **Build for the long term.** Make durable architectural decisions. Do not accept a stopgap that
+  only works for now and is meant to be replaced later.
 - **Surgical changes.** Every changed line should trace to the request — but it's fine to refactor
   or improve nearby code and remove pre-existing dead code where there's clear room for improvement.
 - **Goal-driven execution.** Turn the request into verifiable success criteria, state a brief plan
@@ -22,8 +40,13 @@
   agree on an approach before editing. Skip planning only for small, well-scoped fixes.
 - **Evidence, not assertion.** Before claiming work is done, run the **Gate** command and show the
   output. Don't say "it works" without the passing result to back it.
-- **Match existing patterns.** Before adding a file, find where similar code already lives and mirror
-  its structure, naming, and idioms. Don't impose a pattern the repo doesn't already use.
+- **Adopt proven patterns.** Before designing a solution, study how established products solve the
+  problem and adopt their proven patterns and conventions. Within the repo, find similar code and
+  mirror its structure, naming, and idioms rather than imposing a new approach.
+- **Reuse before building.** Check the documentation and types of dependencies already in the
+  project before writing your own implementation or adding a package. Prefer established,
+  well-maintained libraries when they reduce overall complexity or improve reliability; reimplement
+  common functionality only with a clear reason.
 - **Prefer running focused tests** over the whole suite while iterating, then run the full **Gate**
   before finishing.
 - **Open a PR when the work is done.** Once the change is complete and the **Gate** passes, commit
