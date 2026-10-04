@@ -1,6 +1,5 @@
 #if DEBUG
 import Foundation
-import SwiftData
 
 /// The home-screen mock's inventory, for Xcode previews and the scan menu's
 /// "Seed the App" action (debug builds) — populates the fridge with no
@@ -13,7 +12,7 @@ enum PreviewData {
         let name: String
         let art: ItemID
         let daysLeft: Int
-        var quantity: Int = 1
+        var quantity: Int64 = 1
         var storage: StorageLocation = .fridge
     }
 
@@ -46,7 +45,7 @@ enum PreviewData {
                               now: Date = Date()) -> [PurchaseDraft] {
         rows.map { row in
             PurchaseDraft(itemID: UUID(), stockChangeID: UUID(), name: row.name,
-                          quantity: Int64(row.quantity), artKey: row.art.rawValue,
+                          quantity: row.quantity, artKey: row.art.rawValue,
                           storage: row.storage, purchaseDay: today,
                           expiryDay: today.adding(days: row.daysLeft) ?? today,
                           expirySource: .llmEstimate, explicitMetadataFields: [],
@@ -54,27 +53,79 @@ enum PreviewData {
         }
     }
 
-    /// Inserts the preset items into the legacy SwiftData store the shipping
-    /// build still runs on.
-    static func seed(into context: ModelContext) {
-        for row in rows {
-            let expiry = Calendar.current.date(byAdding: .day, value: row.daysLeft, to: Date())!
-            context.insert(FridgeItem(
-                name: row.name, artKey: row.art.rawValue, quantity: row.quantity,
-                storage: row.storage, purchaseDate: Date(), expiryDate: expiry))
+    /// The same preset inventory as the value snapshots a projection would
+    /// produce, so Xcode previews render Home without a store at all.
+    static func previewItems(today: InventoryDay = InventoryDay.today())
+    -> [InventoryItemSnapshot] {
+        rows.map { row in
+            let id = UUID()
+            return InventoryItemSnapshot(
+                id: id, memberIDs: [id], name: row.name,
+                normalizedName: NameKey.normalize(row.name), quantity: row.quantity,
+                artKey: row.art.rawValue, storage: row.storage, purchaseDay: today,
+                expiryDay: today.adding(days: row.daysLeft) ?? today,
+                expirySource: .llmEstimate)
         }
-        try? context.save() // hand-made contexts don't autosave
+        .sorted { $0.expiryDay < $1.expiryDay }
     }
 
-    /// In-memory container pre-seeded for Xcode previews.
-    static let container: ModelContainer = {
-        let container = try! ModelContainer(
-            for: FridgeItem.self,
-            configurations: ModelConfiguration(isStoredInMemoryOnly: true))
-        // A throwaway context: the static initializer is nonisolated, so the
-        // main-actor-bound mainContext is off limits here.
-        seed(into: ModelContext(container))
-        return container
-    }()
+    /// The purchase-history side of the same fixture, which is what the manual
+    /// add sheet ranks its quick-fill chips from.
+    static func previewHistory(today: InventoryDay = InventoryDay.today(),
+                               now: Date = Date()) -> [PhysicalItemSnapshot] {
+        rows.map { row in
+            PhysicalItemSnapshot(
+                id: UUID(), name: row.name, inventoryContext: [UUID()],
+                artKey: row.art.rawValue, storage: row.storage, purchaseDay: today,
+                expiryDay: today.adding(days: row.daysLeft) ?? today,
+                expirySource: .llmEstimate, createdAt: now, modifiedAt: now)
+        }
+    }
+
+    /// An account scope for previews. Any canonical 64-character digest works;
+    /// nothing here ever reaches a store or a notification identifier.
+    static let previewAccountScope = AccountScopeHash(
+        digest: String(repeating: "a", count: 64))!
+
+    static var previewAccountContext: AccountSessionContext {
+        AccountSessionContext(
+            generationContext: AccountGenerationContext(accountScope: previewAccountScope),
+            privateStoreIdentifier: "preview.private",
+            sharedStoreIdentifier: "preview.shared")
+    }
+}
+
+/// A repository that answers previews from a fixed projection and refuses to
+/// write. Previews never reach it — the session is seeded directly — but the
+/// session's initializer needs something to hold.
+struct PreviewInventoryRepository: InventoryRepository {
+    let fixed: HouseholdProjection
+
+    func projection(of householdID: UUID,
+                    today: InventoryDay) async throws -> HouseholdProjection { fixed }
+
+    func addManualItem(_ command: AddManualItemCommand,
+                       today: InventoryDay) async throws -> HouseholdProjection { fixed }
+
+    func addReviewedRows(_ command: AddReviewedRowsCommand,
+                         today: InventoryDay) async throws -> HouseholdProjection { fixed }
+
+    func updateItem(_ command: UpdateItemCommand,
+                    today: InventoryDay) async throws -> HouseholdProjection { fixed }
+
+    func consumeItem(_ command: ConsumeItemCommand,
+                     today: InventoryDay) async throws -> HouseholdProjection { fixed }
+
+    func deleteItem(_ command: DeleteItemCommand,
+                    today: InventoryDay) async throws -> HouseholdProjection { fixed }
+
+    func clearActiveHousehold(_ command: ClearHouseholdCommand,
+                              today: InventoryDay) async throws -> HouseholdProjection {
+        fixed
+    }
+
+    func renameOwnedHousehold(_ command: RenameHouseholdCommand) async throws -> HouseholdSnapshot {
+        throw InventoryRepositoryError.householdNotOwned
+    }
 }
 #endif

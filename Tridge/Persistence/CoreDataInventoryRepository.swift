@@ -16,6 +16,14 @@ enum InventoryRepositoryError: Error, Equatable {
     /// The Household's causal frontier could not be read, so no purchase root
     /// could be stamped with a context a concurrent Clear All could judge.
     case unreadableFrontier
+    /// The logical item a stale sheet addressed is not current any more: it was
+    /// deleted, consumed to zero, or retired by a Clear All. The command wrote
+    /// nothing, and the UI offers Add as New rather than reviving a closed
+    /// batch.
+    case itemUnavailable
+    /// A command only a Household owner may run — rename, private delete —
+    /// addressed a Household that arrived through someone else's share.
+    case householdNotOwned
     case saveFailed(diagnosticID: String)
 }
 
@@ -54,6 +62,29 @@ protocol InventoryRepository {
     /// cannot leave half a receipt in the fridge.
     func addReviewedRows(_ command: AddReviewedRowsCommand,
                          today: InventoryDay) async throws -> HouseholdProjection
+
+    /// Commits an Item Detail draft: quantity as an immutable adjustment, and
+    /// art/storage/expiry onto the group's canonical member. There is no
+    /// saved-name update (ADR 0005).
+    func updateItem(_ command: UpdateItemCommand,
+                    today: InventoryDay) async throws -> HouseholdProjection
+
+    /// Eats or tosses one unit, appended to the group's lowest-id member.
+    func consumeItem(_ command: ConsumeItemCommand,
+                     today: InventoryDay) async throws -> HouseholdProjection
+
+    /// Closes one logical item by fanning a single terminal marker out to every
+    /// physical member currently linked to it.
+    func deleteItem(_ command: DeleteItemCommand,
+                    today: InventoryDay) async throws -> HouseholdProjection
+
+    /// Clear All: one causal barrier for the whole Household and no item-level
+    /// stock event (ADR 0009).
+    func clearActiveHousehold(_ command: ClearHouseholdCommand,
+                              today: InventoryDay) async throws -> HouseholdProjection
+
+    /// Renames an owned Household. Received Households are refused.
+    func renameOwnedHousehold(_ command: RenameHouseholdCommand) async throws -> HouseholdSnapshot
 }
 
 /// The Core Data implementation: resolve the Household's store, check
@@ -84,6 +115,84 @@ final class CoreDataInventoryRepository: InventoryRepository {
             let household = try self.persistence.resolveHousehold(householdID,
                                                                  in: context).household
             return HouseholdProjector.project(household, today: today)
+        }
+    }
+
+    /// Everything a command body needs, resolved on the writer's own queue.
+    ///
+    /// Nothing here escapes the `perform` block it is handed to: managed
+    /// objects and contexts stay confined, and only the value the body returns
+    /// crosses back out.
+    struct CommandContext {
+        let household: HouseholdRecord
+        let store: NSPersistentStore
+        let context: NSManagedObjectContext
+        let persistence: PersistenceController
+        let capabilities: any StoreCapabilityChecking
+
+        /// Whether CloudKit currently permits updating an already-exported
+        /// record. Inserting into a zone is a different permission, so this is
+        /// asked only about records the command did not just create.
+        func canUpdate(_ object: NSManagedObject) -> Bool {
+            capabilities.canUpdateRecord(forManagedObjectWith: object.objectID)
+        }
+
+        /// A Household's store is the authority on ownership.
+        var ownership: HouseholdOwnership? {
+            persistence.scope(of: store) == .privateDatabase ? .owned : .received
+        }
+
+        /// The Household's projection as of now, inside this transaction.
+        func project(today: InventoryDay) -> HouseholdProjection {
+            HouseholdProjector.project(household, today: today)
+        }
+
+        /// Routes newly inserted objects to this Household's store and refuses
+        /// any relationship that would cross a store boundary, then saves.
+        func save(_ inserted: [NSManagedObject], stage: String) throws {
+            try StoreRouting.assign(inserted, to: store, in: context)
+            try StoreRouting.validate(inserted + [household as NSManagedObject], belongTo: store)
+            do {
+                try context.save()
+            } catch {
+                let details = error as NSError
+                throw InventoryRepositoryError.saveFailed(
+                    diagnosticID: "\(stage).save.\(details.domain).\(details.code)")
+            }
+        }
+    }
+
+    /// Runs one command's whole transaction.
+    ///
+    /// Every command shares this shape: serialized against every other command
+    /// (see `CommandTransactions`), on its own writer context opened *inside*
+    /// that turn so its first fetch already sees the previous command's save,
+    /// with the Household resolved from its store and CloudKit capability
+    /// checked immediately before anything is mutated.
+    ///
+    /// The body saves; the caller decides what to return.
+    func write<T: Sendable>(
+        to householdID: UUID,
+        _ body: @escaping @Sendable (CommandContext) throws -> T
+    ) async throws -> T {
+        let persistence = self.persistence
+        let capabilities = self.capabilities
+
+        return try await transactions.run {
+            let context = persistence.newWriterContext()
+            return try await context.perform {
+                let (household, store) = try persistence.resolveHousehold(householdID,
+                                                                         in: context)
+                // Immediately before mutation, per the sharing contract: a stale
+                // capability answer would let the UI report a save CloudKit will
+                // reject.
+                guard capabilities.canModifyManagedObjects(in: store) else {
+                    throw InventoryRepositoryError.permissionDenied
+                }
+                return try body(CommandContext(household: household, store: store,
+                                               context: context, persistence: persistence,
+                                               capabilities: capabilities))
+            }
         }
     }
 

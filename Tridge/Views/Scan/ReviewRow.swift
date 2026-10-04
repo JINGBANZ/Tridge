@@ -58,9 +58,7 @@ struct ReviewRow: View {
             Button {
                 showDatePicker = true
             } label: {
-                Text(item.needsFix && !item.userEditedDate
-                     ? "Guess"
-                     : item.expiryDate.formatted(.dateTime.month(.abbreviated).day()))
+                Text(item.needsFix && !item.userEditedDate ? "Guess" : expiryLabel)
                     .font(AppTheme.chipFont)
                     .foregroundStyle(item.needsFix && !item.userEditedDate
                                      ? AppTheme.soon : AppTheme.brandGreen)
@@ -73,11 +71,7 @@ struct ReviewRow: View {
             }
             .buttonStyle(.borderless)
             .popover(isPresented: $showDatePicker) {
-                DatePicker("Expires",
-                           selection: Binding(
-                               get: { item.expiryDate },
-                               set: { item.expiryDate = $0; item.userEditedDate = true }),
-                           displayedComponents: .date)
+                DatePicker("Expires", selection: expiryBinding, displayedComponents: .date)
                     .datePickerStyle(.graphical)
                     .frame(minWidth: 320)
                     .padding(8)
@@ -87,16 +81,35 @@ struct ReviewRow: View {
         .padding(.vertical, 2)
     }
 
-    /// Typed quantities are kept in the stepper's old 1...99 bounds.
-    private var quantityBinding: Binding<Int> {
+    /// A quantity is any positive whole number the store can represent
+    /// (ADR 0004); a nonpositive or unparsable entry is simply not committed
+    /// rather than clamped to something the user never chose.
+    private var quantityBinding: Binding<Int64> {
         Binding(get: { item.quantity },
-                set: { item.quantity = min(max($0, 1), 99) })
+                set: { if $0 > 0 { item.quantity = $0 } })
     }
 
-    /// The LLM's storage guess; the menu reassigns it before saving.
+    private var expiryLabel: String {
+        let date = item.expiryDay.startOfDay(in: .current) ?? Date()
+        return date.formatted(.dateTime.month(.abbreviated).day())
+    }
+
+    /// A date the user picks here is an explicit edit: it saves as `.userSet`
+    /// and is never overwritten by a later model guess (ADR 0011).
+    private var expiryBinding: Binding<Date> {
+        Binding(get: { item.expiryDay.startOfDay(in: .current) ?? Date() },
+                set: { date in
+                    guard let day = InventoryDay(date: date, calendar: .current) else { return }
+                    item.expiryDay = day
+                    item.explicitFields.insert(.expiryDay)
+                })
+    }
+
+    /// The LLM's storage guess; the menu reassigns it before saving, and a
+    /// reassignment counts as a deliberate edit.
     private var storageChip: some View {
         Menu {
-            Picker("Storage", selection: $item.storage) {
+            Picker("Storage", selection: storageBinding) {
                 ForEach(StorageLocation.allCases, id: \.self) { location in
                     Text(location.label).tag(location)
                 }
@@ -111,5 +124,13 @@ struct ReviewRow: View {
         }
         .buttonStyle(.borderless)
         .accessibilityLabel("Storage \(item.storage.label)")
+    }
+
+    private var storageBinding: Binding<StorageLocation> {
+        Binding(get: { item.storage },
+                set: {
+                    item.storage = $0
+                    item.explicitFields.insert(.storage)
+                })
     }
 }

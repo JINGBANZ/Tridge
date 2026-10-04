@@ -115,18 +115,21 @@ extension PersistenceController {
     ///
     /// Ownership comes from the store the record lives in, which is the only
     /// authority the contract accepts — an optional participant field is not.
+    ///
+    /// Share status is deliberately *not* answered here. Share metadata does
+    /// not appear in persistent history, so it is refreshed on its own schedule
+    /// by `HouseholdSharing`; every snapshot leaves here unshared and the
+    /// coordinator overlays what the container currently reports.
     func householdSnapshots() -> (valid: [HouseholdSnapshot], issues: [RecordIntegrityIssue]) {
         let request = HouseholdRecord.fetchRequest()
         guard let records = try? viewContext.fetch(request) else { return ([], []) }
 
-        let shared = sharedRecordIDs(among: records)
         var valid: [HouseholdSnapshot] = []
         var issues: [RecordIntegrityIssue] = []
         for record in records {
             guard let ownership = ownership(of: record) else { continue }
             do {
-                valid.append(try record.snapshot(ownership: ownership,
-                                                 isShared: shared.contains(record.objectID)))
+                valid.append(try record.snapshot(ownership: ownership, isShared: false))
             } catch let issue as RecordIntegrityIssue {
                 issues.append(issue)
             } catch {
@@ -135,14 +138,12 @@ extension PersistenceController {
         }
         return (valid, issues)
     }
+}
 
-    /// Share status comes from the container's own share records. A store with
-    /// no CloudKit mirroring — a test stack, or one whose lookup failed — has
-    /// no shares to report, which is the same answer as "not shared".
-    private func sharedRecordIDs(among records: [HouseholdRecord]) -> Set<NSManagedObjectID> {
-        guard !records.isEmpty,
-              let shares = try? container.fetchShares(matching: records.map(\.objectID))
-        else { return [] }
-        return Set(shares.keys)
+extension HouseholdSnapshot {
+    /// The same Household with its current share status applied.
+    func withShareState(isShared: Bool) -> HouseholdSnapshot {
+        HouseholdSnapshot(id: id, name: name, ownership: ownership, createdAt: createdAt,
+                          isShared: isShared)
     }
 }

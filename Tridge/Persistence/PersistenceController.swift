@@ -132,6 +132,29 @@ final class PersistenceController {
         }
     }
 
+#if DEBUG
+    /// The one-time development-schema helper.
+    ///
+    /// `initializeCloudKitSchema` is never called on an ordinary launch: it
+    /// creates record types in the CloudKit **development** environment and is
+    /// meant to be run deliberately, once, before the two-account acceptance
+    /// pass. It exists only in Debug builds and only behind this argument, so
+    /// there is no path to it from a Release build at all
+    /// (wiki/household-sharing.md → "Implementation sequence").
+    ///
+    /// Run it from Xcode with the `-initializeCloudKitSchema` launch argument,
+    /// then remove the argument again.
+    static let schemaInitializationArgument = "-initializeCloudKitSchema"
+
+    static var isDevelopmentSchemaInitializationRequested: Bool {
+        ProcessInfo.processInfo.arguments.contains(schemaInitializationArgument)
+    }
+
+    func initializeDevelopmentSchema() throws {
+        _ = try container.initializeCloudKitSchema(options: [])
+    }
+#endif
+
     /// Releases both stores so a retry — or the next account — can open its own.
     /// The files stay on disk: an account transition never deletes either
     /// account's directory.

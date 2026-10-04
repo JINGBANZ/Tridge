@@ -116,6 +116,8 @@ enum AppTheme {
     static let settingsIconChipSize: CGFloat = 30
     static let settingsIconChipRadius: CGFloat = 8
     static let settingsRowIconGap: CGFloat = 12
+    /// The Household screen's fridge rows: name over its ownership line.
+    static let householdRowTitleGap: CGFloat = 2
 
     // MARK: Type
 

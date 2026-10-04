@@ -1,8 +1,12 @@
 import SwiftUI
-import SwiftData
 import PhotosUI
 
 /// Owns the camera → LLM → review pipeline for one receipt scan.
+///
+/// The draft it holds is the only place raw receipt-line text ever lives: it is
+/// shown in Review so the user can check a name against the line it came from,
+/// and it is dropped at confirmation. Nothing derived from a receipt image is
+/// persisted or synchronized.
 @Observable @MainActor
 final class ScanFlowModel {
     enum Phase: Equatable {
@@ -18,35 +22,47 @@ final class ScanFlowModel {
         case automatic, camera, photoLibrary
     }
 
-    /// One editable row in the review sheet.
+    /// One editable line in the review sheet.
     struct ReviewItem: Identifiable {
-        let id = UUID()
+        /// Also the preallocated purchase-root id, so a retry after a failed
+        /// confirm writes the same row rather than a second copy.
+        let id: UUID
+        let stockChangeID: UUID
         var itemID: ItemID
         var name: String
         var receiptText: String?
-        var quantity: Int
-        var expiryDate: Date
+        var quantity: Int64
+        var purchaseDay: InventoryDay
+        var expiryDay: InventoryDay
         /// The LLM's guess (fridge, freezer, or pantry), editable via the
         /// row's chip.
         var storage: StorageLocation
-        /// Set when the user touches the date chip; such dates save as
-        /// `.userSet` and are never overwritten by later LLM guesses.
-        var userEditedDate = false
+        /// What the user changed on purpose. A model guess is never in here, so
+        /// it cannot overwrite metadata an existing same-name item already
+        /// established (ADR 0011).
+        var explicitFields: Set<ExplicitMetadataField> = []
 
         /// The LLM couldn't identify this line — flagged amber for fixing.
         var needsFix: Bool { itemID == .unknown }
         var emoji: String { itemID.emoji }
         var foodCategory: FoodCategory { itemID.foodCategory }
+        var userEditedDate: Bool { explicitFields.contains(.expiryDay) }
     }
 
     var phase: Phase = .idle
-    /// The purchase date is the day the receipt was photographed — it is not
+    /// The purchase day is the day the receipt was photographed — it is not
     /// read off the receipt.
-    var reviewPurchaseDate = Date()
+    var reviewPurchaseDay = InventoryDay.today()
     var reviewItems: [ReviewItem] = []
+    /// True while the confirmation is saving, so Confirm cannot be tapped twice.
+    private(set) var isSaving = false
 
     /// Kept so a failed LLM call can be retried without re-photographing.
     private var pendingImage: UIImage?
+    /// Allocated on the first confirm and reused by a retry: a replayed command
+    /// has to produce byte-identical events or the repository reads it as a
+    /// conflicting payload.
+    private var confirmInstant: Date?
 
     func startScan(from source: Source = .automatic) {
         switch source {
@@ -115,6 +131,8 @@ final class ScanFlowModel {
         phase = .idle
         pendingImage = nil
         reviewItems = []
+        confirmInstant = nil
+        isSaving = false
     }
 
     private func process(_ image: UIImage) {
@@ -131,7 +149,7 @@ final class ScanFlowModel {
                 AppLog.scan.info("Scanning \(Int(image.size.width))×\(Int(image.size.height)) image, \(jpeg.count / 1024) KB JPEG")
                 let receipt = try await service.parseReceipt(jpegData: jpeg)
                 AppLog.scan.info("Review ready: \(receipt.items.count) items")
-                load(receipt, capturedOn: Date())
+                load(receipt, purchasedOn: InventoryDay.today())
                 phase = .review
             } catch {
                 let message = (error as? LLMError)?.errorDescription
@@ -143,81 +161,63 @@ final class ScanFlowModel {
         }
     }
 
-    func load(_ receipt: ParsedReceipt, capturedOn purchase: Date) {
-        reviewPurchaseDate = purchase
+    func load(_ receipt: ParsedReceipt, purchasedOn purchaseDay: InventoryDay) {
+        reviewPurchaseDay = purchaseDay
+        confirmInstant = nil
         // Rows naming the same item ("Milk" twice on one receipt) coalesce
         // into one review row with summed quantity, so the review count and
-        // the merge planner both see one row per item.
+        // the purchase planner both see one row per item.
         var rows: [ReviewItem] = []
         var indexByKey: [String: Int] = [:]
         for parsed in receipt.items {
             let key = NameKey.normalize(parsed.name)
             if !key.isEmpty, let index = indexByKey[key] {
-                rows[index].quantity = min(rows[index].quantity + parsed.quantity,
-                                           MergePlanner.maxQuantity)
+                let (sum, overflowed) = rows[index].quantity
+                    .addingReportingOverflow(Int64(parsed.quantity))
+                if !overflowed { rows[index].quantity = sum }
                 continue
             }
             indexByKey[key] = rows.count
-            rows.append(ReviewItem(
-                itemID: parsed.id,
-                name: parsed.name,
-                receiptText: parsed.receiptText,
-                quantity: parsed.quantity,
-                expiryDate: Calendar.current.date(byAdding: .day, value: parsed.shelfLifeDays,
-                                                  to: purchase) ?? purchase,
-                storage: parsed.storage))
+            // Built through the command's own initializer so the shelf-life
+            // clamp lives in exactly one place.
+            let seed = PurchaseDraft(reviewing: parsed, itemID: UUID(), stockChangeID: UUID(),
+                                     purchaseDay: purchaseDay)
+            rows.append(ReviewItem(id: seed.itemID, stockChangeID: seed.stockChangeID,
+                                   itemID: parsed.id, name: seed.name,
+                                   receiptText: parsed.receiptText, quantity: seed.quantity,
+                                   purchaseDay: purchaseDay, expiryDay: seed.expiryDay,
+                                   storage: seed.storage))
         }
         reviewItems = rows
     }
 
-    /// Saves the reviewed rows, merging each into a matching active item
-    /// where one exists (issue #26) and inserting the rest, then schedules
-    /// notifications for the genuinely new items and ends the flow.
-    func confirm(into context: ModelContext, notificationHour: Int) {
-        let active = (try? context.fetch(FetchDescriptor<FridgeItem>(
-            predicate: #Predicate { $0.statusRaw == "active" }))) ?? []
-        // The planner sequences the whole save — including review-time
-        // renames that make two rows collide (they stack into one insert).
-        let plans = MergePlanner.plan(rows: reviewItems.map { ($0.name, $0.quantity) },
-                                      existing: active.map(\.mergeCandidate))
-        var insertedByRow: [Int: FridgeItem] = [:]
-        var inserted: [FridgeItem] = []
+    /// Confirms the whole receipt in one atomic save.
+    ///
+    /// Every row becomes a fresh frontier-stamped purchase root; rows whose name
+    /// matches an item already in the fridge project as one logical row
+    /// immediately, and the reconciler makes that link permanent. Raw receipt
+    /// text stays here and is discarded with the draft.
+    func confirm(into session: HouseholdSession) {
+        guard !reviewItems.isEmpty, !isSaving else { return }
+        let occurredAt = confirmInstant ?? Date()
+        confirmInstant = occurredAt
+        let drafts = reviewItems.map { row in
+            PurchaseDraft(itemID: row.id, stockChangeID: row.stockChangeID, name: row.name,
+                          quantity: row.quantity, artKey: row.itemID.rawValue,
+                          storage: row.storage, purchaseDay: row.purchaseDay,
+                          expiryDay: row.expiryDay,
+                          expirySource: row.userEditedDate ? .userSet : .llmEstimate,
+                          explicitMetadataFields: row.explicitFields,
+                          occurredAt: occurredAt)
+        }
 
-        for (index, row) in reviewItems.enumerated() {
-            switch plans[index] {
-            case .merge(let target, let resultingQuantity):
-                let item: FridgeItem? = switch target {
-                case .existing(let id): active.first { $0.id == id }
-                case .insertedRow(let earlier): insertedByRow[earlier]
-                }
-                guard let item else { continue }
-                // Quantity grows; the existing expiry (and its source) always
-                // wins — a scan never overwrites a date already in the fridge.
-                item.quantity = resultingQuantity
-                if let receiptText = row.receiptText { item.receiptText = receiptText }
-            case .insert:
-                let item = FridgeItem(
-                    name: row.name,
-                    receiptText: row.receiptText,
-                    artKey: row.itemID.rawValue,
-                    quantity: row.quantity,
-                    storage: row.storage,
-                    purchaseDate: reviewPurchaseDate,
-                    expiryDate: row.expiryDate,
-                    expirySource: row.userEditedDate ? .userSet : .llmEstimate)
-                context.insert(item)
-                insertedByRow[index] = item
-                inserted.append(item)
-            }
-        }
-        Haptics.success()
+        isSaving = true
         Task {
-            // Permission is requested on first successful add, not at launch.
-            await NotificationService.requestPermissionIfNeeded()
-            for item in inserted {
-                NotificationService.schedule(for: item, hour: notificationHour)
-            }
+            let saved = await session.addReviewedRows(drafts)
+            isSaving = false
+            guard saved else { return }
+            Haptics.success()
+            reset()
         }
-        reset()
     }
 }

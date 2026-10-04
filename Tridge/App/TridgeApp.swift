@@ -1,44 +1,56 @@
 import SwiftUI
-import SwiftData
 
 @main
 struct TridgeApp: App {
-    private let container: ModelContainer
+    /// Present only to add CloudKit's invitation callbacks to SwiftUI's scene.
+    /// It creates no window; SwiftUI still owns the interface.
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+
+    /// One coordinator for the process: it owns account validation, the two
+    /// Core Data stores, and the Active Household's snapshots. Nothing in the
+    /// app runtime opens a store or a model context of its own.
+    @State private var coordinator: AccountSessionCoordinator
 
     init() {
-        do {
-            // The sharing build added the iCloud entitlement, and SwiftData's
-            // default `.automatic` would take that as permission to mirror this
-            // store — receipt text included — into the container the Core Data
-            // sharing stack owns. It stays local: the archive is only ever read
-            // by the one-time upgrade (wiki/household-sharing.md → "Upgrade from
-            // the shipping build"). Everything else about the configuration is
-            // the default, so the store URL is unchanged.
-            let configuration = ModelConfiguration(schema: Schema([FridgeItem.self]),
-                                                   cloudKitDatabase: .none)
-            container = try ModelContainer(for: FridgeItem.self, configurations: configuration)
-        } catch {
-            fatalError("Could not create the model container: \(error)")
+        // The monitor is created first and handed over unstarted: the
+        // coordinator installs its observation *before* the stores load, so a
+        // setup or import that runs during the load is buffered rather than
+        // lost (wiki/household-sharing.md → "Adopt, do not reinvent").
+        _coordinator = State(initialValue: Self.makeCoordinator(StoreScopedSyncMonitor()))
+    }
+
+    private static func makeCoordinator(
+        _ syncMonitor: any SyncStatusProviding
+    ) -> AccountSessionCoordinator {
+#if DEBUG
+        // A Simulator build with no iCloud entitlement cannot construct a
+        // CloudKit container at all, so this is the only way to see the app
+        // before `iCloud.com.tridge.app` exists.
+        if LocalOnlyLaunch.isRequested {
+            return LocalOnlyLaunch.coordinator()
         }
-        Self.backfillNormalizedNames(in: container.mainContext)
+#endif
+        return AccountSessionCoordinator(syncMonitor: syncMonitor)
     }
 
     var body: some Scene {
         WindowGroup {
-            HomeView()
+            RootView(coordinator: coordinator)
         }
-        .modelContainer(container)
     }
+}
 
-    /// Rows created before `normalizedName` existed carry the schema default
-    /// "" — recompute from `name` once. Idempotent, becomes a no-op.
-    private static func backfillNormalizedNames(in context: ModelContext) {
-        let stale = FetchDescriptor<FridgeItem>(
-            predicate: #Predicate { $0.normalizedName == "" && $0.name != "" })
-        guard let items = try? context.fetch(stale), !items.isEmpty else { return }
-        for item in items {
-            item.setName(item.name)
-        }
-        AppLog.scan.info("Backfilled normalizedName on \(items.count) items")
+extension ProcessInfo {
+    /// Whether this process was launched to host an XCTest bundle.
+    ///
+    /// `TridgeTests` is hosted by this app, so running it launches `TridgeApp`.
+    /// The suites build their own account sessions against local-only stacks,
+    /// and the host must not open one of its own: an unsigned simulator build
+    /// carries no iCloud entitlement, and `CKContainer` will not be constructed
+    /// without one.
+    var isHostingTests: Bool {
+        environment["XCTestConfigurationFilePath"] != nil
+            || environment["XCTestBundlePath"] != nil
+            || environment["XCTestSessionIdentifier"] != nil
     }
 }

@@ -70,7 +70,8 @@ final class InventoryCommandsTests: XCTestCase {
 
     func testAMetadataOnlyUpdateNeedsAtLeastOneChange() throws {
         let empty = UpdateItemCommand(householdID: household, commandID: UUID(), itemID: UUID(),
-                                      stockChangeID: UUID(), targetQuantity: nil, artKey: nil,
+                                      stockChangeID: UUID(), targetQuantity: nil,
+                                      baselineQuantity: nil, artKey: nil,
                                       storage: nil, expiryDay: nil)
         XCTAssertThrowsError(try empty.validate()) {
             XCTAssertEqual($0 as? InventoryCommandError, .noChanges)
@@ -78,13 +79,15 @@ final class InventoryCommandsTests: XCTestCase {
         XCTAssertFalse(empty.needsStockEvent)
 
         let quantity = UpdateItemCommand(householdID: household, commandID: UUID(), itemID: UUID(),
-                                         stockChangeID: UUID(), targetQuantity: 4, artKey: nil,
+                                         stockChangeID: UUID(), targetQuantity: 4,
+                                         baselineQuantity: 1, artKey: nil,
                                          storage: nil, expiryDay: nil)
         XCTAssertNoThrow(try quantity.validate())
         XCTAssertTrue(quantity.needsStockEvent)
 
         let zeroed = UpdateItemCommand(householdID: household, commandID: UUID(), itemID: UUID(),
-                                       stockChangeID: UUID(), targetQuantity: 0, artKey: nil,
+                                       stockChangeID: UUID(), targetQuantity: 0,
+                                       baselineQuantity: 1, artKey: nil,
                                        storage: nil, expiryDay: nil)
         XCTAssertThrowsError(try zeroed.validate()) {
             XCTAssertEqual($0 as? InventoryCommandError, .quantityNotPositive)
@@ -92,13 +95,23 @@ final class InventoryCommandsTests: XCTestCase {
     }
 
     func testQuantityFieldCommitsTheDifferenceFromWhatTheEditorCouldSee() {
-        let update = UpdateItemCommand(householdID: household, commandID: UUID(), itemID: UUID(),
-                                       stockChangeID: UUID(), targetQuantity: 5, artKey: nil,
-                                       storage: nil, expiryDay: nil)
-        XCTAssertEqual(update.adjustment(fromLocalProjection: 2)?.delta, 3)
-        XCTAssertEqual(update.adjustment(fromLocalProjection: 9)?.delta, -4)
-        XCTAssertEqual(update.adjustment(fromLocalProjection: 9)?.reason, .adjusted)
-        XCTAssertNil(update.adjustment(fromLocalProjection: 5), "no change commits no operation")
+        func update(target: Int64, baseline: Int64) -> UpdateItemCommand {
+            UpdateItemCommand(householdID: household, commandID: UUID(), itemID: UUID(),
+                              stockChangeID: UUID(), targetQuantity: target,
+                              baselineQuantity: baseline, artKey: nil,
+                              storage: nil, expiryDay: nil)
+        }
+        XCTAssertEqual(update(target: 5, baseline: 2).adjustment?.delta, 3)
+        XCTAssertEqual(update(target: 5, baseline: 9).adjustment?.delta, -4)
+        XCTAssertEqual(update(target: 5, baseline: 9).adjustment?.reason, .adjusted)
+        XCTAssertNil(update(target: 5, baseline: 5).adjustment,
+                     "no change commits no operation")
+
+        // The baseline is the editor's, so a peer's operation that landed while
+        // the sheet was open composes with the user's intent rather than being
+        // cancelled by an absolute target.
+        XCTAssertEqual(update(target: 6, baseline: 5).adjustment?.delta, 1,
+                       "one more than the five the sheet showed, whatever the store now holds")
     }
 
     func testEventPayloadsAreStableSoARetryIsRecognisedAsTheSameOperation() {
@@ -116,10 +129,10 @@ final class InventoryCommandsTests: XCTestCase {
         XCTAssertEqual(delete.marker, delete.marker)
 
         let update = UpdateItemCommand(householdID: household, commandID: UUID(), itemID: UUID(),
-                                       stockChangeID: UUID(), targetQuantity: 4, artKey: nil,
+                                       stockChangeID: UUID(), targetQuantity: 4,
+                                       baselineQuantity: 1, artKey: nil,
                                        storage: nil, expiryDay: nil)
-        XCTAssertEqual(update.adjustment(fromLocalProjection: 1),
-                       update.adjustment(fromLocalProjection: 1))
+        XCTAssertEqual(update.adjustment, update.adjustment)
 
         // Replaying the retained command reduces exactly once.
         XCTAssertEqual(StockReducer.reduce([purchase.acquisition, purchase.acquisition]).quantity,
@@ -280,6 +293,27 @@ final class PurchasePlannerTests: XCTestCase {
         XCTAssertNil(PurchasePlanner.match(name: "Butter", in: items, today: today),
                      "a fresh buy of something expired is a new batch")
         XCTAssertNil(PurchasePlanner.match(name: "   ", in: items, today: today))
+    }
+
+    /// The identity key is diacritic-blind, so a receipt that prints
+    /// "Jalapeño" groups with a hand-typed "Jalapeno".
+    func testMatchingIsDiacriticInsensitive() {
+        let items = [existing(name: "Jalapeño Peppers")]
+
+        XCTAssertEqual(
+            PurchasePlanner.match(name: "jalapeno peppers", in: items, today: today)?.name,
+            "Jalapeño Peppers")
+    }
+
+    /// A row with no usable name has no identity to group by, so two of them
+    /// stay separate rather than collapsing into one nameless item.
+    func testUnnamedRowsNeverStackOnEachOther() throws {
+        let plans = try PurchasePlanner.plan(rows: [draft(name: "  "), draft(name: "")],
+                                             in: [], today: today)
+
+        XCTAssertEqual(plans.count, 2)
+        XCTAssertTrue(plans.allSatisfy { $0.canonicalEdit == nil })
+        XCTAssertEqual(plans[1].rootMetadata.name, "")
     }
 
     func testTheMostRecentPurchaseWinsAmongSeveralMatches() {

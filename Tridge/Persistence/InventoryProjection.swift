@@ -11,6 +11,10 @@ struct HouseholdProjection: Sendable {
     let householdID: UUID
     /// Visible logical items, soonest expiry first.
     let items: [InventoryItemSnapshot]
+    /// Every current component, visible or not — what a command resolves
+    /// against, since a deleted or zero group is absent from `items` but still
+    /// has to be addressable by a retry.
+    let groups: [ItemGroupSnapshot]
     /// Every validated physical root, including superseded, zero, and deleted
     /// ones. Purchases are never removed, so this is the complete history the
     /// quick-fill chips and remembered art are ranked from.
@@ -21,9 +25,19 @@ struct HouseholdProjection: Sendable {
     let issues: [RecordIntegrityIssue]
     let stockIssues: [StockIntegrityIssue]
 
+    /// The component a command addresses, by logical id or any member id.
+    func group(addressing itemID: UUID) -> ItemGroupSnapshot? {
+        groups.first { $0.id == itemID || $0.memberIDs.contains(itemID) }
+    }
+
+    /// The visible row a command addresses, if it is still on Home.
+    func item(addressing itemID: UUID) -> InventoryItemSnapshot? {
+        items.first { $0.id == itemID || $0.memberIDs.contains(itemID) }
+    }
+
     static func empty(householdID: UUID,
                       issues: [RecordIntegrityIssue] = []) -> HouseholdProjection {
-        HouseholdProjection(householdID: householdID, items: [], physicalItems: [],
+        HouseholdProjection(householdID: householdID, items: [], groups: [], physicalItems: [],
                             inferredClaims: [], issues: issues, stockIssues: [])
     }
 }
@@ -88,6 +102,7 @@ enum HouseholdProjector {
         return HouseholdProjection(
             householdID: householdID,
             items: projection.items,
+            groups: projection.groups,
             physicalItems: physicalItems.sorted { UUIDOrder.isBefore($0.id, $1.id) },
             inferredClaims: projection.inferredClaims,
             issues: (issues + projection.issues)

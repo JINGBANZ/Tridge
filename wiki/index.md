@@ -31,6 +31,11 @@
   **plain-language visual map** of the proposed sharing architecture: the system graph, new module
   responsibilities, everyday examples, implementation path, and reviewed safety boundaries. The
   normative contract remains [household-sharing.md](./household-sharing.md).
+- [release-handoff.md](./release-handoff.md) — the **external steps** the sharing release still
+  needs from a human: the Apple CloudKit container and capabilities, the one-time development-schema
+  run, two iCloud accounts, the two-account acceptance matrix, schema promotion, and the exact
+  proposed privacy-policy and App Store disclosure copy. Nothing on it can be done by a coding
+  agent.
 - [household-sharing.md](./household-sharing.md) — the reviewed **household sharing architecture**:
   exact Apple capabilities/schema/store routing, account isolation, invitation and lifecycle UI,
   repository commands, multi-writer stock events, lossless exact-name item convergence, the reviewed
@@ -69,6 +74,8 @@
   — why individual member management and its system UI are deferred.
 - [adr/0013-require-manual-selection-after-invitation-acceptance.md](./adr/0013-require-manual-selection-after-invitation-acceptance.md)
   — why accepted Households appear in the picker without auto-selection state.
+- [adr/0014-state-grouping-eligibility-once-in-purchaseplanner.md](./adr/0014-state-grouping-eligibility-once-in-purchaseplanner.md)
+  — why the exact-name grouping rule has exactly one statement, against projected snapshots.
 - [decisions.md](./decisions.md) — the legacy decision log for choices recorded before numbered
   ADRs; read it for prior rationale but record new decisions under `adr/`.
 

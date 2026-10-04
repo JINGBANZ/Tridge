@@ -107,8 +107,8 @@ final class HouseholdSessionTests: XCTestCase {
     }
 
     private func projection(_ items: [InventoryItemSnapshot]) -> HouseholdProjection {
-        HouseholdProjection(householdID: householdID, items: items, physicalItems: [],
-                            inferredClaims: [], issues: [], stockIssues: [])
+        HouseholdProjection(householdID: householdID, items: items, groups: [],
+                            physicalItems: [], inferredClaims: [], issues: [], stockIssues: [])
     }
 
     private func storedClaimCount(in householdID: UUID? = nil) throws -> Int {
